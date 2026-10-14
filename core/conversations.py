@@ -271,3 +271,56 @@ def update_conversation_status(conv_id: str, status: str, db=None) -> None:
     if status == "closed":
         updates["closedAt"] = firestore.SERVER_TIMESTAMP
     (db or get_db()).collection("conversations").document(conv_id).update(updates)
+
+
+def reset_inactivity(conv_id: str, current_reminders_sent: int, db=None) -> None:
+    """El cliente escribió: reinicia el reloj de inactividad y los recordatorios enviados."""
+    updates = {"lastCustomerMessageAt": firestore.SERVER_TIMESTAMP, "lastTemplateMessageAt": None}
+    if current_reminders_sent > 0:
+        updates["inactivityRemindersSent"] = 0
+    (db or get_db()).collection("conversations").document(conv_id).update(updates)
+
+
+def _conversation_for_outbound(customer_phone: str, bot_phone: str, db):
+    from core.numbers import get_bot_by_phone  # import local: numbers no depende de conversations
+    bot = get_bot_by_phone(bot_phone, db)
+    if not bot:
+        log.warning("outbound sin bot para el número %s", bot_phone)
+        return None
+    conv_id, conv_data, _ = get_or_create_conversation(
+        bot.get("id"), bot.get("organizationId"), customer_phone, bot.get("teamId"),
+        bot.get("whatsappNumberId"), bot_config=bot, db=db,
+    )
+    return conv_id, conv_data
+
+
+def save_agent_outbound(customer_phone: str, bot_phone: str, message_body: str,
+                        media_url: str | None = None, db=None) -> None:
+    """Guarda en la conversación el mensaje que un agente humano mandó desde Salesforce.
+
+    Si la conversación estaba con el bot o esperando agente, pasa a "with_agent": un humano ya
+    está hablando con el cliente.
+    """
+    try:
+        found = _conversation_for_outbound(customer_phone, bot_phone, db)
+        if not found:
+            return
+        conv_id, conv_data = found
+        add_message(conv_id, "agent", message_body, media_url=media_url, db=db)
+        if conv_data.get("status", "bot") in ("bot", "waiting_agent"):
+            update_conversation_status(conv_id, "with_agent", db=db)
+    except Exception as e:
+        log.error("Error guardando el outbound de agente: %s", e)
+
+
+def save_template_outbound(customer_phone: str, bot_phone: str, message_body: str, db=None) -> None:
+    """Guarda un template outbound masivo de Salesforce (recordatorios, campañas). Siempre queda con_agent."""
+    try:
+        found = _conversation_for_outbound(customer_phone, bot_phone, db)
+        if not found:
+            return
+        conv_id, _ = found
+        add_message(conv_id, "agent", message_body, db=db)
+        update_conversation_status(conv_id, "with_agent", db=db)
+    except Exception as e:
+        log.error("Error guardando el template outbound: %s", e)

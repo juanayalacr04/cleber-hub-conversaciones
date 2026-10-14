@@ -1,4 +1,4 @@
-"""Firestore en memoria con la parte de la API que usa el núcleo (consultas, batch, transacciones, subcolecciones)."""
+"""Firestore en memoria con la parte de la API que usa el núcleo (consultas, grupos, batch, transacciones, subcolecciones)."""
 import itertools
 from datetime import datetime, timezone
 
@@ -18,6 +18,8 @@ def _apply(doc: dict, updates: dict) -> None:
             doc.pop(k, None)
         elif isinstance(v, firestore.Increment):
             doc[k] = doc.get(k, 0) + v.value
+        elif isinstance(v, firestore.ArrayUnion):
+            doc[k] = list(doc.get(k) or []) + list(v.values)
         elif v is firestore.SERVER_TIMESTAMP:
             doc[k] = datetime.now(timezone.utc)
         else:
@@ -41,15 +43,17 @@ class FakeDoc:
     def _store(self):
         return self._db.data.setdefault(self._path, {})
 
+    @property
+    def parent(self):
+        return FakeQuery(self._db, self._path)
+
     def get(self, transaction=None):
         return FakeSnapshot(self, self._store.get(self.id))
 
     def set(self, data, merge=False):
-        if merge and self.id in self._store:
-            _apply(self._store[self.id], data)
-        else:
+        if not (merge and self.id in self._store):
             self._store[self.id] = {}
-            _apply(self._store[self.id], data)
+        _apply(self._store[self.id], data)
 
     def update(self, data):
         if self.id not in self._store:
@@ -61,20 +65,31 @@ class FakeDoc:
 
 
 class FakeQuery:
-    def __init__(self, db, path, filters=(), order=None, lim=None):
-        self._db, self._path, self._filters, self._order, self._lim = db, path, tuple(filters), order, lim
+    def __init__(self, db, path, filters=(), order=None, lim=None, group=False):
+        self._db, self._path, self._filters, self._order, self._lim, self._group = db, path, tuple(filters), order, lim, group
+
+    def _derive(self, **kw):
+        args = dict(filters=self._filters, order=self._order, lim=self._lim, group=self._group)
+        args.update(kw)
+        return FakeQuery(self._db, self._path, **args)
+
+    @property
+    def parent(self):
+        """Documento padre de una subcolección (None para una colección de primer nivel)."""
+        parts = self._path.split("/")
+        return FakeDoc(self._db, "/".join(parts[:-2]), parts[-2]) if len(parts) > 1 else None
 
     def document(self, id=None):
         return FakeDoc(self._db, self._path, id or f"auto{next(_ids)}")
 
     def where(self, field, op, value):
-        return FakeQuery(self._db, self._path, self._filters + ((field, op, value),), self._order, self._lim)
+        return self._derive(filters=self._filters + ((field, op, value),))
 
     def order_by(self, field, direction="ASCENDING"):
-        return FakeQuery(self._db, self._path, self._filters, (field, direction), self._lim)
+        return self._derive(order=(field, direction))
 
     def limit(self, n):
-        return FakeQuery(self._db, self._path, self._filters, self._order, n)
+        return self._derive(lim=n)
 
     def _match(self, data):
         for field, op, value in self._filters:
@@ -87,16 +102,21 @@ class FakeQuery:
                 return False
         return True
 
+    def _paths(self):
+        if self._group:
+            return [p for p in self._db.data if p == self._path or p.endswith("/" + self._path)]
+        return [self._path]
+
     def stream(self):
-        rows = [(i, d) for i, d in self._db.data.get(self._path, {}).items() if self._match(d)]
+        rows = [(p, i, d) for p in self._paths() for i, d in self._db.data.get(p, {}).items() if self._match(d)]
         if self._order:
             field, direction = self._order
-            rows.sort(key=lambda r: _key(r[1].get(field)), reverse=direction == firestore.Query.DESCENDING)
+            rows.sort(key=lambda r: _key(r[2].get(field)), reverse=direction == firestore.Query.DESCENDING)
         else:
-            rows.sort(key=lambda r: r[0])
+            rows.sort(key=lambda r: (r[0], r[1]))
         if self._lim is not None:
             rows = rows[: self._lim]
-        return iter(FakeSnapshot(FakeDoc(self._db, self._path, i), d) for i, d in rows)
+        return iter(FakeSnapshot(FakeDoc(self._db, p, i), d) for p, i, d in rows)
 
 
 class FakeBatch:
@@ -130,6 +150,9 @@ class FakeDB:
 
     def collection(self, name):
         return FakeQuery(self, name)
+
+    def collection_group(self, name):
+        return FakeQuery(self, name, group=True)
 
     def batch(self):
         return FakeBatch()

@@ -162,6 +162,30 @@ def auto_assign_agent(org_id: str, conv_id: str, team_id: str | None = None,
     return assigned
 
 
+def block_handoff_out_of_hours(conv_id: str, conv_data: dict, bot: dict, from_number: str, to_number: str,
+                               schedule_config: dict, trigger: str, send, db=None) -> None:
+    """Handoff pedido fuera de horario: avisa al cliente y marca la conversación (tarea 1.20, parte núcleo).
+
+    La conversación sigue en "bot" (responde otros temas), pero `handoffBlockedAt` le dice al cron
+    de inactividad que no mande recordatorios ni escale; `apply_out_of_hours_context` primea al
+    bot en los turnos siguientes. `send(bot, to, from, text)` lo inyecta el canal.
+
+    Lo que cada módulo hace además (p. ej. Ventas deja el Lead con el dueño de BDC) se despacha
+    como el evento `handoff_blocked_out_of_hours` al registro de handlers.
+    """
+    from core.conversations import add_message
+    from core.tools import dispatch
+
+    db = db or get_db()
+    text = build_out_of_hours_message(schedule_config)
+    add_message(conv_id, "bot", text, db=db)
+    send(bot, from_number, to_number, text)
+    if not conv_data.get("handoffBlockedAt"):
+        db.collection("conversations").document(conv_id).update({"handoffBlockedAt": firestore.SERVER_TIMESTAMP})
+        conv_data["handoffBlockedAt"] = True
+    dispatch("handoff_blocked_out_of_hours", conv_data, {"bot": bot, "trigger": trigger})
+
+
 def apply_handoff_status(conv_id: str, team_id: str | None = None, org_id: str | None = None,
                          handoff_reason: str = "keyword", db=None) -> None:
     """Status de la conversación tras un handoff, según el `assignmentMode` del equipo.

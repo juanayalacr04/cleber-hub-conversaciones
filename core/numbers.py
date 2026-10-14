@@ -50,6 +50,28 @@ def get_bot_by_phone(phone_number: str, db=None) -> dict | None:
     return bot
 
 
+def get_bot_by_meta_phone_number_id(meta_phone_number_id: str, db=None) -> dict | None:
+    """Bot que atiende un número de Meta, por su `metaPhoneNumberId`."""
+    db = db or get_db()
+    docs = list(db.collection("whatsappNumbers").where("metaPhoneNumberId", "==", meta_phone_number_id).where("status", "==", "active").limit(1).stream())
+    if not docs:
+        log.info("No hay número de WhatsApp para el Meta Phone Number ID %s", meta_phone_number_id)
+        return None
+    wa_number = docs[0].to_dict()
+    wa_number["id"] = docs[0].id
+    if not wa_number.get("defaultBotId"):
+        log.warning("El número de Meta %s no tiene defaultBotId", meta_phone_number_id)
+        return None
+    bot = get_bot_by_id(wa_number["defaultBotId"], db)
+    if not bot:
+        return None
+    bot.update(
+        provider="meta", whatsappNumberId=wa_number["id"], teamId=wa_number.get("teamId"),
+        metaPhoneNumberId=wa_number.get("metaPhoneNumberId", ""), metaAccessToken=wa_number.get("metaAccessToken", ""),
+    )
+    return bot
+
+
 def clear_bot_cache() -> None:
     _bot_cache.clear()
 
