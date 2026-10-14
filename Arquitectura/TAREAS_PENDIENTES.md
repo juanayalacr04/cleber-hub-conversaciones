@@ -119,19 +119,19 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 ### 1.d Configuración fuera del código — antes de escribir handlers
 
-- [ ] 1.12 Nombres de tools (`Crear_Lead`, `Crear_Cita_Ventas_Salesforce`, …) → `bots/{id}.tools[]`
-- [ ] 1.13 Vocabularios `AI_OUTCOME_ACTIONS` y `BROADCAST_RESPONSE_ACTIONS` → config del bot
-- [ ] 1.14 Nombre del Flow `RRAgenteIACLEBER` → `salesforceConfig`
-- [ ] 1.15 `RecordTypeId` de Lead y Event, owners, owner de BDC → `salesforceConfig`
-- [ ] 1.16 Mapeo situación → `Status` / `Validacion_Prospecto__c` → config del módulo
-- [ ] 1.17 Zona horaria **UTC-6** → `organizations/{id}`
+- [x] 1.12 Nombres de tools (`Crear_Lead`, `Crear_Cita_Ventas_Salesforce`, …) → `bots/{id}.tools[]`
+- [x] 1.13 Vocabularios `AI_OUTCOME_ACTIONS` y `BROADCAST_RESPONSE_ACTIONS` → config del bot
+- [x] 1.14 Nombre del Flow `RRAgenteIACLEBER` → `salesforceConfig`
+- [x] 1.15 `RecordTypeId` de Lead y Event, owners, owner de BDC → `salesforceConfig`
+- [x] 1.16 Mapeo situación → `Status` / `Validacion_Prospecto__c` → config del módulo
+- [x] 1.17 Zona horaria **UTC-6** → `organizations/{id}`
 
 ### 1.e Handlers de módulo
 
-- [ ] 1.18 Las **19 de Ventas** a `modules/ventas.py`, cada una registrada contra el núcleo
+- [x] 1.18 Las **19 de Ventas** a `modules/ventas.py`, cada una registrada contra el núcleo
 - [x] 1.19 ⚠️ Decidir si el **contacto programado** (3 funciones) es de Ventas o genérico — si es genérico, sube a `core/`
-- [ ] 1.20 ⚠️ Separar las dos **mixtas**: `_block_handoff_out_of_hours` (gate core + lead Ventas) y el par de `claim`
-- [ ] 1.21 `modules/servicio.py` — nace prácticamente vacío; verificar que no quede nada mal clasificado
+- [x] 1.20 ⚠️ Separar las dos **mixtas**: `_block_handoff_out_of_hours` (gate core + lead Ventas) y el par de `claim`
+- [x] 1.21 `modules/servicio.py` — nace prácticamente vacío; verificar que no quede nada mal clasificado
 
 ### 1.f Dashboard y despliegue
 
@@ -145,8 +145,8 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 ### Criterio de cierre
 
-- [ ] 1.27 `core/` **sin un solo `if vertical == ...`** y sin importar de `modules/`
-- [ ] 1.28 `cita_agendada` despachando a handlers distintos en Ventas y Servicio
+- [x] 1.27 `core/` **sin un solo `if vertical == ...`** y sin importar de `modules/`
+- [x] 1.28 `cita_agendada` despachando a handlers distintos en Ventas y Servicio
 - [ ] 1.29 Conversación end-to-end por los 3 proveedores
 - [ ] 1.30 Bot `type: "external"` validado contra un stub
 

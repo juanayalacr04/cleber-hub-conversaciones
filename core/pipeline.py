@@ -227,7 +227,9 @@ def _run(t: Turn) -> None:
         t.say(hc.get("waitingMessage") or DEFAULT_WAITING_MESSAGE)
         return
 
-    # 8. Al bot
+    # 8. Al bot. Antes se espera a que el mensaje del cliente y el reinicio de inactividad estén
+    #    escritos: los handlers del turno (p. ej. resetear lastCustomerMessageAt) no deben competir con ellos.
+    t.wait()
     messages = t.messages[-(engine.MAX_HISTORY_MESSAGES * 2):]
     campaign = t.conv_data.get("broadcastContext")
     if not campaign and t.conv_data.get("broadcastId"):

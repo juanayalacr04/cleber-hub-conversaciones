@@ -55,3 +55,18 @@ Una sola conexión para todas las organizaciones, por variables de entorno (`SF_
 - **Handlers de Ventas** (tarea 1.18): crear y actualizar Lead, cita, recontacto, el gate que exige Lead para escalar, el aviso de "primera respuesta". Hoy el pipeline despacha los eventos y no hay quien los atienda.
 - Los handlers de Ventas deben **auto-excluirse** cuando el bot no tiene `salesforceConfig` (un bot de Twilio sin Salesforce no crea Leads). Es la guarda que evita que el gate de Lead bloquee escalamientos que hoy funcionan.
 - Verificar con las dos plataformas en producción los puntos 1, 2 y 8 antes de migrar.
+
+## Cambios adicionales al portar el routing y Ventas
+
+| # | Tema | Antes | Ahora |
+|---|---|---|---|
+| 17 ⚠️ | **Cambio de bot por situación** | Tras cambiar al bot destino se descartaba su respuesta y se enviaba al cliente la del bot de ventas original (parece un fallo: el comentario del código dice lo contrario) | Se envía la respuesta del bot nuevo. Si hay algún flujo que dependa de la conducta anterior, hay que revisarlo |
+| 18 | Vertical al cambiar de bot | `vertical` no existía | Se redenormaliza al cambiar de bot: los tools siguientes despachan al módulo nuevo |
+| 19 | Zona horaria de recordatorios y citas | Offset fijo UTC-6 en el código | `organizations/{id}.settings.timezone` (México por defecto) |
+| 20 | Contacto programado | Parte de Ventas (y solo Meta lo limpiaba) | Genérico, en el núcleo. Lo limpia cualquier respuesta del cliente |
+| 21 | Cancelar_Recordatorio | Detección por mención en varios lugares de la respuesta | Se conserva, como `match: "mention"` en la config del tool |
+| 22 | Reintento ante token de Salesforce vencido | Solo al enviar SMS | En toda llamada a Salesforce (una vez) |
+| 23 | Orden de escrituras del turno | El mensaje del cliente y el reinicio de inactividad se escribían en paralelo con la llamada al bot | Se espera a que terminen antes de llamar al bot (evita carreras con handlers que tocan los mismos campos) |
+| 24 | Plantilla de notificación interna | Solo ValueText | Igual: con Twilio o Meta devuelve error y la situación no se resuelve. Generalizar es la Fase 5 |
+
+Configuración de Salesforce que salió del código a `salesforceConfig`: `rrFlowName` (Flow de round robin), `seminuevoOwnerId`, `seminuevoRecordTypeId`, `defaultTemplateId` y `situationMap`. Los IDs de Salesforce que siguen como valor por omisión en `modules/ventas.py` (`DEFAULT_SEMINUEVO_OWNER_ID` y `DEFAULT_SEMINUEVO_RECORD_TYPE_ID`) conviene moverlos a cada organización antes de producción.
