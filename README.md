@@ -1,0 +1,1 @@
+Primer versión de centralización de plataformas comercial y servicio.
