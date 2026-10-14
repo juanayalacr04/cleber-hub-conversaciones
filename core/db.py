@@ -21,3 +21,14 @@ def get_db():
 
 def get_executor() -> ThreadPoolExecutor:
     return _executor
+
+
+def run_transaction(fn, *args, db=None):
+    """Ejecuta `fn(transaction, *args)` en una transacción de Firestore con reintentos.
+
+    Los webhooks corren en instancias concurrentes: todo "leer y luego escribir" que no pueda
+    repetirse (round robin, claims, idempotencia) debe pasar por aquí.
+    """
+    from google.cloud import firestore
+    db = db or get_db()
+    return firestore.transactional(fn)(db.transaction(), *args)

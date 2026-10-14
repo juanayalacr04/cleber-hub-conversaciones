@@ -1,4 +1,4 @@
-"""Firestore en memoria con la parte de la API que usa el núcleo (consultas, batch, subcolecciones)."""
+"""Firestore en memoria con la parte de la API que usa el núcleo (consultas, batch, transacciones, subcolecciones)."""
 import itertools
 from datetime import datetime, timezone
 
@@ -10,6 +10,18 @@ _MIN = datetime.min.replace(tzinfo=timezone.utc)
 
 def _key(v):
     return _MIN if v is None else v
+
+
+def _apply(doc: dict, updates: dict) -> None:
+    for k, v in updates.items():
+        if v is firestore.DELETE_FIELD:
+            doc.pop(k, None)
+        elif isinstance(v, firestore.Increment):
+            doc[k] = doc.get(k, 0) + v.value
+        elif v is firestore.SERVER_TIMESTAMP:
+            doc[k] = datetime.now(timezone.utc)
+        else:
+            doc[k] = v
 
 
 class FakeSnapshot:
@@ -34,14 +46,15 @@ class FakeDoc:
 
     def set(self, data, merge=False):
         if merge and self.id in self._store:
-            self._store[self.id].update(data)
+            _apply(self._store[self.id], data)
         else:
-            self._store[self.id] = dict(data)
+            self._store[self.id] = {}
+            _apply(self._store[self.id], data)
 
     def update(self, data):
         if self.id not in self._store:
             raise KeyError(f"{self._path}/{self.id} no existe")
-        self._store[self.id].update(data)
+        _apply(self._store[self.id], data)
 
     def collection(self, name):
         return FakeQuery(self._db, f"{self._path}/{self.id}/{name}")
@@ -101,6 +114,16 @@ class FakeBatch:
             op()
 
 
+class FakeTransaction:
+    """Sin concurrencia real: las escrituras se aplican al instante (suficiente para probar la lógica)."""
+
+    def update(self, ref, data):
+        ref.update(data)
+
+    def set(self, ref, data):
+        ref.set(data)
+
+
 class FakeDB:
     def __init__(self):
         self.data: dict[str, dict] = {}
@@ -110,6 +133,9 @@ class FakeDB:
 
     def batch(self):
         return FakeBatch()
+
+    def transaction(self):
+        return FakeTransaction()
 
     def seed(self, path: str, id: str, data: dict):
         self.data.setdefault(path, {})[id] = dict(data)

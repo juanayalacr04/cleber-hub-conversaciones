@@ -105,12 +105,12 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 ### 1.b Núcleo — 24 funciones, sin decisiones de negocio
 
-- [ ] 1.5 Las **18 de núcleo** a `core/`, `channels/` y `ai/` (incluye las 5 de plataforma que aporta Servicio) — **En curso:** conversaciones, mensajes, números y opt-out hechos (core/conversations.py, core/numbers.py, core/utils.py); faltan handoff, canales y plataforma
+- [ ] 1.5 Las **18 de núcleo** a `core/`, `channels/` y `ai/` (incluye las 5 de plataforma que aporta Servicio) — **En curso:** hechos conversaciones, mensajes, números, opt-out, handoff y asignación, claims e idempotencia; faltan canales (envío por los 3 proveedores) y plataforma (outcomes, broadcasts, delivery de Twilio)
 - [ ] 1.5b **Opt-out universal (D4):** `_is_stop_message` en `core/` → **cierra la conversación en los tres módulos**. Lo que cada módulo hace además se despacha como evento `opt_out` al handler: Ventas marca el Lead `Finalizado por cliente` (`_update_lead_on_stop`), Servicio solo cierra. Es el caso de §4 en su forma más limpia
 - [ ] 1.6 Las **6 de routing** a `core/routing.py` (motor de situaciones; las rutas ya son config)
 - [x] 1.7 ⚠️ Corregir `get_whatsapp_number_by_brand`: **`.limit(1)` sin `orderBy`** es la colisión silenciosa de `sfBrandCode`
-- [ ] 1.8 Generalizar `_is_duplicate_lead` a idempotencia por **`(source, externalId)`** — la que pide la Fase 2
-- [ ] 1.9 Generalizar el patrón `_claim` a `core/claims.py`, separándolo de la parte de Lead
+- [x] 1.8 Generalizar `_is_duplicate_lead` a idempotencia por **`(source, externalId)`** — la que pide la Fase 2
+- [x] 1.9 Generalizar el patrón `_claim` a `core/claims.py`, separándolo de la parte de Lead
 
 ### 1.c CRM compartido
 

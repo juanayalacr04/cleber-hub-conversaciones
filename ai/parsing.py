@@ -183,6 +183,43 @@ def detect_action(api_result: dict, bot_type: str, vocabulary, tool_name: str | 
     return None
 
 
+HANDOFF_ACTIONS = {"handoff": "escalamiento solicitado por workflow", "pre_registro": "pre-registro completado"}
+HANDOFF_TEXT_MARKERS = ('"action": "HANDOFF"', '"action":"HANDOFF"', "Te comunicaré con uno de nuestros asesores")
+
+
+def detect_handoff(api_result: dict, bot_type: str, tool_name: str = "Transferir_a_Asesor",
+                   actions: dict | None = None, text_markers: tuple = HANDOFF_TEXT_MARKERS) -> dict:
+    """¿El bot pidió pasar la conversación a un asesor? Devuelve {"triggered": bool, "motivo": str}.
+
+    Unión de `check_handoff_tool_call` de las dos plataformas: el tool (por motor), los segmentos
+    `action` de un workflow ("handoff", "pre_registro") y, como último recurso, marcadores en el
+    texto de la respuesta. El nombre del tool, las acciones y los marcadores son configuración.
+    """
+    result = _ok_result(api_result)
+    if result is None:
+        return {"triggered": False}
+    actions = HANDOFF_ACTIONS if actions is None else actions
+    try:
+        hit = detect(api_result, bot_type, tool_name)
+        if hit["triggered"]:
+            return {"triggered": True, "motivo": hit["input"].get("motivo", "solicitado por el agente")}
+
+        response = result.get("response", "")
+        if isinstance(response, dict):
+            for seg in response.get("segments", []):
+                action = str(seg.get("segment", "")).strip().lower()
+                if seg.get("id") == "action" and action in actions:
+                    return {"triggered": True, "motivo": actions[action]}
+            response = response.get("response", "")
+        if isinstance(response, str):
+            for marker in text_markers:
+                if marker in response:
+                    return {"triggered": True, "motivo": "detectado en respuesta"}
+    except Exception:
+        log.exception("error detectando el handoff")
+    return {"triggered": False}
+
+
 # --------------------------------------------------------------------------- texto
 
 def clean_chatllm_text(text: str, tool_names: tuple[str, ...] = ()) -> str:
