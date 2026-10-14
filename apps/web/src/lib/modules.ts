@@ -47,7 +47,7 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { slug: "dashboard", label: "Dashboard", icon: "dash", ready: true },
-  { slug: "conversaciones", label: "Conversaciones", icon: "msg", ready: false },
+  { slug: "conversaciones", label: "Conversaciones", icon: "msg", ready: true },
   { slug: "bots", label: "Bots", icon: "bot", adminOnly: true, ready: false },
   { slug: "whatsapp", label: "WhatsApp", icon: "phone", adminOnly: true, ready: false },
   { slug: "equipos", label: "Equipos", icon: "teams", adminOnly: true, ready: false },

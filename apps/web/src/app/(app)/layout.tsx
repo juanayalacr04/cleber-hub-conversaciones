@@ -3,6 +3,8 @@
 import { useEffect, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { NotificationProvider } from "@/contexts/NotificationContext";
+import { Toaster } from "@/components/ui/sonner";
 
 /** Guardia de sesión: todo lo que cuelga de (app) exige usuario con perfil. */
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -14,5 +16,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }, [loading, user, router]);
 
   if (loading || !userData) return <div className="center"><span>Cargando…</span></div>;
-  return <>{children}</>;
+  return (
+    <NotificationProvider>
+      {children}
+      <Toaster />
+    </NotificationProvider>
+  );
 }

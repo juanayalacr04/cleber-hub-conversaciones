@@ -1,6 +1,7 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -16,4 +17,6 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 // Base default (decisión 0.16). Una sola base para todos los módulos.
 export const db = getFirestore(app);
+// Archivos adjuntos de la bandeja. Requiere el bucket de Storage del proyecto (pendiente de habilitar).
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
