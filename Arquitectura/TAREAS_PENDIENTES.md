@@ -98,10 +98,10 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 ### 1.a Capa de parseo — va primero, desbloquea todo lo demás
 
-- [ ] 1.1 `ai/parsing.py` con **estrategia por motor**: `chatllm`, `workflow`, `external`
-- [ ] 1.2 Colapsar las **6 `check_*_tool_call`** de Comercial en la estrategia `chatllm`
-- [ ] 1.3 Colapsar `get_ai_outcome_action` + `get_broadcast_response_action` en la estrategia `workflow`
-- [ ] 1.4 ⚠️ **Prueba que cubra la trampa de los dos segments de Abacus** — quedarse con el primero que hace match del title perdía el 100% de los params
+- [x] 1.1 `ai/parsing.py` con **estrategia por motor**: `chatllm`, `workflow`, `external`
+- [x] 1.2 Colapsar las **6 `check_*_tool_call`** de Comercial en la estrategia `chatllm`
+- [x] 1.3 Colapsar `get_ai_outcome_action` + `get_broadcast_response_action` en la estrategia `workflow`
+- [x] 1.4 ⚠️ **Prueba que cubra la trampa de los dos segments de Abacus** — quedarse con el primero que hace match del title perdía el 100% de los params
 
 ### 1.b Núcleo — 24 funciones, sin decisiones de negocio
 
