@@ -477,6 +477,24 @@ def _first_reply(conv: dict, p: dict) -> None:
         })
 
 
+@tool("inactivity_closed", vertical=V)
+def _inactivity_closed(conv: dict, p: dict) -> None:
+    """Cierre por inactividad: el Lead se cierra en Salesforce salvo que ya haya cita.
+
+    Si el cliente nunca respondió, el Lead vuelve a "Sin validar"; si respondió y no hubo cita,
+    queda "Finalizado sin cita" y se reasigna según el horario.
+    """
+    sf = _sf(p)
+    lead_id = conv.get("leadId")
+    if not (sf and lead_id) or p["has_appointment"]:
+        return
+    if not conv.get("lastCustomerMessageAt"):
+        reset_lead_sin_respuesta(sf, lead_id)
+    else:
+        update_salesforce_lead(sf, lead_id, {"validacion_prospecto": "Finalizado sin cita"})
+        assign_by_schedule(p["bot"], sf, lead_id, p["conv_id"])
+
+
 @tool("situacion_destino_lead", vertical=V)
 def _situacion_destino_lead(conv: dict, p: dict) -> None:
     p["result"] = handoff_lead_seminuevo(p["bot"], conv, p["conv_id"], p["route"], p.get("tool_input"), p.get("db"))

@@ -77,40 +77,65 @@ def clear_bot_cache() -> None:
     _bot_cache.clear()
 
 
+def apply_channel_config(bot: dict, wa_number: dict, db=None) -> dict:
+    """Mezcla en el bot la configuración de su canal (número, proveedor, equipo, credenciales)."""
+    db = db or get_db()
+    provider = wa_number.get("provider", "twilio")
+    bot["provider"] = provider
+    bot["whatsappNumberId"] = wa_number.get("id")
+    bot["teamId"] = wa_number.get("teamId")
+    bot["reopenWindowHours"] = wa_number.get("reopenWindowHours")
+    bot["closeWebhookUrl"] = wa_number.get("closeWebhookUrl")
+
+    if provider == "valuetext":
+        bot["valuetextSenderId"] = wa_number.get("valuetextSenderId", "")
+        org_id = bot.get("organizationId")
+        org_config = {}
+        if org_id:
+            org_doc = db.collection("organizations").document(org_id).get()
+            if org_doc.exists:
+                org_config = org_doc.to_dict().get("salesforceConfig", {})
+        from core.conversations import resolve_vertical  # import local: conversations usa numbers en funciones
+        bot["salesforceConfig"] = salesforce.resolve_config(org_config, resolve_vertical(db, bot["teamId"], bot))
+    elif provider == "meta":
+        bot["metaPhoneNumberId"] = wa_number.get("metaPhoneNumberId", "")
+        bot["metaAccessToken"] = wa_number.get("metaAccessToken", "")
+    else:
+        # Config de Twilio del número mezclada en el bot (compatibilidad)
+        bot["twilioConfig"] = {
+            "phoneNumber": wa_number.get("phoneNumber"),
+            "accountSid": wa_number.get("twilioAccountSid"),
+            "authToken": wa_number.get("twilioAuthToken"),
+        }
+    return bot
+
+
+def get_bot_for_conversation(bot_id: str, whatsapp_number_id: str | None, db=None) -> tuple[dict | None, str]:
+    """Bot con la config de canal del número de una conversación. Devuelve (bot, número_del_bot).
+
+    Lo usan los jobs, que parten de una conversación y no de un mensaje entrante.
+    """
+    db = db or get_db()
+    bot = get_bot_by_id(bot_id, db)
+    if not bot:
+        return None, ""
+    if whatsapp_number_id:
+        doc = db.collection("whatsappNumbers").document(whatsapp_number_id).get()
+        if doc.exists:
+            wa_number = doc.to_dict()
+            wa_number["id"] = doc.id
+            apply_channel_config(bot, wa_number, db)
+            return bot, wa_number.get("phoneNumber", "")
+    return bot, (bot.get("twilioConfig") or {}).get("phoneNumber", "")
+
+
 def _get_bot_by_phone_uncached(phone_number: str, db=None) -> dict | None:
     db = db or get_db()
     wa_number = get_whatsapp_number_by_phone(phone_number, db=db)
     if wa_number and wa_number.get("defaultBotId"):
         bot = get_bot_by_id(wa_number["defaultBotId"], db)
         if bot:
-            provider = wa_number.get("provider", "twilio")
-            bot["provider"] = provider
-            bot["whatsappNumberId"] = wa_number.get("id")
-            bot["teamId"] = wa_number.get("teamId")
-            bot["reopenWindowHours"] = wa_number.get("reopenWindowHours")
-            bot["closeWebhookUrl"] = wa_number.get("closeWebhookUrl")
-
-            if provider == "valuetext":
-                bot["valuetextSenderId"] = wa_number.get("valuetextSenderId", "")
-                org_id = bot.get("organizationId")
-                org_config = {}
-                if org_id:
-                    org_doc = db.collection("organizations").document(org_id).get()
-                    if org_doc.exists:
-                        org_config = org_doc.to_dict().get("salesforceConfig", {})
-                from core.conversations import resolve_vertical  # import local: conversations usa numbers en funciones
-                bot["salesforceConfig"] = salesforce.resolve_config(org_config, resolve_vertical(db, bot["teamId"], bot))
-            elif provider == "meta":
-                bot["metaPhoneNumberId"] = wa_number.get("metaPhoneNumberId", "")
-                bot["metaAccessToken"] = wa_number.get("metaAccessToken", "")
-            else:
-                # Config de Twilio del número mezclada en el bot (compatibilidad)
-                bot["twilioConfig"] = {
-                    "phoneNumber": wa_number.get("phoneNumber"),
-                    "accountSid": wa_number.get("twilioAccountSid"),
-                    "authToken": wa_number.get("twilioAuthToken"),
-                }
-            return bot
+            return apply_channel_config(bot, wa_number, db)
 
     # Modelo antiguo: buscar por el twilioConfig del propio bot
     docs = list(

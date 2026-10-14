@@ -67,6 +67,10 @@ Una sola conexión para todas las organizaciones, por variables de entorno (`SF_
 | 21 | Cancelar_Recordatorio | Detección por mención en varios lugares de la respuesta | Se conserva, como `match: "mention"` en la config del tool |
 | 22 | Reintento ante token de Salesforce vencido | Solo al enviar SMS | En toda llamada a Salesforce (una vez) |
 | 23 | Orden de escrituras del turno | El mensaje del cliente y el reinicio de inactividad se escribían en paralelo con la llamada al bot | Se espera a que terminen antes de llamar al bot (evita carreras con handlers que tocan los mismos campos) |
+| 25 ⚠️ | **Autenticación del job de inactividad** | Sin `CRON_SECRET` configurado el endpoint quedaba abierto (se despliega `--allow-unauthenticated` y manda mensajes a clientes) | Falla cerrado: sin secreto se rechaza todo. Para desarrollo local, `ALLOW_UNAUTHENTICATED_CRON=true`. **`CRON_SECRET` debe existir en la función y en el cron del dashboard** |
+| 26 | Cierre por inactividad | Comercial cerraba el Lead en Salesforce. Servicio ponía el outcome `inactividad` | Ambos: el outcome en el núcleo (sin pisar uno terminal) y el Lead como evento `inactivity_closed` de Ventas |
+| 27 | Recordatorio con plantilla (ventana de 24 h vencida) | Solo Comercial | Para todos, pero solo con ValueText; con otro proveedor no envía nada y avanza el contador |
+| 28 | Conversaciones sin `vertical` (anteriores al hub) | No existía | Al volver a escribir se les pone la vertical de su equipo; el job la deduce al cerrar. Sin esto los handlers de módulo no se despachan |
 | 24 | Plantilla de notificación interna | Solo ValueText | Igual: con Twilio o Meta devuelve error y la situación no se resuelve. Generalizar es la Fase 5 |
 
 Configuración de Salesforce que salió del código a `salesforceConfig`: `rrFlowName` (Flow de round robin), `seminuevoOwnerId`, `seminuevoRecordTypeId`, `defaultTemplateId` y `situationMap`. Los IDs de Salesforce que siguen como valor por omisión en `modules/ventas.py` (`DEFAULT_SEMINUEVO_OWNER_ID` y `DEFAULT_SEMINUEVO_RECORD_TYPE_ID`) conviene moverlos a cada organización antes de producción.

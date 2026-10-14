@@ -122,3 +122,10 @@ def test_add_message_actualiza_el_resumen(db):
 @pytest.mark.parametrize("text,expected", [("STOP", True), ("por favor stop ya", True), ("stopping", False), ("nonstop", False), ("hola", False), ("", False)])
 def test_opt_out_solo_palabra_completa(text, expected):
     assert cv.is_stop_message(text) is expected
+
+
+def test_conversaciones_anteriores_al_hub_reciben_su_vertical_al_volver_a_escribir(db):
+    conv_id, _, _ = _new(db)
+    del db.data["conversations"][conv_id]["vertical"]
+    _, data, _ = _new(db)
+    assert data["vertical"] == "ventas" and db.data["conversations"][conv_id]["vertical"] == "ventas"

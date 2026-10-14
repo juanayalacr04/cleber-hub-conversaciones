@@ -9,12 +9,19 @@ Despliegue (las cinco funciones comparten el paquete; cambia solo el entry point
     whatsapp-webhook    whatsapp_webhook     Twilio
     valuetext-webhook   valuetext_webhook    ValueText (Outbound Message de Salesforce)
     meta-webhook        meta_webhook         Meta Cloud API
+    inactivity-followup inactivity_followup  cron del dashboard (X-Cron-Secret)
+    lead-webhook        lead_webhook         Fase 2, sobre el contrato de entrada único
 """
+import json
+import logging
+
 import functions_framework
 
 import modules  # noqa: F401  registra los handlers de cada módulo contra el núcleo
 from channels import webhooks
 from core.db import get_executor
+from jobs import inactivity
+from jobs.auth import cron_authorized
 
 
 def _run(fn, *args):
@@ -38,6 +45,22 @@ def valuetext_webhook(request):
     if request.method != "POST":
         return "OK", 200
     return webhooks.handle_valuetext(request.get_data(as_text=True), _run)
+
+
+@functions_framework.http
+def inactivity_followup(request):
+    """Recordatorio de inactividad o contacto programado, invocado por el cron del dashboard."""
+    headers = {"Content-Type": "application/json"}
+    if request.method != "POST":
+        return json.dumps({"error": "Method not allowed"}), 405, headers
+    if not cron_authorized(request.headers):
+        return json.dumps({"error": "Unauthorized"}), 401, headers
+    try:
+        body, status = inactivity.run_followup(request.get_json(silent=True) or {})
+    except Exception as e:
+        logging.getLogger(__name__).exception("inactivity_followup")
+        body, status = {"success": False, "error": str(e)}, 500
+    return json.dumps(body), status, headers
 
 
 @functions_framework.http

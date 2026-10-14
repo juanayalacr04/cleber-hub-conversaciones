@@ -143,6 +143,11 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [ ] 1.25 Flags de capacidad **explícitos** en los comandos de deploy (`--max-instances=300 --concurrency=40`); un redeploy sin ellos resetea a los defaults
 - [ ] 1.26 ⚠️ Confirmar si `voice_llm_endpoint` y `assign_agent_by_lead` están en uso — no aparecen en los comandos de deploy documentados
 
+### Jobs
+
+- [x] 1.31 `jobs/inactivity.py`: recordatorio de inactividad y contacto programado, un solo job para todos los módulos (el cierre del Lead de Ventas es el evento `inactivity_closed`)
+- [ ] 1.32 Portar los **crons del dashboard** (Vercel) que invocan al job y deciden qué conversación y cuándo: `inactivity-followup`, `close-inactive`, `scheduled-contact`, `verify-lead-templates` (Comercial) y `appointment-reminders`, `no-show` (Servicio). Viven en `apps/web/src/app/api/cron/`
+
 ### Criterio de cierre
 
 - [x] 1.27 `core/` **sin un solo `if vertical == ...`** y sin importar de `modules/`

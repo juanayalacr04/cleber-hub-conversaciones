@@ -14,3 +14,11 @@ def _caches_limpias():
     broadcasts.clear_instructions_cache()
     yield
     broadcasts.clear_instructions_cache()
+
+
+@pytest.fixture(autouse=True)
+def _sin_firestore_real(monkeypatch):
+    """Ninguna prueba puede abrir un cliente real de Firestore: usaría las credenciales de la máquina."""
+    def prohibido(*args, **kwargs):
+        raise RuntimeError("la prueba intentó usar Firestore real: pasa db=FakeDB() a la función")
+    monkeypatch.setattr(firestore, "Client", prohibido)

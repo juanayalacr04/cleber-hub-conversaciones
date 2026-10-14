@@ -126,6 +126,8 @@ def get_or_create_conversation(bot_id: str, org_id: str, customer_phone: str,
             conv.reference.update({"status": "closed", "closedAt": firestore.SERVER_TIMESTAMP})
             return new_conversation()
         updates = _backfill(conv_data, customer_phone, whatsapp_number_id, team_id, customer_name, direction)
+        if not conv_data.get("vertical"):  # conversaciones anteriores al hub: se les pone la vertical al volver a escribir
+            updates["vertical"] = resolve_vertical(db, team_id or conv_data.get("teamId"), bot_config)
         if updates:
             conv.reference.update(updates)
             conv_data.update(updates)
@@ -175,6 +177,8 @@ def get_or_create_conversation(bot_id: str, org_id: str, customer_phone: str,
                     reopen["conversationOutcome"] = None
                     reopen["conversationOutcomeAt"] = None
                 reopen.update(_backfill(closed_data, customer_phone, whatsapp_number_id, team_id, customer_name, direction))
+                if not closed_data.get("vertical"):
+                    reopen["vertical"] = resolve_vertical(db, team_id or closed_data.get("teamId"), bot_config)
                 closed_conv.reference.update(reopen)
                 closed_data.update(reopen)
                 log.info("Reopened conversation %s (closed %.1fh ago, window=%sh, status=%s)",
