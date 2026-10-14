@@ -107,15 +107,15 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 - [x] 1.5 Las **18 de núcleo** a `core/`, `channels/` y `ai/` (incluye las 5 de plataforma que aporta Servicio) — Hechas las 18 de núcleo: conversaciones, números, handoff, claims, idempotencia, canales, outcomes y campañas. Pendiente aparte: el motor (envío al bot), el pipeline de mensajes y los jobs, que son funciones comunes con drift
 - [x] 1.5b **Opt-out universal (D4):** `_is_stop_message` en `core/` → **cierra la conversación en los tres módulos**. Lo que cada módulo hace además se despacha como evento `opt_out` al handler: Ventas marca el Lead `Finalizado por cliente` (`_update_lead_on_stop`), Servicio solo cierra. Es el caso de §4 en su forma más limpia
-- [ ] 1.6 Las **6 de routing** a `core/routing.py` (motor de situaciones; las rutas ya son config)
+- [x] 1.6 Las **6 de routing** a `core/routing.py` (motor de situaciones; las rutas ya son config)
 - [x] 1.7 ⚠️ Corregir `get_whatsapp_number_by_brand`: **`.limit(1)` sin `orderBy`** es la colisión silenciosa de `sfBrandCode`
 - [x] 1.8 Generalizar `_is_duplicate_lead` a idempotencia por **`(source, externalId)`** — la que pide la Fase 2
 - [x] 1.9 Generalizar el patrón `_claim` a `core/claims.py`, separándolo de la parte de Lead
 
 ### 1.c CRM compartido
 
-- [ ] 1.10 Las **5 de CRM** a `crm/salesforce.py` y `crm/templates.py`
-- [ ] 1.11 ⚠️ Renombrar `send_lead_template` — **es ValueText** (inserta en `rsplus__SMS_Bucket__c`), el nombre engaña y es la raíz del límite de un solo proveedor
+- [x] 1.10 Las **5 de CRM** a `crm/salesforce.py` y `crm/templates.py`
+- [x] 1.11 ⚠️ Renombrar `send_lead_template` — **es ValueText** (inserta en `rsplus__SMS_Bucket__c`), el nombre engaña y es la raíz del límite de un solo proveedor
 
 ### 1.d Configuración fuera del código — antes de escribir handlers
 
@@ -129,7 +129,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 ### 1.e Handlers de módulo
 
 - [ ] 1.18 Las **19 de Ventas** a `modules/ventas.py`, cada una registrada contra el núcleo
-- [ ] 1.19 ⚠️ Decidir si el **contacto programado** (3 funciones) es de Ventas o genérico — si es genérico, sube a `core/`
+- [x] 1.19 ⚠️ Decidir si el **contacto programado** (3 funciones) es de Ventas o genérico — si es genérico, sube a `core/`
 - [ ] 1.20 ⚠️ Separar las dos **mixtas**: `_block_handoff_out_of_hours` (gate core + lead Ventas) y el par de `claim`
 - [ ] 1.21 `modules/servicio.py` — nace prácticamente vacío; verificar que no quede nada mal clasificado
 

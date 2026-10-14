@@ -5,7 +5,9 @@ registra el suyo para `(evento, vertical)` y gana. `register_defaults()` es idem
 """
 from google.cloud import firestore
 
-from core import outcomes
+from ai.parsing import extract_bot_response
+from core import outcomes, routing, scheduled_contact
+from core.numbers import apply_active_bot_override
 from core.tools import resolve, tool
 
 
@@ -30,7 +32,23 @@ def _registrar_cita(conv_data: dict, params: dict) -> None:
     turn.fire(outcomes.set_conversation_outcome, turn.conv_id, "cita_bot", db=turn.db)
 
 
-DEFAULTS = {"guardar_nombre": _guardar_nombre, "registrar_cita": _registrar_cita}
+def _situacion(conv_data: dict, params: dict) -> None:
+    """El bot detectó una situación fuera de su alcance: se resuelve según la ruta configurada."""
+    turn = params["turn"]
+    tool_input = params.get("input") or {}
+    result = routing.process_situacion_handoff(
+        turn.bot, conv_data, turn.conv_id, tool_input.get("situacion", ""), tool_input.get("motivo", ""), tool_input, db=turn.db)
+    if result == "switched":
+        # El bot destino contesta este mismo mensaje y se descarta la respuesta del bot original.
+        turn.bot = apply_active_bot_override(turn.bot, conv_data, turn.db)
+        turn.api_result = routing.run_switched_bot(turn.bot, turn.conv_id, conv_data, turn.messages, turn.customer)
+        turn.response = extract_bot_response(turn.api_result)
+    elif result:
+        turn.say(turn.response)
+        turn.handled = True
+
+
+DEFAULTS = {"situacion": _situacion, "guardar_nombre": _guardar_nombre, "registrar_cita": _registrar_cita, **scheduled_contact.DEFAULT_HANDLERS}
 
 
 def register_defaults() -> None:

@@ -34,7 +34,7 @@ from concurrent.futures import as_completed
 from dataclasses import dataclass
 
 from ai import engine
-from ai.parsing import detect, detect_action, detect_handoff, extract_bot_response, extract_image_from_text
+from ai.parsing import detect, detect_action, detect_handoff, detect_mention, extract_bot_response, extract_image_from_text
 from core import broadcasts, conversations as cv, handoff as ho, outcomes
 from core.db import get_db, get_executor
 from core.default_tools import register_defaults
@@ -63,7 +63,8 @@ DEFAULT_TOOLS = [
     {"name": "Actualizar_Lead", "event": "actualizar_lead", "phase": "main"},
     {"name": "Crear_Cita_Ventas_Salesforce", "event": "crear_cita", "phase": "main"},
     {"name": "Agendar_Recordatorio", "event": "agendar_recordatorio", "phase": "main"},
-    {"name": "Cancelar_Recordatorio", "event": "cancelar_recordatorio", "phase": "main"},
+    # Sin parámetros: Abacus lo reporta en lugares distintos, así que se detecta por mención
+    {"name": "Cancelar_Recordatorio", "event": "cancelar_recordatorio", "phase": "main", "match": "mention"},
 ]
 
 
@@ -286,7 +287,10 @@ def _run_tools(t: Turn, phase: str, done: set) -> None:
         event = spec["event"]
         if event in done:
             continue
-        hit = detect(t.api_result, bot_type, spec["name"])
+        if spec.get("match") == "mention":
+            hit = detect_mention(t.api_result, spec["name"])
+        else:
+            hit = detect(t.api_result, bot_type, spec["name"])
         if hit["triggered"]:
             done.add(event)
             t.emit(event, input=hit["input"], tool=spec["name"])

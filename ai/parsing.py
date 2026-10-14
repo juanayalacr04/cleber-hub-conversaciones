@@ -183,6 +183,33 @@ def detect_action(api_result: dict, bot_type: str, vocabulary, tool_name: str | 
     return None
 
 
+def detect_mention(api_result: dict, tool_name: str) -> dict:
+    """Detección por mención, para tools sin parámetros que Abacus reporta en lugares distintos.
+
+    Además de toolResults y del title de un segmento, Abacus a veces pone "Executing <tool>" en
+    el campo `segment` con title nulo, en el texto de un mensaje o en el texto de la respuesta.
+    """
+    result = _ok_result(api_result)
+    if result is None:
+        return NOT_TRIGGERED
+    try:
+        if _tool_result_input(result, tool_name) is not None:
+            return {"triggered": True, "input": {}}
+        for segment in result.get("segments", []) or []:
+            inner = segment.get("segment")
+            if tool_name in (segment.get("title") or "") or (isinstance(inner, str) and tool_name in inner):
+                return {"triggered": True, "input": {}}
+        for msg in result.get("messages", []) or []:
+            if isinstance(msg.get("text"), str) and tool_name in msg["text"]:
+                return {"triggered": True, "input": {}}
+        response = result.get("response", "")
+        if isinstance(response, str) and f"Executing {tool_name}" in response:
+            return {"triggered": True, "input": {}}
+    except Exception:
+        log.exception("error detectando la mención de %r", tool_name)
+    return NOT_TRIGGERED
+
+
 HANDOFF_ACTIONS = {"handoff": "escalamiento solicitado por workflow", "pre_registro": "pre-registro completado"}
 HANDOFF_TEXT_MARKERS = ('"action": "HANDOFF"', '"action":"HANDOFF"', "Te comunicaré con uno de nuestros asesores")
 
