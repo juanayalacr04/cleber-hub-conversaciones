@@ -144,6 +144,16 @@ def _handoff_config(t: Turn) -> dict:
     return t.bot.get("handoffConfig", {}) or {}
 
 
+def _opt_out_action(t: Turn) -> str:
+    """Qué hacer ante un "stop": el bot manda; si no define nada, el equipo; si no, cerrar."""
+    action = t.bot.get("optOutAction")
+    team_id = t.conv_data.get("teamId")
+    if not action and team_id:
+        team = t.db.collection("teams").document(team_id).get()
+        action = team.to_dict().get("optOutAction") if team.exists else None
+    return action if action in ("close", "handoff") else "close"
+
+
 def _tools(bot: dict, phase: str) -> list[dict]:
     return [s for s in (bot.get("tools") or DEFAULT_TOOLS) if s.get("phase", "main") == phase]
 
@@ -188,7 +198,7 @@ def _run(t: Turn) -> None:
 
     # 5. Opt-out universal: cierra la conversación (o la escala, según la config del bot).
     if cv.is_stop_message(inc.body):
-        action = bot.get("optOutAction", "close")
+        action = _opt_out_action(t)
         if action == "handoff":
             ho.apply_handoff_status(t.conv_id, t.conv_data.get("teamId"), t.org_id, handoff_reason="opt_out", db=db)
         else:

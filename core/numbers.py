@@ -7,6 +7,7 @@ import time
 
 from core.db import get_db
 from core.schema import VERTICALS
+from crm import salesforce
 
 log = logging.getLogger(__name__)
 
@@ -92,10 +93,13 @@ def _get_bot_by_phone_uncached(phone_number: str, db=None) -> dict | None:
             if provider == "valuetext":
                 bot["valuetextSenderId"] = wa_number.get("valuetextSenderId", "")
                 org_id = bot.get("organizationId")
+                org_config = {}
                 if org_id:
                     org_doc = db.collection("organizations").document(org_id).get()
                     if org_doc.exists:
-                        bot["salesforceConfig"] = org_doc.to_dict().get("salesforceConfig", {})
+                        org_config = org_doc.to_dict().get("salesforceConfig", {})
+                from core.conversations import resolve_vertical  # import local: conversations usa numbers en funciones
+                bot["salesforceConfig"] = salesforce.resolve_config(org_config, resolve_vertical(db, bot["teamId"], bot))
             elif provider == "meta":
                 bot["metaPhoneNumberId"] = wa_number.get("metaPhoneNumberId", "")
                 bot["metaAccessToken"] = wa_number.get("metaAccessToken", "")

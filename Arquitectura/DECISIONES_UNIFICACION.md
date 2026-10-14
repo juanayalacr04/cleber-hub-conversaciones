@@ -24,7 +24,7 @@ Las filas marcadas ⚠️ **cambian el comportamiento de producción actual de a
 
 | # | Tema | Comercial | Servicio | Ahora | Configuración |
 |---|---|---|---|---|---|
-| 1 ⚠️ | **Opt-out ("stop")** | Twilio y Meta cierran la conversación. ValueText la **escala a un asesor** ("nunca se cierra sola") | No lo respeta | Cierra la conversación en todos los módulos y despacha el evento `opt_out` | `bots/{id}.optOutAction`: `"close"` (por defecto) o `"handoff"`. **Los bots de Ventas por ValueText deben tener `"handoff"`** para conservar su comportamiento |
+| 1 ⚠️ | **Opt-out ("stop")** | Twilio y Meta cierran la conversación. ValueText la **escala a un asesor** ("nunca se cierra sola") | No lo respeta | Cierra la conversación en todos los módulos y despacha el evento `opt_out` | `optOutAction`: `"close"` (por defecto) o `"handoff"`. Se lee primero de `bots/{id}.optOutAction` y, si el bot no lo define, de `teams/{id}.optOutAction` (la política es del equipo, así que lo normal es ponerla ahí). **El equipo de Ventas que atiende por ValueText debe tener `"handoff"`** para conservar su comportamiento. Hoy se edita directo en el documento de Firestore; la pantalla de Equipos lo expondrá al portarla |
 | 2 ⚠️ | **Handoff fuera de horario** | Aviso fijo. Solo ValueText marca `handoffBlockedAt` | El bot redacta el aviso. No marca nada | Aviso y `handoffBlockedAt` en todos los proveedores | `scheduleConfig.viaBot: true` para que lo redacte el bot (como Servicio) |
 | 3 | Texto al escalar y mientras espera | "…Un asesor te atenderá pronto." | "…Alguien de nuestro equipo te contactará pronto. 😊" | Texto de Comercial por defecto | `handoffConfig.handoffMessage` y `handoffConfig.waitingMessage` |
 | 4 | Nombre capturado por el tool | Pisa el del perfil de WhatsApp si difiere | Solo si no había nombre | Pisa (es la fuente autoritativa) | — |
@@ -39,6 +39,16 @@ Las filas marcadas ⚠️ **cambian el comportamiento de producción actual de a
 | 13 | Idempotencia de eventos | Colecciones `lead_processed_ids` y `valuetext_processed_ids` | — | Una sola: `processed_events/{source}__{externalId}` | — |
 | 14 | `get_whatsapp_number_by_brand` | `.limit(1)` sin orden: elegía un número arbitrario | — | Elige por vertical y de forma determinista; un `sfBrandCode` duplicado lanza error | — |
 | 15 | Parámetros anidados de un tool call (ChatLLM) | Se perdían (regex cortaba en la primera `}`) | — | Se decodifican completos | — |
+| 16 ⚠️ | **Credenciales de Salesforce** | Cada organización guarda las suyas en `organizations/{id}.salesforceConfig`, con contraseña y secreto en claro | Igual | Son las mismas para todas, así que salen de variables de entorno globales (Secret Manager). `organizations/{id}.salesforceConfig` conserva solo lo que cambia por marca y no es secreto | Ver abajo |
+
+## Credenciales de Salesforce
+
+Una sola conexión para todas las organizaciones, por variables de entorno (`SF_INSTANCE_URL`, `SF_CLIENT_ID`, `SF_CLIENT_SECRET`, `SF_USERNAME`, `SF_PASSWORD`). Si algún módulo necesita otro usuario de Salesforce, se agrega la variable con el prefijo del módulo y gana solo para ese módulo: `SF_VENTAS_USERNAME`, `SF_VENTAS_PASSWORD`, `SF_SERVICIO_USERNAME`... El resto cae a la global.
+
+- **Qué se queda en Firestore** (`organizations/{id}.salesforceConfig`): `marcaRR`, `RecordTypeId` de Lead y Event, owners, owner de BDC (`bdcFallbackOwnerId`) y el nombre del Flow de round robin. Es config por marca y no es secreta.
+- **Migración:** mientras las variables de entorno no existan, se siguen usando las credenciales que ya están en Firestore y se registra una advertencia. En cuanto se definen, ganan sobre las de Firestore.
+- **Seguridad:** las reglas de Firestore dejan leer `organizations/{id}` a cualquier usuario de la organización, o sea que hoy un agente puede leer la contraseña de Salesforce desde el navegador. Al migrar, **borrar** `clientSecret`, `password`, `username`, `clientId` e `instanceUrl` de cada `salesforceConfig`.
+- **Dónde se definen:** local en `.env` (ver `.env.example`); en GCP como secretos de Secret Manager montados con `--set-secrets` al desplegar cada función. Los valores no pasan por el repositorio ni por la conversación.
 
 ## Pendiente de estas decisiones
 

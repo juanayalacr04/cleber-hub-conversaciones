@@ -139,6 +139,20 @@ def test_opt_out_cierra_y_despacha_el_evento(env):
     assert env.conv()["status"] == "closed" and env.bot_calls == [] and events == ["close"]
 
 
+def test_opt_out_se_configura_por_equipo_y_el_bot_manda(env):
+    env.db.data["teams"]["t1"]["optOutAction"] = "handoff"
+    env.run("hola")
+    env.run("stop")
+    assert env.conv()["status"] == "waiting_agent"  # lo definió el equipo
+    env.db.data["conversations"][env.conv()["id"]]["status"] = "bot"
+    env.run("stop", bot_overrides={"optOutAction": "close"})
+    assert env.conv()["status"] == "closed"  # el bot tiene prioridad sobre el equipo
+    env.db.data["teams"]["t1"]["optOutAction"] = "inventado"
+    env.run("hola otra vez", bot_overrides={"optOutAction": None})
+    env.run("stop", bot_overrides={"optOutAction": None})
+    assert env.conv()["status"] == "closed"  # valor inválido: cierra
+
+
 def test_opt_out_configurable_a_handoff(env):
     env.run("hola")
     events = []
