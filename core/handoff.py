@@ -163,7 +163,7 @@ def auto_assign_agent(org_id: str, conv_id: str, team_id: str | None = None,
 
 
 def block_handoff_out_of_hours(conv_id: str, conv_data: dict, bot: dict, from_number: str, to_number: str,
-                               schedule_config: dict, trigger: str, send, db=None) -> None:
+                               schedule_config: dict, trigger: str, send, db=None, text: str | None = None) -> None:
     """Handoff pedido fuera de horario: avisa al cliente y marca la conversación (tarea 1.20, parte núcleo).
 
     La conversación sigue en "bot" (responde otros temas), pero `handoffBlockedAt` le dice al cron
@@ -177,7 +177,7 @@ def block_handoff_out_of_hours(conv_id: str, conv_data: dict, bot: dict, from_nu
     from core.tools import dispatch
 
     db = db or get_db()
-    text = build_out_of_hours_message(schedule_config)
+    text = text or build_out_of_hours_message(schedule_config)
     add_message(conv_id, "bot", text, db=db)
     send(bot, from_number, to_number, text)
     if not conv_data.get("handoffBlockedAt"):

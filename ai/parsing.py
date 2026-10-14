@@ -222,6 +222,15 @@ def detect_handoff(api_result: dict, bot_type: str, tool_name: str = "Transferir
 
 # --------------------------------------------------------------------------- texto
 
+def extract_image_from_text(text: str) -> tuple[str | None, str]:
+    """Extrae la primera URL de imagen marcada con [IMG]...[/IMG] y devuelve (url, texto_limpio)."""
+    match = re.search(r"\[IMG\](.*?)\[/IMG\]", text)
+    if not match:
+        return None, text
+    clean = re.sub(r"\[IMG\].*?\[/IMG\]", "", text)
+    return match.group(1).strip(), re.sub(r"\n{3,}", "\n\n", clean).strip()
+
+
 def clean_chatllm_text(text: str, tool_names: tuple[str, ...] = ()) -> str:
     """Elimina artefactos que Abacus ChatLLM embebe en el response text.
 

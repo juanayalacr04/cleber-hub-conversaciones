@@ -98,3 +98,7 @@ def get_broadcast_instructions(broadcast_id: str, db=None) -> str:
     instructions = (doc.to_dict().get("botInstructions") or "") if doc.exists else ""
     _instructions_cache[broadcast_id] = {"instructions": instructions, "expires": time.time() + _INSTRUCTIONS_TTL}
     return instructions
+
+
+def clear_instructions_cache() -> None:
+    _instructions_cache.clear()
