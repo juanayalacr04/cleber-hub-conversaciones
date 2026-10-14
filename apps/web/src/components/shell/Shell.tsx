@@ -66,7 +66,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
         <nav className="nav-wrap" aria-label="General">
           <p className="lbl" style={{ marginBottom: 6 }}>General</p>
-          {NAV.filter((n) => !n.adminOnly || admin).map((n) => (
+          {NAV.filter((n) => (!n.adminOnly || admin) && (!n.superAdminOnly || userData?.isSuperAdmin)).map((n) => (
             <Link key={n.slug} href={`/${mod.id}/${n.slug}`} className="nav" aria-current={section === n.slug ? "page" : undefined}>
               <span className="l"><Icon name={n.icon} />{n.label}</span>
             </Link>

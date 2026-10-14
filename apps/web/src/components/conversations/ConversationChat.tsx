@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { modulePath } from "@/lib/routes";
+import { conversationPath, modulePath } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1178,7 +1178,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
             </p>
           ) : (
             pastConversations.map((conv) => (
-              <Link key={conv.id} href={`/conversations/${conv.id}`}>
+              <Link key={conv.id} href={conversationPath(conv.id, moduleId)}>
                 <Card className="cursor-pointer hover:bg-gray-50 transition-colors">
                   <CardContent className="py-3 px-4">
                     <div className="flex items-center justify-between">

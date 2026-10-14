@@ -1,11 +1,12 @@
 import {
-  Bell, Bot, Building2, Clock, FileText, LayoutDashboard, LayoutGrid, Megaphone, MessageSquare,
+  ArrowDownToLine, ArrowUpFromLine, Calendar, Bell, Bot, Building2, Clock, FileText, LayoutDashboard, LayoutGrid, Megaphone, MessageSquare,
   Phone, Settings, Tag, User, Users, Wrench, type LucideIcon,
 } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
   dash: LayoutDashboard, msg: MessageSquare, bot: Bot, phone: Phone, teams: Users, user: User,
   mega: Megaphone, file: FileText, gear: Settings, org: Building2,
+  in: ArrowDownToLine, out: ArrowUpFromLine, cal: Calendar,
   wrench: Wrench, tag: Tag, grid: LayoutGrid, clock: Clock, bell: Bell,
 };
 

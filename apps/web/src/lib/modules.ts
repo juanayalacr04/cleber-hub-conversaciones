@@ -41,6 +41,8 @@ export interface NavItem {
   label: string;
   icon: string;
   adminOnly?: boolean;
+  /** Solo superadministradores (p. ej. Organizaciones) */
+  superAdminOnly?: boolean;
   /** false = la ruta existe pero muestra "en construcción" */
   ready: boolean;
 }
@@ -48,12 +50,12 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { slug: "dashboard", label: "Dashboard", icon: "dash", ready: true },
   { slug: "conversaciones", label: "Conversaciones", icon: "msg", ready: true },
-  { slug: "bots", label: "Bots", icon: "bot", adminOnly: true, ready: false },
-  { slug: "whatsapp", label: "WhatsApp", icon: "phone", adminOnly: true, ready: false },
-  { slug: "equipos", label: "Equipos", icon: "teams", adminOnly: true, ready: false },
-  { slug: "agentes", label: "Agentes", icon: "user", ready: false },
-  { slug: "campanas", label: "Campañas", icon: "mega", adminOnly: true, ready: false },
-  { slug: "plantillas", label: "Plantillas", icon: "file", adminOnly: true, ready: false },
-  { slug: "configuracion", label: "Configuración", icon: "gear", adminOnly: true, ready: false },
-  { slug: "organizaciones", label: "Organizaciones", icon: "org", adminOnly: true, ready: false },
+  { slug: "bots", label: "Bots", icon: "bot", adminOnly: true, ready: true },
+  { slug: "whatsapp", label: "WhatsApp", icon: "phone", adminOnly: true, ready: true },
+  { slug: "equipos", label: "Equipos", icon: "teams", adminOnly: true, ready: true },
+  { slug: "agentes", label: "Agentes", icon: "user", ready: true },
+  { slug: "campanas", label: "Campañas", icon: "mega", adminOnly: true, ready: true },
+  { slug: "plantillas", label: "Plantillas", icon: "file", adminOnly: true, ready: true },
+  { slug: "configuracion", label: "Configuración", icon: "gear", adminOnly: true, ready: true },
+  { slug: "organizaciones", label: "Organizaciones", icon: "org", adminOnly: true, superAdminOnly: true, ready: true },
 ];

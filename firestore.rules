@@ -202,7 +202,11 @@ service cloud.firestore {
     // ── Organizations ──
     match /organizations/{orgId} {
       allow read: if isSuperAdmin() || belongsToOrg(orgId);
-      allow write: if isSuperAdmin();
+      allow create, delete: if isSuperAdmin();
+      // El admin de la organización edita solo su configuración (nombre, zona horaria, Salesforce por
+      // marca). sfBrandCode, plan y el resto los cambia un superadmin. No hay credenciales aquí.
+      allow update: if isSuperAdmin() || (isAdmin() && belongsToOrg(orgId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "settings", "salesforceConfig"]));
     }
 
     // ── Labels ──
