@@ -8,10 +8,11 @@ from google.cloud import firestore
 from ai.parsing import extract_bot_response
 from core import outcomes, routing, scheduled_contact
 from core.numbers import apply_active_bot_override
-from core.tools import resolve, tool
+from contracts.actions import DATOS_INVALIDOS, ActionResponse
+from core.tools import ActionSpec, Field, declare, resolve, tool
 
 
-def _guardar_nombre(conv_data: dict, params: dict) -> None:
+def _guardar_nombre(conv_data: dict, params: dict) -> ActionResponse:
     """El nombre que captura el tool es la fuente autoritativa: pisa el derivado del perfil de WhatsApp.
 
     Va antes de `situacion` (orden de DEFAULT_TOOLS): si el bot guarda el nombre y detecta una
@@ -19,9 +20,12 @@ def _guardar_nombre(conv_data: dict, params: dict) -> None:
     """
     turn = params["turn"]
     name = ((params.get("input") or {}).get("nombre") or "").strip()
-    if name and conv_data.get("customerName") != name:
+    if not name:
+        return ActionResponse.failure(DATOS_INVALIDOS, "Falta el nombre del cliente")
+    if conv_data.get("customerName") != name:
         conv_data["customerName"] = name
         turn.fire(turn.db.collection("conversations").document(turn.conv_id).update, {"customerName": name})
+    return ActionResponse.success({"nombre": name})
 
 
 def _registrar_cita(conv_data: dict, params: dict) -> None:
@@ -48,10 +52,25 @@ def _situacion(conv_data: dict, params: dict) -> None:
         turn.handled = True
 
 
+# Contrato de cada acción del núcleo (1.43). `situacion` no se expone: cambia de bot y reemplaza la
+# respuesta del turno, así que entra con el handoff en 1.46.
+SPECS = (
+    ActionSpec("guardar_nombre", exposed=True, description="Guarda el nombre que dio el cliente",
+               fields=(Field("nombre", required=True),)),
+    ActionSpec("registrar_cita", exposed=True, description="Marca que el bot agendó una cita"),
+    ActionSpec("agendar_recordatorio", exposed=True, description="Programa un recontacto con el cliente",
+               fields=(Field("fecha_hora", required=True, description="fecha y hora ISO, en la zona de la organización"),)),
+    ActionSpec("cancelar_recordatorio", exposed=True, description="Cancela el recontacto programado"),
+    ActionSpec("situacion", description="Situación fuera del alcance del bot",
+               fields=(Field("situacion"), Field("motivo"))),
+)
+
 DEFAULTS = {"situacion": _situacion, "guardar_nombre": _guardar_nombre, "registrar_cita": _registrar_cita, **scheduled_contact.DEFAULT_HANDLERS}
 
 
 def register_defaults() -> None:
+    for spec in SPECS:
+        declare(spec)
     for event, handler in DEFAULTS.items():
         if resolve(event, None) is None:
             tool(event)(handler)

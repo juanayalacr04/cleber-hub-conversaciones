@@ -18,6 +18,7 @@ DATOS_INVALIDOS = "datos_invalidos"
 FUERA_DE_HORARIO = "fuera_de_horario"
 ACCION_DESCONOCIDA = "accion_desconocida"
 ACCION_NO_PERMITIDA = "accion_no_permitida"
+PRECONDICION_FALLIDA = "precondicion_fallida"   # p. ej. actualizar un Lead que todavía no existe
 CONVERSACION_NO_ENCONTRADA = "conversacion_no_encontrada"
 NO_AUTORIZADO = "no_autorizado"
 ERROR_EXTERNO = "error_externo"       # Salesforce, Quiter... falló; suele ser reintentable

@@ -26,7 +26,9 @@ from core.claims import claim, release_claim
 from core.conversations import add_message
 from core.db import get_db
 from core.scheduled_contact import local_to_utc, org_timezone
-from core.tools import tool
+from contracts.actions import (ACCION_NO_PERMITIDA, DATOS_INVALIDOS, ERROR_EXTERNO, PRECONDICION_FALLIDA,
+                               ActionResponse)
+from core.tools import ActionSpec, Field, declare, tool
 from crm import salesforce
 
 log = logging.getLogger(__name__)
@@ -377,17 +379,35 @@ def _brand_code(db, org_id: str) -> str:
     return (org.to_dict().get("sfBrandCode") or "") if org.exists else ""
 
 
+declare(ActionSpec(
+    "crear_lead", exposed=True, description="Crea el Lead en Salesforce (una sola vez por conversación)",
+    fields=(Field("nombre"), Field("apellido"), Field("concesionaria"), Field("familia_modelo"), Field("motivo")),
+))
+declare(ActionSpec(
+    "actualizar_lead", exposed=True, description="Actualiza los datos del Lead existente",
+    fields=tuple(Field(n) for n in ("status_raw", "status", "nombre", "comentarios", "familia_modelo",
+                                    "concesionaria", "validacion_prospecto", "fecha_deal")),
+))
+declare(ActionSpec(
+    "crear_cita", exposed=True, description="Agenda (o reagenda) la cita de la conversación",
+    fields=(Field("fecha", required=True, description="AAAA-MM-DD"), Field("hora", required=True, description="HH:MM"),
+            Field("concesionaria")),
+))
+
+
 @tool("crear_lead", vertical=V)
-def _crear_lead(conv: dict, p: dict) -> None:
+def _crear_lead(conv: dict, p: dict) -> ActionResponse | None:
     """Tool Crear_Lead. Va antes del handoff: si el bot lo pide en el mismo turno, el Lead debe existir."""
     turn, sf = p["turn"], _sf(p)
-    if not sf or conv.get("leadId"):
-        return
+    if not sf:
+        return ActionResponse.failure(ACCION_NO_PERMITIDA, "Este bot no tiene Salesforce configurado")
+    if conv.get("leadId"):
+        return ActionResponse.success({"leadId": conv["leadId"]}, status="duplicate")
     turn.flags["lead_attempted"] = True
     claimed, concurrent = claim(turn.conv_id, "leadId", "leadCreationClaimedAt", db=turn.db)
     if not claimed:
         conv["leadId"] = concurrent  # otra invocación ya creó (o está creando) el Lead: se sigue con ese
-        return
+        return ActionResponse.success({"leadId": concurrent}, status="duplicate")
     lead_id = create_salesforce_lead(sf, conv, p["input"], _brand_code(turn.db, conv.get("organizationId") or turn.org_id))
     if lead_id:
         conv["leadId"] = lead_id
@@ -396,15 +416,17 @@ def _crear_lead(conv: dict, p: dict) -> None:
             fields["completedLead"] = True
         turn.db.collection("conversations").document(turn.conv_id).update(fields)
         add_message(turn.conv_id, "bot", f'<<CONTEXTO>> LeadID: "{lead_id}" | Lead creado exitosamente', db=turn.db)
-    else:
-        release_claim(turn.conv_id, "leadCreationClaimedAt", db=turn.db)
-        add_message(turn.conv_id, "bot", "<<CONTEXTO>> No se pudo crear el Lead en Salesforce", db=turn.db)
+        return ActionResponse.success({"leadId": lead_id})
+    release_claim(turn.conv_id, "leadCreationClaimedAt", db=turn.db)
+    add_message(turn.conv_id, "bot", "<<CONTEXTO>> No se pudo crear el Lead en Salesforce", db=turn.db)
+    return ActionResponse.failure(ERROR_EXTERNO, "No se pudo crear el Lead en Salesforce", retryable=True)
 
 
 @tool("actualizar_lead", vertical=V)
-def _actualizar_lead(conv: dict, p: dict) -> None:
+def _actualizar_lead(conv: dict, p: dict) -> ActionResponse:
     turn, sf = p["turn"], _sf(p)
-    if sf and conv.get("leadId"):
+    queued = bool(sf and conv.get("leadId"))
+    if queued:
         # Se espera este future (el turno espera todos al final): la instancia podría congelar el CPU
         # antes de que el PATCH termine y dejar campos sin actualizar.
         turn.fire(update_salesforce_lead, sf, conv["leadId"], p["input"], org_timezone(turn.org_id, turn.db))
@@ -412,23 +434,31 @@ def _actualizar_lead(conv: dict, p: dict) -> None:
         log.info("actualizar_lead_skipped conv_id=%s reason=sin leadId o sin Salesforce", turn.conv_id)
     if lead_input_has_completion_data(p["input"]):
         turn.fire(turn.db.collection("conversations").document(turn.conv_id).update, {"completedLead": True})
+    if not queued:
+        return ActionResponse.failure(PRECONDICION_FALLIDA, "Todavía no hay un Lead en Salesforce que actualizar")
+    # El PATCH corre en segundo plano: el resultado confirma que se pidió, no que Salesforce ya respondió.
+    return ActionResponse.success({"salesforce": "en_proceso"}, status="accepted")
 
 
 @tool("crear_cita", vertical=V)
-def _crear_cita(conv: dict, p: dict) -> None:
+def _crear_cita(conv: dict, p: dict) -> ActionResponse:
     turn, sf = p["turn"], _sf(p)
     tz = org_timezone(turn.org_id, turn.db)
     if parse_appointment_datetime(p["input"], tz) is None:
         # Sin fecha/hora usables no se agenda nada, y se reemplaza la confirmación del bot (que sería
         # falsa) por una petición de repetir los datos: una cita con fecha inventada es peor que ninguna.
         turn.response = CITA_INPUT_INVALIDO_MESSAGE
-        return
+        return ActionResponse.failure(DATOS_INVALIDOS, "La fecha u hora no son válidas: pide al cliente que las confirme")
     turn.fire(turn.db.collection("conversations").document(turn.conv_id).update,
               {"appointmentStatus": "cita_bot", "appointmentDate": firestore.SERVER_TIMESTAMP})
     turn.fire(outcomes.set_conversation_outcome, turn.conv_id, "cita_bot", db=turn.db)
-    if sf and conv.get("leadId"):
-        turn.fire(create_salesforce_appointment, sf, conv["leadId"], p["input"], conv, tz)
-        turn.fire(assign_by_schedule, turn.bot, sf, conv["leadId"], turn.conv_id)
+    if not sf:
+        return ActionResponse.success({"salesforce": "no_configurado"})
+    if not conv.get("leadId"):
+        return ActionResponse.success({"salesforce": "omitido_sin_lead"})
+    turn.fire(create_salesforce_appointment, sf, conv["leadId"], p["input"], conv, tz)
+    turn.fire(assign_by_schedule, turn.bot, sf, conv["leadId"], turn.conv_id)
+    return ActionResponse.success({"salesforce": "en_proceso"}, status="accepted")
 
 
 @tool("handoff_gate", vertical=V)

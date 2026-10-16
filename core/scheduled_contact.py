@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from google.cloud import firestore
 
+from contracts.actions import DATOS_INVALIDOS, ActionResponse
 from core.db import get_db
 
 log = logging.getLogger(__name__)
@@ -52,12 +53,14 @@ def clear_scheduled_contact(conv_id: str, db=None) -> None:
         log.error("Error quitando el contacto programado de %s: %s", conv_id, e)
 
 
-def _agendar(conv_data: dict, params: dict) -> None:
+def _agendar(conv_data: dict, params: dict) -> ActionResponse:
     turn = params["turn"]
     when = parse_scheduled_contact_time((params.get("input") or {}).get("fecha_hora", "").strip(), org_timezone(turn.org_id, turn.db))
-    if when:
-        turn.fire(turn.db.collection("conversations").document(turn.conv_id).update,
-                  {"scheduledContactAt": when, "scheduledContactSavedAt": firestore.SERVER_TIMESTAMP})
+    if not when:
+        return ActionResponse.failure(DATOS_INVALIDOS, "No se entendió la fecha y hora del recordatorio: pide al cliente que la repita")
+    turn.fire(turn.db.collection("conversations").document(turn.conv_id).update,
+              {"scheduledContactAt": when, "scheduledContactSavedAt": firestore.SERVER_TIMESTAMP})
+    return ActionResponse.success({"programado_para": when.isoformat()})
 
 
 def _cancelar(conv_data: dict, params: dict) -> None:
