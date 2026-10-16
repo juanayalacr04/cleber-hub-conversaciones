@@ -174,7 +174,7 @@ Si la marca entrara al registro serían 5 marcas × 3 verticales = **15 handlers
 
 ### 4.5 Los bots externos entran por la misma puerta
 
-El `actions: []` del contrato de bot externo alimenta **el mismo registro**. Un bot de Abacus y uno externo despachan idéntico; el núcleo no distingue de dónde vino la acción.
+El `actions: []` del contrato de bot externo alimenta **el mismo registro**. Un bot de Abacus y uno externo despachan idéntico; el núcleo no distingue de dónde vino la acción. *(Desde §7.8 los bots de Abacus pueden además pedir la acción por HTTP al endpoint; el registro es el mismo.)*
 
 Para Valuación, el handler es de **nivel 3**: reenviar al sistema origen por el contrato de salida. Por eso dar de alta el módulo no toca `core/` — que es literalmente la prueba de aceptación de §3.
 
@@ -320,7 +320,7 @@ organizations/{id}              → la marca. Una sola salesforceConfig, un solo
     .vertical                   → denormalizado del bot activo
     .customerId                 → apunta a customers/{orgId}_{phone}
     .source / .externalId       → qué sistema la disparó
-customers/{orgId}_{phone}       → la ficha única, con el timeline cruzado
+customers/{orgId}_{phone}       → la ficha única y el EXPEDIENTE del bot: datos del cliente + resumen de cada conversación pasada. Clave: organización + teléfono normalizado (§7.7)
 ```
 
 **Se escriben desde la primera conversación, así que nunca necesitan backfill.**
@@ -377,6 +377,78 @@ El dashboard se construye desde el principio como **el shell único de la operac
 - **Una sesión y un padrón de usuarios.** El dashboard emite el token; los servicios externos lo validan y aplican los permisos por marca y equipo que ya administra la plataforma.
 - **Un punto de extensión documentado** para que un módulo agregue sus pantallas consumiendo su propia API, y para que aporte su panel dentro de las pantallas compartidas (§2).
 - ✅ **Opción A** (decisión 4 de la Fase D): las vistas de cada módulo viven en el repo unificado y llaman a la API del módulo.
+
+### 7.7 Arquitectura de tres funciones
+
+> Añadido el 16 de octubre de 2026, a partir del diagrama "Mensajes en tres funciones". La lógica de negocio ya portada se conserva; cambian el empaquetado, la cola entre funciones y quién escribe en Firestore.
+
+| Función | Responsabilidad | Código de hoy que la compone |
+|---|---|---|
+| **1 · Router de canal** | Valida la firma del webhook, deduplica por ID, responde 200 al instante, normaliza el mensaje y envía por el proveedor. Es la única que conoce los formatos de Twilio, Meta y ValueText | `channels/` |
+| **2 · Reglas de negocio** | Busca bot y conversación, carga el expediente, aplica horario, situaciones, escalamiento y opt-out, guarda estado y mensajes, actualiza el expediente al cerrar, corre inactividad y contacto programado, lanza campañas y recordatorios. **Es la única que escribe en Firestore** | `core/`, `modules/`, `crm/`, `jobs/` |
+| **3 · Bot** | Llama a Abacus, devuelve texto y acciones, genera resúmenes. Sin estado. Si pide escalar o cerrar, la función 2 lo aplica | `ai/` |
+
+**Cómo se comunican**
+- Router → reglas: **cola asíncrona**, con el mensaje canónico.
+- Reglas → router: "canal + texto", para el envío.
+- Reglas → bot: **HTTP síncrono**, con mensaje y expediente.
+- Bot → reglas: el resultado. El resumen al cerrar corre fuera del camino de respuesta.
+
+**La plataforma web lee y pide; no decide.** Las pantallas leen Firestore en vivo (el tiempo real no cambia). Toda escritura la piden a la función 2, que valida permisos y reglas de cambio de estado antes de escribir. `firestore.rules` queda solo para lectura. Los crons del dashboard solo avisan la hora (cada 15 minutos) y la función 2 decide qué toca.
+
+**Por qué:** los permisos y las reglas de cambio de estado hoy están repetidos en `firestore.rules`, en la web y en las funciones, y pueden contradecirse. Con una sola puerta hay un solo lugar donde se decide quién puede hacer qué.
+
+**Expediente por cliente**
+- **Clave:** organización y teléfono normalizado (`{orgId}_{phone}`), igual para todos los canales. Un mismo cliente no mezcla historial entre marcas.
+- **Contenido:** datos del cliente (nombre, interés, estado del Lead, citas) y un resumen corto de cada conversación pasada.
+- **Al bot le llegan** los datos y los últimos resúmenes, no el historial completo.
+- **Cómo se llena:** al cerrar una conversación (cierre normal o por inactividad), la función 2 pide el resumen a la 3 y lo guarda.
+- **Al migrar arranca vacío.** No se generan resúmenes de conversaciones históricas.
+
+**Reparto de tools: resuelto** (§7.8). La función 3 no ejecuta tools de negocio; los bots piden cada acción a la función 2.
+
+**Lo que ya queda cubierto por esta arquitectura:** la validación de firma de los webhooks (hoy no existe), el envío por los tres proveedores desde un solo lugar y las credenciales de Twilio, Meta, ValueText y Abacus en Secret Manager.
+
+### 7.8 Endpoint de acciones: los bots piden, el hub ejecuta
+
+> Añadido el 16 de octubre de 2026. Cierra la decisión de reparto de tools (§14).
+
+**Antes.** El bot ejecutaba (o decía que ejecutaba) sus tools dentro de Abacus y el hub lo detectaba después leyendo la respuesta: `toolResults`, segmentos `Executing <tool>` con los params dentro de un bloque de código, o segmentos `action` de texto plano en los workflows (sin params). Es frágil: la "trampa de los dos segments" ya costó el 100% de los params de una cita.
+
+**Ahora.** El bot pide cada acción al hub con una llamada HTTP y recibe el resultado:
+
+```
+POST /actions/execute            (función 2)
+{ action: "CrearCitaQuiter", conversationId, idempotencyKey, data: { fecha, hora, sede, ... } }
+→ { ok, status, result }  |  { ok: false, error: { code, retryable, message } }
+```
+
+**Una fuente, dos puertas.** El registro de handlers de §4 sigue siendo el único catálogo. Se le agrega un contrato por acción (schema de `data`, valor de retorno, si se expone a bots):
+
+| Quién llama | Cómo |
+|---|---|
+| IA Workflow (Servicio) | Un paso HTTP del workflow al endpoint |
+| ChatLLM (Ventas) | Un tool personalizado en Abacus que hace el mismo POST (a confirmar, 1.47) |
+| Bot externo | Sigue devolviendo `actions: [...]`; el pipeline las despacha como hoy. **Conviven** |
+| Eventos del núcleo (`handoff_applied`, `opt_out`, `inactivity_closed`) | No cambian: los emite el pipeline, no un bot |
+
+**Reglas del endpoint**
+- **El servidor pone el contexto.** Teléfono, organización, marca, vertical y nombre salen de `conversationId`. El bot solo manda lo que él conoce (fecha, hora, sede, modelo). Nunca se confía en un dato de cliente que venga del modelo.
+- **Lista de acciones por bot.** Un bot solo invoca las acciones que su configuración habilita (`bots/{id}.tools[]`, ya existe por 1.12).
+- **Idempotencia.** Un reintento del workflow o una repetición del LLM no duplica la cita ni el Lead.
+- **Errores tipados.** `retryable`, `sin_disponibilidad`, `datos_invalidos`, `fuera_de_horario`: el workflow ramifica y el LLM puede explicarle al cliente.
+- **El handoff sigue decidiéndolo el hub.** El gate de horario y módulo se aplica dentro del endpoint y el bot recibe "escalado" o "fuera de horario" en el resultado.
+- **Resultado pensado para el modelo:** corto y legible, no la respuesta cruda de Salesforce o Quiter.
+
+**Qué gana:** el hub deja de adivinar qué hizo el bot, las credenciales de Salesforce y Quiter viven solo en la función 2, hay un solo registro y auditoría de acciones, y se elimina el parseo de segmentos en lo que migre.
+
+**Qué cuesta**
+- **Reentrada.** La función 2 espera a la 3 de forma síncrona y Abacus llama de vuelta a la 2 durante ese turno. Hay que cuidar claims, concurrencia y timeouts (1.45).
+- **La acción es una API pública.** Renombrar una acción o cambiar su schema rompe workflows. Se versiona o se agregan solo campos opcionales.
+- **El workflow depende de que el hub responda.** Una acción lenta puede vencer el timeout del workflow; si pasa, el endpoint responde asíncrono (`202` + consulta).
+- **ChatLLM no está garantizado.** Depende de que Abacus permita HTTP saliente y pasar el `conversationId` al tool. Si no, ChatLLM mantiene la detección posterior y solo migran los workflows.
+
+**Qué se conserva:** todos los handlers de `modules/` (no se mueven), el registro de §4 y `core/idempotency.py`. `ai/parsing.py` sigue para el bot externo y para lo que no migre.
 
 ### Criterio de salida
 
@@ -439,9 +511,25 @@ Las **52 funciones exclusivas de Comercial** y las **7 de Servicio** no se porta
 
 `voice_llm_endpoint` y `assign_agent_by_lead` son entry points de `main.py` que **no aparecen** en la lista de deploy del `CLAUDE.md` raíz ni en `docs/google-cloud/comandos_deploy.md`. Confirmar si están en uso antes de decidir si se portan.
 
+### Partir en tres funciones (bloque 1.g)
+
+Se hace **después de portar lo conversacional y antes del end-to-end y de la Fase 2**, para que el primer tráfico migrado ya entre por la arquitectura final (§7.7). Trabajo nuevo:
+
+1. Contratos entre funciones y cola con orden por conversación.
+2. Función 3 (bot) sin estado, y función 1 (router) con las tres rutas de webhook.
+3. Endpoint de acciones en la función 2, con los permisos que hoy están en `firestore.rules` y `lib/authz.ts`.
+4. Expediente por cliente y resumen al cerrar.
+5. Migrar a la función 2 cada escritura de pantallas, rutas `/api` y crons; después, recortar `firestore.rules` a solo lectura.
+6. Credenciales de los proveedores a Secret Manager y validación de firma de cada webhook.
+
+**Lo ya portado que se rehace** (el detalle está en `TAREAS_PENDIENTES.md`): el pipeline deja de llamar al bot y al canal en proceso, `ai/` se despliega aparte, y las rutas `/api/cron/*` pierden su lógica.
+
 ### Criterio de salida
 
-- [ ] Las 5 Cloud Functions corriendo, con flags de capacidad explícitos
+- [ ] Las 3 funciones corriendo (router, reglas, bot) con la cola entre las dos primeras, con flags de capacidad explícitos por función
+- [ ] Validación de firma en cada webhook y credenciales en Secret Manager
+- [ ] Toda escritura de las pantallas pasa por la función 2, y `firestore.rules` solo permite lectura
+- [ ] Expediente guardándose al cerrar y llegando al bot
 - [ ] Dashboard portado, con los crons configurados
 - [ ] Una conversación completa end-to-end por los 3 proveedores
 - [ ] Las 59 funciones del inventario portadas a su destino, con las ⚠️ de su §7 confirmadas
@@ -465,6 +553,8 @@ Las **52 funciones exclusivas de Comercial** y las **7 de Servicio** no se porta
 | `api/web-chat/init` | Widget web | Otro canal |
 
 ### El contrato
+
+> Desde la arquitectura de tres funciones (§7.7), este endpoint es una acción de la función 2, no una ruta de Next.js. El envío de la plantilla lo hace la función 1.
 
 ```
 POST /api/integrations/conversations
@@ -526,8 +616,8 @@ Hay que mudar **conversaciones en curso**, con WhatsApp abierto, ventanas de 24h
 
 1. ✅ **Migración en corte** (decisión 5 de la Fase D) — sin doble escritura. Definir ventana, duración máxima tolerable y punto de no retorno.
 2. Migrar organizaciones, equipos, números, bots, usuarios y configuración.
-3. Migrar conversaciones y mensajes, poblando `vertical` y `customerId` al escribir.
-4. Reapuntar los webhooks de los proveedores al GCP nuevo. **Los números no cambian.**
+3. Migrar conversaciones y mensajes, poblando `vertical` y `customerId` al escribir. **El expediente arranca vacío**: no se generan resúmenes de conversaciones históricas.
+4. Reapuntar los webhooks de los proveedores al GCP nuevo (las rutas de la función 1). **Los números no cambian.** La validación de firma y las credenciales en Secret Manager deben estar listas antes del corte.
 5. **Marca por marca, empezando por la de menor volumen** — esa primera marca es el rodaje de la plataforma (§5).
 6. Plan de rollback explícito: la plataforma vieja se mantiene encendida y capaz de recibir hasta cerrar cada corte.
 
@@ -645,8 +735,11 @@ Respondidas en [`TAREAS_PENDIENTES.md`](TAREAS_PENDIENTES.md) §Fase D, 2026-10-
 | 7 | ¿Dónde vive el motor de bot / Web Chat? | **El Web Chat no está en uso** | `bot-engine.ts` no se porta. Se cae la fase de duplicación Python ↔ TS (§7.5) |
 | 8 | ¿Hay sandbox de Salesforce para dev? | **No; se deja como está** | Escribir a producción es aceptable. Sin guardarrail. Ver §14.1 |
 | 9 | ¿Quién hospeda el agente de Valuación? | **Un IA Workflow de Abacus** | ⏸️ Fuera de alcance — Apéndice A |
+| 11 | Clave del expediente | **Organización + teléfono normalizado** (`{orgId}_{phone}`) | Un mismo cliente no mezcla historial entre marcas (§7.7) |
+| 12 | ¿El expediente se rellena al migrar? | **No, arranca vacío** | La Fase 3 no genera resúmenes históricos |
+| 13 | **Reparto de tools** | **La función 3 no ejecuta tools de negocio.** Los bots piden cada acción al endpoint de la función 2 (`action` + `data`); `actions: [...]` del bot externo convive | §7.8. Tareas 1.43 a 1.48. Los handlers de Ventas no se mueven |
 
-### Abierta — la única que queda en este plan
+### Abiertas
 
 | # | Decisión | Bloquea |
 |---|---|---|

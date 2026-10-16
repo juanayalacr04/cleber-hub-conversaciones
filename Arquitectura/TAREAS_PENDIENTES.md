@@ -4,7 +4,9 @@
 
 Checklist de trabajo. El porqué de cada cosa está en [`PLAN_TRABAJO_CENTRALIZACION.md`](PLAN_TRABAJO_CENTRALIZACION.md); el detalle de las funciones, en [`INVENTARIO_FUNCIONES_CLASIFICADAS.md`](INVENTARIO_FUNCIONES_CLASIFICADAS.md).
 
-**Leyenda:** 🔒 bloquea otras tareas · 💻 se puede hacer local, sin GCP · ⚠️ necesita confirmación antes de ejecutar
+**Leyenda:** 🔒 bloquea otras tareas · 💻 se puede hacer local, sin GCP · ⚠️ necesita confirmación antes de ejecutar · 🔁 se rehace o se mueve por la arquitectura de tres funciones · ➕ tarea nueva · ⏩ se adelanta
+
+> **16 de octubre de 2026 — arquitectura de tres funciones.** El diagrama "Mensajes en tres funciones" (router de canal, reglas de negocio, bot) cambia cómo se despliega lo ya portado y quién escribe en Firestore. La lógica de negocio de `core/`, `modules/` y `crm/` se conserva. Cambian el empaquetado, la cola entre funciones, la validación de firmas, la escritura única por la función 2 y el expediente por cliente. Las tareas afectadas llevan 🔁 y el trabajo nuevo está en **1.g**. Decisiones nuevas: D13 a D15.
 
 ---
 
@@ -37,7 +39,10 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 | D6 | Decidir **opción A o B** para las pantallas de módulo (repo unificado vs. microfrontend) R=opcion A, aunque no entendí muy bien, cada módulo tendrá sus propias vistas? porque eso es lo que necesito | Fase 0 |
 | D7 | Decidir **dónde vive el motor de bot**: el Web Chat llama a la Cloud Function, o se extrae a un servicio único R=pendiente el wbe chat ya que actualmente no se utiliza | Fase 0 |
 | D8 | Decidir **¿hay ventana de mantenimiento?** → corte vs. doble escritura R= la idea es que sí se realice un corte | Fase 3 |
-| D9 | Decidir **qué marca se migra primero** (recomendado: la de menor volumen) | Fase 3 |
+| D9 | Decidir **qué marca se migra primero** (recomendado: la de menor volumen) R=sigue pendiente | Fase 3 |
+| D13 | ✅ **Clave del expediente:** teléfono normalizado **y** organización (`{orgId}_{phone}`). Un mismo cliente no mezcla historial entre marcas | Cerrada |
+| D14 | ✅ **Reparto de tools (16 oct 2026):** la función 3 **no ejecuta tools de negocio**. Los bots (IA Workflow y ChatLLM) piden cada acción al **endpoint de acciones de la función 2** (`POST /actions/execute`, con `action` y `data`), que la despacha al registro de handlers. El contrato `actions: [...]` del bot externo **convive**. Ver §7.8 del plan | Cerrada → 1.43 a 1.48 |
+| D15 | ✅ **Expediente al migrar:** arranca vacío. No se generan resúmenes de conversaciones históricas | Cerrada |
 | ~~D10~~ | ~~Cuándo entra Valuación~~ | ⏸️ Fuera de alcance |
 | ~~D11~~ | ~~Quién hospeda el agente de Valuación~~ — respondido: IA Workflow de Abacus | ⏸️ Fuera de alcance |
 | ~~D12~~ | ~~Ofertas de compra / toma a cuenta en Salesforce~~ | ⏸️ Fuera de alcance |
@@ -61,19 +66,24 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 - [x] 0.5 🔒 Crear el repo con el dueño definido en D1
 - [x] 0.6 Estructura modular: `main.py` solo con entry points, más `core/`, `channels/`, `ai/`, `crm/`, `modules/`, `integrations/`, `jobs/`
+  - 🔁 Hoy es un solo paquete con 5 entry points. Pasa a 3 despliegues: router (`channels/`), reglas (`core/`, `modules/`, `crm/`, `jobs/`) y bot (`ai/`). Ver 1.g
 - [x] 0.7 Montar el **registro de handlers por vertical** en `core/tools.py`
 - [x] 0.8 Reglas de import: globales solo en `core/db.py`; `core/` **nunca** importa de `modules/`; ningún archivo llamado `twilio.py`
+  - 🔁 Regla nueva: la función de reglas **no importa `ai/`**; habla con el bot solo por HTTP. El router no importa `core/` ni `modules/`
 
 ### Seguridad
 
 - [x] 0.9 🔒 Portar las ~200 líneas de reglas granulares del repo de Servicio
 - [x] 0.10 Extender las reglas para validar también **equipo/vertical**, no solo organización
+  - 🔁 Las reglas de lectura se conservan. Las de escritura (`create`, `update`, `delete`, `write`) se eliminan cuando la función 2 sea la única puerta (1.40). La lógica de `canAccessTeam` se porta a Python (1.37)
 - [ ] 0.11 **Pruebas automatizadas de reglas** con `@firebase/rules-unit-testing`: un usuario de la organización A no puede leer documentos de la B — **Diferida:** se probarán con datos reales sobre GCP dev (`dev-hub-conversaciones`), sin emulador
+  - 🔁 Se simplifica: con reglas solo de lectura basta probar el aislamiento por organización y equipo en lecturas
 
 ### Esquema
 
 - [x] 0.12 `teams/{id}.vertical` y `conversations/{id}.vertical` (denormalizado)
 - [ ] 0.13 `customers/{orgId}_{phone}` + `conversations.customerId` — se escriben desde la primera conversación, sin backfill después
+  - 🔁 ⏩ Pasa a ser el **expediente** (D13: clave teléfono + organización): datos del cliente más resumen de cada conversación pasada. Lo consume el bot, así que se adelanta. Se construye en 1.38
 - [ ] 0.14 `conversations.source` / `.externalId`
 - [x] 0.15 **Unicidad de `sfBrandCode`** (validación o índice)
 - [x] 0.16 Base **default** de Firestore, location `nam5`; Functions en `us-central1`
@@ -82,6 +92,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 - [ ] 0.17 Navegación por módulo, no por sistema
 - [ ] 0.18 Una sesión y un padrón de usuarios; los servicios externos validan ese token
+  - 🔁 La función 2 es quien valida el token y los permisos (1.37). Hoy esa validación está en `lib/auth-middleware.ts` y `lib/authz.ts`, en la web
 - [ ] 0.19 Punto de extensión documentado para que un módulo agregue pantallas
 
 ### Nube (cuando haga falta el primer despliegue real)
@@ -89,6 +100,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [ ] 0.20 Crear GCP (según D5), Vercel y Firestore
 - [ ] 0.21 Pipeline de deploy con `--project` **fijado explícitamente**
 - [ ] 0.22 Gestión de secretos por ambiente
+  - 🔁 Los despliegues pasan de 5 funciones a 3 más una cola, y 0.21 debe cubrirlos con `--project` explícito. Secretos: ver 1.41
 
 ---
 
@@ -99,6 +111,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 ### 1.a Capa de parseo — va primero, desbloquea todo lo demás
 
 - [x] 1.1 `ai/parsing.py` con **estrategia por motor**: `chatllm`, `workflow`, `external`
+  - 🔁 El código y las pruebas se conservan. Pasa a vivir en la función 3, que devuelve "texto + acciones" ya parseado (1.35)
 - [x] 1.2 Colapsar las **6 `check_*_tool_call`** de Comercial en la estrategia `chatllm`
 - [x] 1.3 Colapsar `get_ai_outcome_action` + `get_broadcast_response_action` en la estrategia `workflow`
 - [x] 1.4 ⚠️ **Prueba que cubra la trampa de los dos segments de Abacus** — quedarse con el primero que hace match del title perdía el 100% de los params
@@ -106,6 +119,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 ### 1.b Núcleo — 24 funciones, sin decisiones de negocio
 
 - [x] 1.5 Las **18 de núcleo** a `core/`, `channels/` y `ai/` (incluye las 5 de plataforma que aporta Servicio) — Hechas las 18 de núcleo: conversaciones, números, handoff, claims, idempotencia, canales, outcomes y campañas. Pendiente aparte: el motor (envío al bot), el pipeline de mensajes y los jobs, que son funciones comunes con drift
+  - 🔁 En `core/pipeline.py`, `engine.send_to_bot` pasa a llamada HTTP síncrona a la función 3, y el envío (`send_whatsapp_message`) pasa a pedirse a la función 1. Lo demás del pipeline se conserva (1.35, 1.36)
 - [x] 1.5b **Opt-out universal (D4):** `_is_stop_message` en `core/` → **cierra la conversación en los tres módulos**. Lo que cada módulo hace además se despacha como evento `opt_out` al handler: Ventas marca el Lead `Finalizado por cliente` (`_update_lead_on_stop`), Servicio solo cierra. Es el caso de §4 en su forma más limpia
 - [x] 1.6 Las **6 de routing** a `core/routing.py` (motor de situaciones; las rutas ya son config)
 - [x] 1.7 ⚠️ Corregir `get_whatsapp_number_by_brand`: **`.limit(1)` sin `orderBy`** es la colisión silenciosa de `sfBrandCode`
@@ -129,31 +143,65 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 ### 1.e Handlers de módulo
 
 - [x] 1.18 Las **19 de Ventas** a `modules/ventas.py`, cada una registrada contra el núcleo
+  - 🔁 Con D14 cerrada, **todos se quedan en la función 2** y el código no se mueve. Lo que cambia es la forma de invocación: además del evento del pipeline, los handlers expuestos se invocan desde el endpoint de acciones y **devuelven un resultado** (hoy devuelven `None`). Ver 1.43
 - [x] 1.19 ⚠️ Decidir si el **contacto programado** (3 funciones) es de Ventas o genérico — si es genérico, sube a `core/`
 - [x] 1.20 ⚠️ Separar las dos **mixtas**: `_block_handoff_out_of_hours` (gate core + lead Ventas) y el par de `claim`
 - [x] 1.21 `modules/servicio.py` — nace prácticamente vacío; verificar que no quede nada mal clasificado
 
 ### 1.f Dashboard y despliegue
 
-- [ ] 1.22 Portar el dashboard: bandeja, ficha de conversación, administración, métricas
+- [x] 1.22 Portar el dashboard: bandeja, ficha de conversación, administración, métricas
+  - 🔁 Hecha en los commits `c11f69d` y `6772dfd`. Las lecturas en vivo se conservan; **cada escritura directa a Firestore se redirige a la función 2** (1.39)
 - [ ] 1.22b **Panel por módulo en la ficha de conversación** (D6): slot que renderiza según `conversations.vertical` — Lead y cita en Ventas, outcome en Servicio, oferta en Valuación. El núcleo del dashboard sin `if vertical ==`
-- [ ] 1.22c ✅ **No portar `bot-engine.ts` (D7).** El Web Chat no está en uso, así que la duplicación Python ↔ TypeScript **desaparece del alcance**. Si el canal vuelve, llama a la Cloud Function en vez de reimplementar el motor
-- [ ] 1.23 🔒 **Decidir qué versión gana en cada archivo con drift antes de portar** (`conversations/page.tsx`: 409 líneas distintas; `bot-engine.ts`: 64)
-- [ ] 1.24 **Inventario del dashboard TypeScript** — el de `main.py` no lo cubre
+- [x] 1.22c ✅ **No portar `bot-engine.ts` (D7).** El Web Chat no está en uso, así que la duplicación Python ↔ TypeScript **desaparece del alcance**. Si el canal vuelve, llama a la Cloud Function en vez de reimplementar el motor
+- [x] 1.23 🔒 **Decidir qué versión gana en cada archivo con drift antes de portar** (`conversations/page.tsx`: 409 líneas distintas; `bot-engine.ts`: 64)
+- [x] 1.24 **Inventario del dashboard TypeScript** — el de `main.py` no lo cubre
 - [ ] 1.25 Flags de capacidad **explícitos** en los comandos de deploy (`--max-instances=300 --concurrency=40`); un redeploy sin ellos resetea a los defaults
-- [ ] 1.26 ⚠️ Confirmar si `voice_llm_endpoint` y `assign_agent_by_lead` están en uso — no aparecen en los comandos de deploy documentados
+  - 🔁 Se fijan **por función**: el router con alta concurrencia, y el bot con timeout largo por la llamada a Abacus
+- [x] 1.26 ✅ `voice_llm_endpoint` y `assign_agent_by_lead` **no se usan** (confirmado 16 oct 2026): no se portan a las tres funciones. Queda por borrar la ruta `api/conversations/assign-agent-by-lead` ya portada
 
 ### Jobs
 
 - [x] 1.31 `jobs/inactivity.py`: recordatorio de inactividad y contacto programado, un solo job para todos los módulos (el cierre del Lead de Ventas es el evento `inactivity_closed`)
+  - 🔁 Se queda en la función 2. Cambia la señal (cada 15 min, sin lógica en el cron, 1.32) y que al cerrar pide el resumen para el expediente (1.38)
 - [ ] 1.32 Portar los **crons del dashboard** (Vercel) que invocan al job y deciden qué conversación y cuándo: `inactivity-followup`, `close-inactive`, `scheduled-contact`, `verify-lead-templates` (Comercial) y `appointment-reminders`, `no-show` (Servicio). Viven en `apps/web/src/app/api/cron/`
+  - 🔁 Es el mayor movimiento. La lógica de horarios, Salesforce y plantillas que hoy está en esas rutas pasa a la función 2. El cron queda como "solo avisa la hora" (1.39)
+
+### 1.g Partir en tres funciones ➕
+
+> Se hace **antes de 1.29 y de la Fase 2**, para que el primer tráfico migrado ya entre por la arquitectura final. Ver §7.7 del plan.
+
+- [ ] 1.33 ➕ 🔒 **Contratos entre funciones:** mensaje canónico (router → reglas), mensaje a enviar (reglas → router), resultado del bot (reglas ↔ bot: texto, más acciones solo para el bot externo) y **petición/respuesta de acción** (bot → reglas, 1.44). D14 está cerrada
+- [ ] 1.34 ➕ **Cola entre router y reglas**, con orden por conversación y sin romper `core/claims.py` ni la deduplicación de `processed_events`
+- [ ] 1.35 ➕ **Función 3 (bot):** entrada HTTP propia, sin estado. Mueve `ai/engine.py` y `ai/parsing.py`; usa el expediente y devuelve el resultado. **No ejecuta tools de negocio** (D14): `parsing.py` queda para el bot externo, para los tools de ChatLLM que no se migren (1.47) y para texto y vocabularios
+- [ ] 1.36 ➕ **Función 1 (router):** una sola función con las rutas `/webhook/twilio`, `/webhook/meta` y `/webhook/valuetext`. Normaliza, deduplica, responde 200 y envía por el proveedor lo que pida la función 2
+- [ ] 1.37 ➕ **Endpoint de acciones en la función 2:** valida el token de Firebase y los permisos por organización, equipo y agente asignado (lo que hoy hacen `firestore.rules` y `lib/authz.ts`)
+- [ ] 1.38 ➕ **Expediente** (`{orgId}_{phone}`, D13): datos del cliente y resumen de cada conversación pasada. Al cerrar (normal o por inactividad), la función 2 pide el resumen a la 3 y lo guarda **fuera del camino de respuesta**. Al bot le llegan los datos y los últimos resúmenes, no el historial completo. Arranca vacío (D15)
+- [ ] 1.39 ➕ **Migrar cada escritura de las pantallas y rutas `/api` a la función 2:** tomar y cerrar conversación, etiquetas, bots, equipos, números, plantillas, campañas (`api/broadcasts/*`), mensajes (`api/send-message`), altas (`api/invite`), `api/conversations/*`, `api/integrations/situacion-detectada` y los 6 crons de 1.32
+- [ ] 1.40 ➕ **Recortar `firestore.rules` a solo lectura** y borrar la lógica duplicada en `/api`. Después de 1.39
+- [ ] 1.41 ➕ ⚠️ **Credenciales de Twilio, Meta, ValueText y Abacus a Secret Manager.** La decisión #16 solo movió las de Salesforce, y hoy el GET de Meta busca `metaWebhookVerifyToken` en Firestore. Hay que decidir cómo se manejan los tokens por número
+- [ ] 1.42 ➕ ⚠️ **Validar la firma de cada webhook** en la función 1: Twilio, Meta y ValueText (el SOAP de Salesforce no tiene firma estándar: definir secreto compartido o lista de IPs). Hoy no existe ninguna validación. **Debe estar lista antes del corte de la Fase 3**
+
+### 1.h Endpoint de acciones para los bots (D14) ➕
+
+> Los bots dejan de devolver acciones para que el hub las detecte. Piden cada acción al hub y reciben el resultado. Un solo catálogo y dos puertas: HTTP para IA Workflows y ChatLLM. Ver §7.8 del plan.
+
+- [ ] 1.43 ➕ 💻 **Registro con contrato** en `core/tools.py`: cada acción declara schema de `data`, valor de retorno (`ok`, `status`, `result` o `error` con `code` y `retryable`) y flag `expuesta_a_bots`. Los handlers de Ventas devuelven resultado en vez de `None`. Un tool no expuesto no se puede invocar desde fuera
+- [ ] 1.44 ➕ 🔒 **`POST /actions/execute` en la función 2:** `{action, conversationId, idempotencyKey, data}`. El cliente, la organización y la vertical **salen de `conversationId`**, nunca de `data`. Autenticación de servicio por bot (distinta de la de usuarios, 1.37), lista de acciones permitidas por bot y errores tipados. Idempotencia reusando `core/idempotency.py`
+- [ ] 1.45 ➕ ⚠️ **Reentrada:** mientras la función 2 espera a la 3 (HTTP síncrono), Abacus puede llamar de vuelta a la función 2. Verificar que `core/claims.py` no se bloquea a sí mismo, que la concurrencia y los timeouts alcanzan (el bot ya tiene timeout largo, 1.25) y que una acción lenta de Salesforce no vence al turno
+- [ ] 1.46 ➕ **El pipeline lee las acciones ejecutadas del turno** (registradas por el endpoint en la conversación) en lugar de parsear la respuesta del bot. El handoff y el fuera de horario se leen del **resultado** de la acción: el gate de horario y módulo se aplica dentro del endpoint
+- [ ] 1.47 ➕ ⚠️ **Prueba del ChatLLM (opción A):** tool personalizado en Abacus que hace el POST al endpoint con `conversationId` y los params del modelo. Abacus **sí permite** llamadas HTTP salientes (confirmado 16 oct 2026): basta crear el tool. Falta confirmar que se pueda pasar el `conversationId` al tool. **Si no se puede**, ChatLLM sigue con detección posterior (`ai/parsing.py`) y solo migran los workflows
+- [ ] 1.48 ➕ **Migrar los bots a la forma nueva:** los IA Workflows de Servicio llaman al endpoint en vez de devolver segmentos `action` (se retira la estrategia `workflow` de `parsing.py` cuando el último migre) y, si 1.47 sale bien, los tools del ChatLLM de Ventas. Cada cambio se hace en Abacus, coordinado con el corte de la Fase 3 o la 4
 
 ### Criterio de cierre
 
 - [x] 1.27 `core/` **sin un solo `if vertical == ...`** y sin importar de `modules/`
 - [x] 1.28 `cita_agendada` despachando a handlers distintos en Ventas y Servicio
 - [ ] 1.29 Conversación end-to-end por los 3 proveedores
+  - 🔁 Se mueve hasta después de 1.g: el recorrido cruza cola y tres funciones
 - [ ] 1.30 Bot `type: "external"` validado contra un stub
+  - 🔁 Se valida sobre la función 3
+- [ ] 1.30b ➕ Una acción pedida por el endpoint (1.44) corre el mismo handler que la pedida por el pipeline, y devuelve el mismo efecto en Salesforce y en Firestore
 
 ---
 
@@ -162,19 +210,23 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 > Una sola puerta en vez de cuatro. Al cerrarla, la plataforma queda **certificada como preparada**.
 
 - [ ] 2.1 `POST /api/integrations/conversations` con **API key por sistema origen**
+  - 🔁 Deja de ser ruta de Next.js: es una acción de la función 2 (1.37)
 - [ ] 2.2 Idempotencia por `(source, externalId)` — reusa 1.8
 - [ ] 2.3 Resolución del número → organización, equipo, bot, proveedor
 - [ ] 2.4 Reusar conversación abierta o crear nueva, con ventana de 24h
 - [ ] 2.5 Envío de plantilla por los **3 proveedores**
+  - 🔁 El envío lo hace la función 1, a petición de la 2
 - [ ] 2.6 **Priming de la sesión** con `<<PLANTILLA>>` + `<<CONTEXTO>>` — sin esto el bot contesta sin saber qué se mandó
 - [ ] 2.7 Persistir `source` / `externalId` en la conversación
 - [ ] 2.8 **Reimplementar `lead_webhook` sobre este contrato**, no al lado
 - [ ] 2.9 Plan de absorción de los otros 3 caminos (broadcasts, `situacion-detectada`, web-chat)
+  - 🔁 `broadcasts` y `situacion-detectada` ya se migran como acciones de la función 2 en 1.39; aquí queda decidir cómo comparten el contrato
 
 ### El ensayo que certifica
 
 - [ ] 2.10 🔒 **Módulo de prueba end-to-end**: bot `external` contra un stub, número de prueba, `vertical: "prueba"` → disparar, conversar, handoff, cerrar
 - [ ] 2.11 🔒 **Verificar que corrió sin tocar `core/`.** Si hubo que tocarlo, el gancho está mal puesto y se corrige **antes** de migrar
+  - 🔁 Se amplía: sin tocar `core/`, el router ni el bot
 
 ---
 
@@ -185,7 +237,9 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [ ] 3.1 ✅ **Migración en corte (D8)** — sin doble escritura. Definir ventana, duración máxima tolerable y el punto de no retorno de cada corte
 - [ ] 3.2 Migrar organizaciones, equipos, números, bots, usuarios y configuración
 - [ ] 3.3 Migrar conversaciones y mensajes, **poblando `vertical` y `customerId` al escribir**
+  - 🔁 El expediente **arranca vacío** (D15): no se generan resúmenes de conversaciones históricas. Se llena con las conversaciones que cierren después del corte
 - [ ] 3.4 Reapuntar webhooks de los proveedores al GCP nuevo — **los números no cambian**
+  - 🔁 Las URLs nuevas son las rutas de la función 1. Requiere 1.41 y 1.42 listos antes del corte
 - [ ] 3.5 Plan de rollback: la plataforma vieja encendida y capaz de recibir hasta cerrar cada corte
 - [ ] 3.6 Migrar **marca por marca**, empezando por la de D9
 - [ ] 3.7 🔒 **Validar que la federación Ventas → Servicio sigue funcionando a través del corte** — durante esta ventana Ventas está en la nueva y Servicio en la vieja
@@ -215,12 +269,14 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 - [ ] 5.1 Dos destinos distintos: `derivar_fuera` (cierra) y **`transferir_modulo` (conserva el lead)**
 - [ ] 5.2 Generalizar la transferencia a los **3 proveedores** (hoy `_notify_situacion_interna` solo manda por ValueText y retorna `False` con los otros)
+  - 🔁 Se simplifica: la función 1 ya envía por los tres proveedores, así que basta pedirle el envío
 - [ ] 5.3 Redactar las plantillas de transferencia para que no se sientan como un rebote
 - [ ] 5.4 Validar transferencia entre organizaciones distintas
 
 ### Ficha de cliente
 
 - [ ] 5.5 Panel de cliente en la ficha de conversación, con timeline cruzado
+  - 🔁 El dato ya existe desde 1.38 (expediente). Solo falta la vista; la clave `{orgId}_{phone}` hace que el cruce sea por marca
 - [ ] 5.6 Vistas cruzadas por `organizationId + vertical` para el gerente de marca
 - [ ] 5.7 Métricas por marca × vertical
 
