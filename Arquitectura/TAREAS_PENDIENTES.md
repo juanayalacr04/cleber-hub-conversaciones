@@ -171,7 +171,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 > Se hace **antes de 1.29 y de la Fase 2**, para que el primer tráfico migrado ya entre por la arquitectura final. Ver §7.7 del plan.
 
-- [ ] 1.33 ➕ 🔒 **Contratos entre funciones:** mensaje canónico (router → reglas), mensaje a enviar (reglas → router), resultado del bot (reglas ↔ bot: texto, más acciones solo para el bot externo) y **petición/respuesta de acción** (bot → reglas, 1.44). D14 está cerrada
+- [x] 1.33 ➕ 🔒 **Contratos entre funciones** (paquete `contracts/`, sin pruebas automatizadas: se verifican a mano): mensaje canónico (router → reglas), mensaje a enviar (reglas → router), resultado del bot (reglas ↔ bot: texto, más acciones solo para el bot externo) y **petición/respuesta de acción** (bot → reglas, 1.44). D14 está cerrada
 - [ ] 1.34 ➕ **Cola entre router y reglas**, con orden por conversación y sin romper `core/claims.py` ni la deduplicación de `processed_events`
 - [ ] 1.35 ➕ **Función 3 (bot):** entrada HTTP propia, sin estado. Mueve `ai/engine.py` y `ai/parsing.py`; usa el expediente y devuelve el resultado. **No ejecuta tools de negocio** (D14): `parsing.py` queda para el bot externo, para los tools de ChatLLM que no se migren (1.47) y para texto y vocabularios
 - [ ] 1.36 ➕ **Función 1 (router):** una sola función con las rutas `/webhook/twilio`, `/webhook/meta` y `/webhook/valuetext`. Normaliza, deduplica, responde 200 y envía por el proveedor lo que pida la función 2
