@@ -26,9 +26,9 @@ import {
   where,
   onSnapshot,
   doc,
-  updateDoc,
 } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import { getModule } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
 
@@ -66,7 +66,7 @@ function botVertical(bot: { vertical?: string; category?: string | null }): stri
 export default function BotsPage() {
   const { module: moduleId } = useParams<{ module: string }>();
   const vertical = getModule(moduleId)?.vertical ?? null;
-  const { userData } = useAuth();
+  const { userData, user } = useAuth();
   const [bots, setBots] = useState<BotData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -104,9 +104,10 @@ export default function BotsPage() {
   const toggleBotStatus = async (botId: string, currentStatus: string) => {
     const newStatus = currentStatus === "active" ? "paused" : "active";
     try {
-      await updateDoc(doc(db, "bots", botId), { status: newStatus });
+      await callHubAction(user, "bot.update", { id: botId, set: { status: newStatus } });
     } catch (error) {
       console.error("Error updating bot status:", error);
+      alert(error instanceof Error ? error.message : "Error al cambiar el estado del bot");
     }
   };
 

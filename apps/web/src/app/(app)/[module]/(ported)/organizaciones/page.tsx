@@ -22,18 +22,16 @@ import {
 } from "@/components/ui/select";
 import { Building2, Plus, Pencil, Users, Bot, Phone, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import { db } from "@/lib/firebase";
 import {
   collection,
   query,
   orderBy,
   onSnapshot,
-  addDoc,
-  updateDoc,
   doc,
   where,
   getDocs,
-  serverTimestamp,
 } from "firebase/firestore";
 
 interface SalesforceConfig {
@@ -62,7 +60,7 @@ interface OrgStats {
 }
 
 export default function OrganizationsPage() {
-  const { userData } = useAuth();
+  const { userData, user } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [orgStats, setOrgStats] = useState<Record<string, OrgStats>>({});
   const [loading, setLoading] = useState(true);
@@ -135,32 +133,26 @@ export default function OrganizationsPage() {
     setSaving(true);
 
     try {
-      // El código de marca debe ser único: get_whatsapp_number_by_brand resuelve la organización por él
-      const code = sfBrandCode.trim();
-      if (code) {
-        const clash = await getDocs(query(collection(db, "organizations"), where("sfBrandCode", "==", code)));
-        if (clash.docs.some((d) => d.id !== editingOrg?.id)) {
-          alert(`El código de marca "${code}" ya lo usa otra organización.`);
-          setSaving(false);
-          return;
-        }
-      }
+      // La unicidad del código de marca la valida la función 2 (get_whatsapp_number_by_brand resuelve la organización por él)
+      const code = sfBrandCode.trim() || null;
       if (editingOrg) {
-        await updateDoc(doc(db, "organizations", editingOrg.id), {
-          name: name.trim(),
-          "salesforceConfig.vehicleType": vehicleType,
-          sfBrandCode: sfBrandCode.trim() || null,
-          sfCalendario: sfCalendario.trim() || null,
+        await callHubAction(user, "organization.update", {
+          id: editingOrg.id,
+          set: {
+            name: name.trim(),
+            "salesforceConfig.vehicleType": vehicleType,
+            sfBrandCode: code,
+            sfCalendario: sfCalendario.trim() || null,
+          },
         });
       } else {
-        await addDoc(collection(db, "organizations"), {
-          name: name.trim(),
-          salesforceConfig: { vehicleType },
-          sfBrandCode: sfBrandCode.trim() || null,
-          sfCalendario: sfCalendario.trim() || null,
-          plan: "enterprise",
-          settings: { timezone: "America/Mexico_City" },
-          createdAt: serverTimestamp(),
+        await callHubAction(user, "organization.create", {
+          fields: {
+            name: name.trim(),
+            salesforceConfig: { vehicleType },
+            sfBrandCode: code,
+            sfCalendario: sfCalendario.trim() || null,
+          },
         });
       }
       setDialogOpen(false);
@@ -168,6 +160,7 @@ export default function OrganizationsPage() {
       setEditingOrg(null);
     } catch (error) {
       console.error("Error saving organization:", error);
+      alert(error instanceof Error ? error.message : "Error al guardar la organización");
     } finally {
       setSaving(false);
     }

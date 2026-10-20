@@ -23,8 +23,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Loader2, Save, Eye, EyeOff, RefreshCw, Brain, Wrench, FileText, Search } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, updateDoc, deleteField, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import Link from "next/link";
 import { modulePath } from "@/lib/routes";
 
@@ -382,7 +383,8 @@ export default function EditBotPage() {
       for (const row of counterRows) {
         if (row.action.trim() && row.counter.trim()) countersMap[row.action.trim()] = row.counter.trim();
       }
-      await updateDoc(doc(db, "bots", bot.id), {
+      const unset: string[] = [];
+      const set: Record<string, unknown> = {
         ...updates,
         name,
         description,
@@ -390,11 +392,11 @@ export default function EditBotPage() {
         ...(botVerticalValue !== "none"
           ? { vertical: botVerticalValue, category: botVerticalValue === "servicio" ? "Servicio" : "Ventas" }
           : { category: category && category !== "none" ? category : null }),
-        optOutAction: optOutAction === "inherit" ? deleteField() : optOutAction,
-        tools: cleanTools.length > 0 ? cleanTools : deleteField(),
-        outcomeActions: outcomeActionsList.length > 0 ? outcomeActionsList : deleteField(),
-        broadcastResponseCounters: Object.keys(countersMap).length > 0 ? countersMap : deleteField(),
-        injectPhoneContext: injectPhoneContext === "default" ? deleteField() : injectPhoneContext === "yes",
+        ...(optOutAction === "inherit" ? {} : { optOutAction }),
+        ...(cleanTools.length > 0 ? { tools: cleanTools } : {}),
+        ...(outcomeActionsList.length > 0 ? { outcomeActions: outcomeActionsList } : {}),
+        ...(Object.keys(countersMap).length > 0 ? { broadcastResponseCounters: countersMap } : {}),
+        ...(injectPhoneContext === "default" ? {} : { injectPhoneContext: injectPhoneContext === "yes" }),
         twilioConfig: {
           phoneNumber,
           accountSid: twilioAccountSid,
@@ -461,10 +463,18 @@ export default function EditBotPage() {
             .map(([day, v]) => ({ day, startTime: v.startTime, endTime: v.endTime })),
         },
         situationRouting,
-      });
+      };
+      // Lo que queda en "heredar" o vacío se borra del documento
+      if (optOutAction === "inherit") unset.push("optOutAction");
+      if (cleanTools.length === 0) unset.push("tools");
+      if (outcomeActionsList.length === 0) unset.push("outcomeActions");
+      if (Object.keys(countersMap).length === 0) unset.push("broadcastResponseCounters");
+      if (injectPhoneContext === "default") unset.push("injectPhoneContext");
+      await callHubAction(user, "bot.update", { id: bot.id, set, unset });
       router.push(modulePath(moduleId, "/bots"));
     } catch (error) {
       console.error("Error saving bot:", error);
+      alert(error instanceof Error ? error.message : "Error al guardar el bot");
     } finally {
       setSaving(false);
     }

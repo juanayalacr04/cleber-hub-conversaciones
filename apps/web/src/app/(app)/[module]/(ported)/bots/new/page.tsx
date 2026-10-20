@@ -20,9 +20,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ArrowLeft, Loader2, Save, Eye, EyeOff } from "lucide-react";
-import { db } from "@/lib/firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import Link from "next/link";
 import { getModule } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
@@ -31,7 +30,7 @@ export default function NewBotPage() {
   const router = useRouter();
   const { module: moduleId } = useParams<{ module: string }>();
   const moduleVertical = getModule(moduleId)?.vertical ?? null;
-  const { userData, organizations: authOrgs } = useAuth();
+  const { userData, user, organizations: authOrgs } = useAuth();
   const [saving, setSaving] = useState(false);
   const [formOrgId, setFormOrgId] = useState("");
   const [showAbacusToken, setShowAbacusToken] = useState(false);
@@ -58,48 +57,48 @@ export default function NewBotPage() {
 
     setSaving(true);
     try {
-      const docRef = await addDoc(collection(db, "bots"), {
-        name: name.trim(),
-        description: description.trim(),
-        type: botType,
-        vertical,
-        category: vertical === "servicio" ? "Servicio" : "Ventas",
-        status: "active",
+      const { id } = await callHubAction<{ id: string }>(user, "bot.create", {
         organizationId: orgId,
-        twilioConfig: {
-          phoneNumber: "",
-          accountSid: "",
-          authToken: "",
-        },
-        abacusConfig: {
-          apiUrl: "",
-          deploymentId: abacusDeploymentId.trim(),
-          deploymentToken: abacusDeploymentToken.trim(),
-        },
-        ...(botType === "vertex_ai" && vertexAiEndpoint ? {
-          vertexAiConfig: {
-            endpoint: vertexAiEndpoint.trim(),
+        fields: {
+          name: name.trim(),
+          description: description.trim(),
+          type: botType,
+          vertical,
+          category: vertical === "servicio" ? "Servicio" : "Ventas",
+          twilioConfig: {
+            phoneNumber: "",
+            accountSid: "",
+            authToken: "",
           },
-        } : {}),
-        ...(botType === "external" && externalEndpoint ? {
-          externalConfig: {
-            endpoint: externalEndpoint.trim(),
-            ...(externalApiKey.trim() ? { apiKey: externalApiKey.trim() } : {}),
+          abacusConfig: {
+            apiUrl: "",
+            deploymentId: abacusDeploymentId.trim(),
+            deploymentToken: abacusDeploymentToken.trim(),
           },
-        } : {}),
-        handoffConfig: {
-          enabled: handoffEnabled,
-          triggerKeywords: handoffKeywords
-            .split(",")
-            .map((k) => k.trim())
-            .filter(Boolean),
+          ...(botType === "vertex_ai" && vertexAiEndpoint ? {
+            vertexAiConfig: {
+              endpoint: vertexAiEndpoint.trim(),
+            },
+          } : {}),
+          ...(botType === "external" && externalEndpoint ? {
+            externalConfig: {
+              endpoint: externalEndpoint.trim(),
+              ...(externalApiKey.trim() ? { apiKey: externalApiKey.trim() } : {}),
+            },
+          } : {}),
+          handoffConfig: {
+            enabled: handoffEnabled,
+            triggerKeywords: handoffKeywords
+              .split(",")
+              .map((k) => k.trim())
+              .filter(Boolean),
+          },
         },
-        createdAt: serverTimestamp(),
       });
-      router.push(modulePath(moduleId, `/bots/${docRef.id}`));
+      router.push(modulePath(moduleId, `/bots/${id}`));
     } catch (error) {
       console.error("Error creating bot:", error);
-      alert("Error al crear el bot");
+      alert(error instanceof Error ? error.message : "Error al crear el bot");
     } finally {
       setSaving(false);
     }

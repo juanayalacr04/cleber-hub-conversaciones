@@ -37,13 +37,9 @@ import {
   where,
   onSnapshot,
   doc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  deleteField,
-  serverTimestamp
 } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import { MODULES, getModule } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
 import type { Vertical } from "@/lib/modules";
@@ -80,7 +76,7 @@ interface WhatsAppNumber {
 }
 
 export default function TeamsPage() {
-  const { userData, organizations: authOrgs } = useAuth();
+  const { userData, user, organizations: authOrgs } = useAuth();
   const { module: moduleId } = useParams<{ module: string }>();
   const vertical = getModule(moduleId)?.vertical ?? null;
   const [allTeams, setAllTeams] = useState<Team[]>([]);
@@ -197,23 +193,23 @@ export default function TeamsPage() {
 
     setSaving(true);
     try {
-      await addDoc(collection(db, "teams"), {
+      const maxConversations = parseMax(formMaxConversations);
+      await callHubAction(user, "team.create", {
         organizationId: orgId,
-        name: formName.trim(),
-        description: formDescription.trim(),
-        assignmentMode: formAssignmentMode,
-        ...(parseMax(formMaxConversations) !== null ? { maxConversationsPerAgent: parseMax(formMaxConversations) } : {}),
-        optOutAction: formOptOutAction,
-        vertical: teamVertical,
-        activeConversations: 0,
-        status: "active",
-        createdAt: serverTimestamp(),
+        fields: {
+          name: formName.trim(),
+          description: formDescription.trim(),
+          assignmentMode: formAssignmentMode,
+          ...(maxConversations !== null ? { maxConversationsPerAgent: maxConversations } : {}),
+          optOutAction: formOptOutAction,
+          vertical: teamVertical,
+        },
       });
       setCreateDialogOpen(false);
       resetForm();
     } catch (error) {
       console.error("Error creating team:", error);
-      alert("Error al crear el equipo");
+      alert(error instanceof Error ? error.message : "Error al crear el equipo");
     } finally {
       setSaving(false);
     }
@@ -224,25 +220,28 @@ export default function TeamsPage() {
 
     setSaving(true);
     try {
-      const updates: Record<string, unknown> = {
+      const maxConversations = parseMax(formMaxConversations);
+      const set: Record<string, unknown> = {
         name: formName.trim(),
         description: formDescription.trim(),
         assignmentMode: formAssignmentMode,
-        // Vacío = sin tope
-        maxConversationsPerAgent: parseMax(formMaxConversations) ?? deleteField(),
         optOutAction: formOptOutAction,
       };
+      // Vacío = sin tope
+      if (maxConversations !== null) set.maxConversationsPerAgent = maxConversations;
       // Equipos antiguos sin módulo: al editar dentro de un módulo se les asigna
-      if (vertical && !selectedTeam.vertical) updates.vertical = vertical;
-      if (userData?.isSuperAdmin && formOrgId) {
-        updates.organizationId = formOrgId;
-      }
-      await updateDoc(doc(db, "teams", selectedTeam.id), updates);
+      if (vertical && !selectedTeam.vertical) set.vertical = vertical;
+      if (userData?.isSuperAdmin && formOrgId) set.organizationId = formOrgId;
+      await callHubAction(user, "team.update", {
+        id: selectedTeam.id,
+        set,
+        ...(maxConversations === null ? { unset: ["maxConversationsPerAgent"] } : {}),
+      });
       setEditDialogOpen(false);
       resetForm();
     } catch (error) {
       console.error("Error updating team:", error);
-      alert("Error al actualizar el equipo");
+      alert(error instanceof Error ? error.message : "Error al actualizar el equipo");
     } finally {
       setSaving(false);
     }
@@ -252,26 +251,11 @@ export default function TeamsPage() {
     if (!confirm("¿Estas seguro de que deseas eliminar este equipo? Los agentes y numeros asignados quedaran sin equipo.")) return;
 
     try {
-      // Remove teamId from all users in this team
-      const teamMembers = members.filter(m => m.teamId === teamId);
-      for (const member of teamMembers) {
-        await updateDoc(doc(db, "users", member.id), {
-          teamId: null,
-          ...(userData?.organizationId ? { [`orgTeams.${userData.organizationId}`]: deleteField() } : {}),
-        });
-      }
-
-      // Remove teamId from all WhatsApp numbers in this team
-      const teamNumbers = whatsappNumbers.filter(n => n.teamId === teamId);
-      for (const num of teamNumbers) {
-        await updateDoc(doc(db, "whatsappNumbers", num.id), { teamId: null });
-      }
-
-      // Delete the team
-      await deleteDoc(doc(db, "teams", teamId));
+      // La función 2 deja sin equipo a sus agentes y números antes de borrarlo
+      await callHubAction(user, "team.delete", { id: teamId });
     } catch (error) {
       console.error("Error deleting team:", error);
-      alert("Error al eliminar el equipo");
+      alert(error instanceof Error ? error.message : "Error al eliminar el equipo");
     }
   };
 

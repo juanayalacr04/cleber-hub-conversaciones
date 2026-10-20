@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { isAdmin, useAuth } from "@/contexts/AuthContext";
 import { db, auth } from "@/lib/firebase";
+import { callHubAction } from "@/lib/hub-actions";
 import { getModule } from "@/lib/modules";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,7 +42,7 @@ const TIMEZONES = [
 ];
 
 export default function ConfiguracionPage() {
-  const { userData } = useAuth();
+  const { userData, user } = useAuth();
   const { module: moduleId } = useParams<{ module: string }>();
   const vertical = getModule(moduleId)?.vertical ?? null;
   const admin = isAdmin(userData);
@@ -96,21 +97,24 @@ export default function ConfiguracionPage() {
     try {
       // Solo config por marca, nunca credenciales: esas viven en variables de entorno del servidor
       const clean = (v: string) => v.trim() || null;
-      await updateDoc(doc(db, "organizations", orgId), {
-        name: orgName.trim(),
-        "settings.timezone": timezone,
-        salesforceConfig: {
-          marcaRR: clean(sf.marcaRR), ownerId: clean(sf.ownerId), bdcFallbackOwnerId: clean(sf.bdcFallbackOwnerId),
-          vehicleType: sf.vehicleType, leadCreationEnabled: sf.leadCreationEnabled,
-          rrFlowName: clean(sf.rrFlowName), seminuevoOwnerId: clean(sf.seminuevoOwnerId),
-          seminuevoRecordTypeId: clean(sf.seminuevoRecordTypeId), defaultTemplateId: clean(sf.defaultTemplateId),
-          situationMap,
+      await callHubAction(user, "organization.update", {
+        id: orgId,
+        set: {
+          name: orgName.trim(),
+          "settings.timezone": timezone,
+          salesforceConfig: {
+            marcaRR: clean(sf.marcaRR), ownerId: clean(sf.ownerId), bdcFallbackOwnerId: clean(sf.bdcFallbackOwnerId),
+            vehicleType: sf.vehicleType, leadCreationEnabled: sf.leadCreationEnabled,
+            rrFlowName: clean(sf.rrFlowName), seminuevoOwnerId: clean(sf.seminuevoOwnerId),
+            seminuevoRecordTypeId: clean(sf.seminuevoRecordTypeId), defaultTemplateId: clean(sf.defaultTemplateId),
+            situationMap,
+          },
         },
       });
       toast.success("Configuración guardada");
     } catch (e) {
       console.error(e);
-      toast.error("No se pudo guardar. Revisa tus permisos.");
+      toast.error(e instanceof Error ? e.message : "No se pudo guardar. Revisa tus permisos.");
     } finally {
       setSaving(false);
     }

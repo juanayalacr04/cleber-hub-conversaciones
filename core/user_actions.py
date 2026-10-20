@@ -12,8 +12,11 @@ Las acciones concretas (tomar y cerrar conversación, etiquetas, bots, campañas
 Reglas:
   - La identidad sale del token, nunca del cuerpo. La organización y el equipo de una conversación salen
     del documento de la conversación, nunca de `data`.
-  - Cada acción declara su `scope` (`org` o `conversation`) y su `level` (`write` o `admin`); el permiso
-    se comprueba antes de llamar al handler. Falla cerrado: sin token válido o sin usuario registrado, no hay acción.
+  - Cada acción declara su `scope` y su `level`; el permiso se comprueba antes de llamar al handler:
+      scope `org`           `data.organizationId`; `conversation` `data.conversationId`;
+            `doc`           `data.id` de un documento de `collection` (su organización sale del documento);
+            `global`        sin recurso (alta de organizaciones, etc.).
+      level `write` (admin o agente), `admin` (admin de esa organización), `super` (solo superadmin). Falla cerrado: sin token válido o sin usuario registrado, no hay acción.
   - Es la puerta de usuarios; la de los bots es `core/actions.py` (autenticación de servicio aparte).
 
 Estados HTTP: 401 sin token válido, 400 cuerpo inválido, 403 sin permiso, 404 acción o conversación
@@ -25,16 +28,16 @@ from dataclasses import dataclass
 from typing import Callable
 
 from contracts.actions import (ACCION_DESCONOCIDA, CONVERSACION_NO_ENCONTRADA, DATOS_INVALIDOS, ERROR_INTERNO,
-                               NO_AUTORIZADO, ActionResponse)
+                               NO_AUTORIZADO, RECURSO_NO_ENCONTRADO, ActionResponse)
 from core import authz
 from core.db import get_db
 
 log = logging.getLogger(__name__)
 
-SCOPES = ("org", "conversation")
-LEVELS = ("write", "admin")
+SCOPES = ("org", "conversation", "doc", "global")
+LEVELS = ("write", "admin", "super")
 
-_STATUS = {NO_AUTORIZADO: 403, CONVERSACION_NO_ENCONTRADA: 404, ACCION_DESCONOCIDA: 404,
+_STATUS = {NO_AUTORIZADO: 403, CONVERSACION_NO_ENCONTRADA: 404, RECURSO_NO_ENCONTRADO: 404, ACCION_DESCONOCIDA: 404,
            DATOS_INVALIDOS: 400, ERROR_INTERNO: 500}
 
 
@@ -54,6 +57,8 @@ class UserContext:
     org_id: str
     conv_id: str | None = None
     conv: dict | None = None   # con `id`, para scope `conversation`
+    doc_id: str | None = None
+    doc: dict | None = None    # para scope `doc`
 
 
 @dataclass
@@ -62,20 +67,21 @@ class UserAction:
     handler: Callable[[UserContext, dict], dict | None]
     scope: str
     level: str
+    collection: str | None = None
 
 
 _REGISTRY: dict[str, UserAction] = {}
 
 
-def declare(name: str, *, scope: str, level: str = "write"):
+def declare(name: str, *, scope: str, level: str = "write", collection: str | None = None):
     """Decorador que registra el handler `handler(ctx, data) -> dict | None` de una acción de usuario."""
-    if scope not in SCOPES or level not in LEVELS:
-        raise ValueError(f"{name}: scope {scope!r} o level {level!r} inválido")
+    if scope not in SCOPES or level not in LEVELS or (scope == "doc") != bool(collection):
+        raise ValueError(f"{name}: scope {scope!r}, level {level!r} o collection {collection!r} inválido")
 
     def wrap(fn):
         if name in _REGISTRY:
             raise ValueError(f"la acción de usuario {name!r} ya está registrada")
-        _REGISTRY[name] = UserAction(name, fn, scope, level)
+        _REGISTRY[name] = UserAction(name, fn, scope, level, collection)
         return fn
     return wrap
 
@@ -135,16 +141,38 @@ def _denied(message: str = "No tienes permiso para esta operación") -> ActionRe
     return ActionResponse.failure(NO_AUTORIZADO, message)
 
 
+def _allowed(requester: authz.Requester, org_id: str | None, level: str) -> bool:
+    if level == "super":
+        return requester.is_super_admin
+    return authz.is_admin_in(requester, org_id) if level == "admin" else authz.can_write(requester)
+
+
 def _locate(spec: UserAction, requester: authz.Requester, data: dict, db) -> UserContext | ActionResponse:
     """Ubica el recurso de la acción y comprueba el permiso. Devuelve el contexto o la respuesta de rechazo."""
+    if spec.scope == "global":
+        return UserContext(db, requester, "") if _allowed(requester, None, spec.level) else _denied()
+
+    if spec.scope == "doc":
+        doc_id = data.get("id")
+        if not isinstance(doc_id, str) or not doc_id:
+            return ActionResponse.failure(DATOS_INVALIDOS, "Falta id")
+        snap = db.collection(spec.collection).document(doc_id).get()
+        doc = (snap.to_dict() or {}) if snap.exists else None
+        org_id = doc_id if spec.collection == "organizations" else (doc or {}).get("organizationId")
+        # Quien no pertenece a la organización del recurso no debe saber si existe
+        if doc is None or not authz.in_org(requester, org_id):
+            return ActionResponse.failure(RECURSO_NO_ENCONTRADO, "El recurso no existe")
+        if not _allowed(requester, org_id, spec.level):
+            return _denied()
+        return UserContext(db, requester, org_id, doc_id=doc_id, doc=doc)
+
     if spec.scope == "org":
         org_id = data.get("organizationId")
         if not isinstance(org_id, str) or not org_id:
             return ActionResponse.failure(DATOS_INVALIDOS, "Falta organizationId")
         if not authz.in_org(requester, org_id):
             return _denied()
-        allowed = authz.is_admin_in(requester, org_id) if spec.level == "admin" else authz.can_write(requester)
-        return UserContext(db, requester, org_id) if allowed else _denied()
+        return UserContext(db, requester, org_id) if _allowed(requester, org_id, spec.level) else _denied()
 
     conv_id = data.get("conversationId")
     if not isinstance(conv_id, str) or not conv_id:
@@ -155,7 +183,7 @@ def _locate(spec: UserAction, requester: authz.Requester, data: dict, db) -> Use
     if conv is None or not authz.can_access_conversation(requester, conv):
         return ActionResponse.failure(CONVERSACION_NO_ENCONTRADA, "La conversación no existe")
     org_id = conv.get("organizationId")
-    allowed = authz.is_admin_in(requester, org_id) if spec.level == "admin" else authz.can_act_on_conversation(requester, conv)
+    allowed = _allowed(requester, org_id, spec.level) if spec.level != "write" else authz.can_act_on_conversation(requester, conv)
     if not allowed:
         return _denied()
     conv["id"] = conv_id

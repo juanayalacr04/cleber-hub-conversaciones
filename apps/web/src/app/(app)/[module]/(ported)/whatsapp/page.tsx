@@ -51,14 +51,10 @@ import {
   onSnapshot,
   doc,
   getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
   getDocs,
-  writeBatch,
-  serverTimestamp,
 } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 
 interface WhatsAppNumber {
   id: string;
@@ -108,7 +104,7 @@ interface BotItem {
 }
 
 export default function WhatsAppNumbersPage() {
-  const { userData, organizations: authOrgs } = useAuth();
+  const { userData, user, organizations: authOrgs } = useAuth();
   const [numbers, setNumbers] = useState<WhatsAppNumber[]>([]);
   // Módulo activo (URL): acota equipos, bots y números. `general` no acota.
   const { module: moduleId } = useParams<{ module: string }>();
@@ -343,17 +339,14 @@ export default function WhatsAppNumbersPage() {
       }
 
       const docData: Record<string, unknown> = {
-        organizationId: orgId,
         phoneNumber,
         displayName: formDisplayName.trim() || phoneNumber,
         provider: formProvider,
         teamId: formTeamId || null,
         defaultBotId: formBotId || null,
-        status: "active",
         reopenWindowHours: formReopenWindowHours ? parseInt(formReopenWindowHours, 10) : null,
         closeWebhookUrl: formCloseWebhookUrl.trim() || null,
         inactivityCloseHours: formInactivityCloseHours ? parseInt(formInactivityCloseHours, 10) : null,
-        createdAt: serverTimestamp(),
       };
 
       if (formProvider === "twilio") {
@@ -376,12 +369,12 @@ export default function WhatsAppNumbersPage() {
         docData.serviceHandoffTemplateLanguage = formServiceHandoffTemplateLanguage.trim() || "es";
       }
 
-      await addDoc(collection(db, "whatsappNumbers"), docData);
+      await callHubAction(user, "number.create", { organizationId: orgId, fields: docData });
       setCreateDialogOpen(false);
       resetForm();
     } catch (error) {
       console.error("Error creating WhatsApp number:", error);
-      alert("Error al crear el numero de WhatsApp");
+      alert(error instanceof Error ? error.message : "Error al crear el numero de WhatsApp");
     } finally {
       setSaving(false);
     }
@@ -436,37 +429,14 @@ export default function WhatsAppNumbersPage() {
         updateData.serviceHandoffTemplateLanguage = formServiceHandoffTemplateLanguage.trim() || "es";
       }
 
-      await updateDoc(doc(db, "whatsappNumbers", selectedNumber.id), updateData);
-
-      // Reassign conversations to new team if team changed
-      const newTeamId = formTeamId || null;
-      if (newTeamId && newTeamId !== selectedNumber.teamId) {
-        const convQuery = query(
-          collection(db, "conversations"),
-          where("whatsappNumberId", "==", selectedNumber.id),
-          where("status", "in", ["bot", "waiting_agent", "with_agent"])
-        );
-        const convSnap = await getDocs(convQuery);
-        const batchSize = 499;
-        let batch = writeBatch(db);
-        let count = 0;
-        for (const convDoc of convSnap.docs) {
-          batch.update(convDoc.ref, { teamId: newTeamId });
-          count++;
-          if (count % batchSize === 0) {
-            await batch.commit();
-            batch = writeBatch(db);
-          }
-        }
-        if (count % batchSize !== 0) await batch.commit();
-        console.log(`Reassigned ${count} open conversations to new team`);
-      }
+      // Si cambia de equipo, la función 2 también mueve sus conversaciones abiertas
+      await callHubAction(user, "number.update", { id: selectedNumber.id, set: updateData });
 
       setEditDialogOpen(false);
       resetForm();
     } catch (error) {
       console.error("Error updating WhatsApp number:", error);
-      alert("Error al actualizar el numero");
+      alert(error instanceof Error ? error.message : "Error al actualizar el numero");
     } finally {
       setSaving(false);
     }
@@ -476,21 +446,22 @@ export default function WhatsAppNumbersPage() {
     if (!confirm("Estas seguro de que deseas eliminar este numero de WhatsApp?")) return;
 
     try {
-      await deleteDoc(doc(db, "whatsappNumbers", numberId));
+      await callHubAction(user, "number.delete", { id: numberId });
     } catch (error) {
       console.error("Error deleting WhatsApp number:", error);
-      alert("Error al eliminar el numero");
+      alert(error instanceof Error ? error.message : "Error al eliminar el numero");
     }
   };
 
   const handleToggleStatus = async (number: WhatsAppNumber) => {
     try {
-      await updateDoc(doc(db, "whatsappNumbers", number.id), {
-        status: number.status === "active" ? "inactive" : "active",
+      await callHubAction(user, "number.update", {
+        id: number.id,
+        set: { status: number.status === "active" ? "inactive" : "active" },
       });
     } catch (error) {
       console.error("Error toggling status:", error);
-      alert("Error al cambiar el estado");
+      alert(error instanceof Error ? error.message : "Error al cambiar el estado");
     }
   };
 

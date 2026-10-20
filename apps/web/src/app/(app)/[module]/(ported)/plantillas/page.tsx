@@ -21,13 +21,10 @@ import {
   query,
   where,
   onSnapshot,
-  addDoc,
-  updateDoc,
-  deleteDoc,
   doc,
-  serverTimestamp,
 } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import { getModule } from "@/lib/modules";
 
 interface Template {
@@ -40,7 +37,7 @@ interface Template {
 }
 
 export default function TemplatesPage() {
-  const { userData } = useAuth();
+  const { userData, user } = useAuth();
   const { module: moduleId } = useParams<{ module: string }>();
   const moduleVertical = getModule(moduleId)?.vertical ?? null;
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -96,25 +93,19 @@ export default function TemplatesPage() {
 
     setSaving(true);
     try {
+      const fields = { name: name.trim(), content: content.trim(), category: category.trim() };
       if (editingTemplate) {
-        await updateDoc(doc(db, "templates", editingTemplate.id), {
-          name: name.trim(),
-          content: content.trim(),
-          category: category.trim(),
-        });
+        await callHubAction(user, "template.update", { id: editingTemplate.id, set: fields });
       } else {
-        await addDoc(collection(db, "templates"), {
-          name: name.trim(),
-          content: content.trim(),
-          category: category.trim(),
+        await callHubAction(user, "template.create", {
           organizationId: userData.organizationId,
-          ...(moduleVertical ? { vertical: moduleVertical } : {}),
-          createdAt: serverTimestamp(),
+          fields: { ...fields, ...(moduleVertical ? { vertical: moduleVertical } : {}) },
         });
       }
       setDialogOpen(false);
     } catch (error) {
       console.error("Error saving template:", error);
+      alert(error instanceof Error ? error.message : "Error al guardar la plantilla");
     } finally {
       setSaving(false);
     }
@@ -123,9 +114,10 @@ export default function TemplatesPage() {
   const handleDelete = async (templateId: string) => {
     if (!confirm("Eliminar esta plantilla?")) return;
     try {
-      await deleteDoc(doc(db, "templates", templateId));
+      await callHubAction(user, "template.delete", { id: templateId });
     } catch (error) {
       console.error("Error deleting template:", error);
+      alert(error instanceof Error ? error.message : "Error al eliminar la plantilla");
     }
   };
 

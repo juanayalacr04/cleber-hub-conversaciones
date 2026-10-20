@@ -14,6 +14,12 @@ def _key(v):
 
 def _apply(doc: dict, updates: dict) -> None:
     for k, v in updates.items():
+        if "." in k:  # ruta con puntos de update(): escribe dentro del mapa anidado
+            head, _, rest = k.partition(".")
+            if not isinstance(doc.get(head), dict):
+                doc[head] = {}
+            _apply(doc[head], {rest: v})
+            continue
         if v is firestore.DELETE_FIELD:
             doc.pop(k, None)
         elif isinstance(v, firestore.Increment):
@@ -62,6 +68,9 @@ class FakeDoc:
             raise KeyError(f"{self._path}/{self.id} no existe")
         _apply(self._store[self.id], data)
 
+    def delete(self):
+        self._store.pop(self.id, None)
+
     def collection(self, name):
         return FakeQuery(self._db, f"{self._path}/{self.id}/{name}")
 
@@ -101,6 +110,8 @@ class FakeQuery:
             if op == "==" and actual != value:
                 return False
             if op == "in" and actual not in value:
+                return False
+            if op == "array_contains" and value not in (actual or []):
                 return False
         return True
 

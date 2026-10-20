@@ -62,13 +62,9 @@ import {
   query,
   where,
   onSnapshot,
-  updateDoc,
-  addDoc,
-  deleteDoc,
-  deleteField,
-  serverTimestamp,
 } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import { modulePath } from "@/lib/routes";
 
 interface TeamData {
@@ -132,7 +128,7 @@ export default function TeamDetailPage() {
   const params = useParams();
   const moduleId = params.module as string;
   const router = useRouter();
-  const { userData } = useAuth();
+  const { userData, user } = useAuth();
   const teamId = params.id as string;
 
   const [team, setTeam] = useState<TeamData | null>(null);
@@ -307,23 +303,17 @@ export default function TeamDetailPage() {
     setSavingLabel(true);
     try {
       if (editingLabel) {
-        await updateDoc(doc(db, "labels", editingLabel.id), {
-          name: labelName.trim(),
-          color: labelColor,
-        });
+        await callHubAction(user, "label.update", { id: editingLabel.id, set: { name: labelName.trim(), color: labelColor } });
       } else {
-        await addDoc(collection(db, "labels"), {
-          name: labelName.trim(),
-          color: labelColor,
-          teamId,
+        await callHubAction(user, "label.create", {
           organizationId: userData.organizationId,
-          createdAt: serverTimestamp(),
+          fields: { name: labelName.trim(), color: labelColor, teamId },
         });
       }
       setLabelDialogOpen(false);
     } catch (e) {
       console.error("Error saving label:", e);
-      alert("Error al guardar la etiqueta");
+      alert(e instanceof Error ? e.message : "Error al guardar la etiqueta");
     } finally {
       setSavingLabel(false);
     }
@@ -332,10 +322,10 @@ export default function TeamDetailPage() {
   const handleDeleteLabel = async (labelId: string) => {
     if (!confirm("¿Eliminar esta etiqueta?")) return;
     try {
-      await deleteDoc(doc(db, "labels", labelId));
+      await callHubAction(user, "label.delete", { id: labelId });
     } catch (e) {
       console.error("Error deleting label:", e);
-      alert("Error al eliminar la etiqueta");
+      alert(e instanceof Error ? e.message : "Error al eliminar la etiqueta");
     }
   };
 
@@ -379,14 +369,13 @@ export default function TeamDetailPage() {
 
     setSaving(true);
     try {
-      await updateDoc(doc(db, "teams", team.id), {
-        name: formName.trim(),
-        description: formDescription.trim(),
-        status: formStatus,
+      await callHubAction(user, "team.update", {
+        id: team.id,
+        set: { name: formName.trim(), description: formDescription.trim(), status: formStatus },
       });
     } catch (error) {
       console.error("Error saving team:", error);
-      alert("Error al guardar los cambios");
+      alert(error instanceof Error ? error.message : "Error al guardar los cambios");
     } finally {
       setSaving(false);
     }
@@ -400,15 +389,13 @@ export default function TeamDetailPage() {
     }
     setSavingSemaphore(true);
     try {
-      await updateDoc(doc(db, "teams", team.id), {
-        semaphoreThresholds: {
-          yellowMinutes: formYellowMinutes,
-          redMinutes: formRedMinutes,
-        },
+      await callHubAction(user, "team.update", {
+        id: team.id,
+        set: { semaphoreThresholds: { yellowMinutes: formYellowMinutes, redMinutes: formRedMinutes } },
       });
     } catch (error) {
       console.error("Error saving semaphore:", error);
-      alert("Error al guardar el semaforo");
+      alert(error instanceof Error ? error.message : "Error al guardar el semaforo");
     } finally {
       setSavingSemaphore(false);
     }
@@ -419,15 +406,20 @@ export default function TeamDetailPage() {
 
     setSaving(true);
     try {
-      await updateDoc(doc(db, "teams", team.id), {
-        assignmentMode: formAssignmentMode,
-        // Vacío = sin tope
-        maxConversationsPerAgent: parseInt(formMaxConversations, 10) > 0 ? parseInt(formMaxConversations, 10) : deleteField(),
-        optOutAction: formOptOutAction,
+      // Vacío = sin tope
+      const maxConversations = parseInt(formMaxConversations, 10) > 0 ? parseInt(formMaxConversations, 10) : null;
+      await callHubAction(user, "team.update", {
+        id: team.id,
+        set: {
+          assignmentMode: formAssignmentMode,
+          optOutAction: formOptOutAction,
+          ...(maxConversations !== null ? { maxConversationsPerAgent: maxConversations } : {}),
+        },
+        ...(maxConversations === null ? { unset: ["maxConversationsPerAgent"] } : {}),
       });
     } catch (error) {
       console.error("Error saving config:", error);
-      alert("Error al guardar la configuracion");
+      alert(error instanceof Error ? error.message : "Error al guardar la configuracion");
     } finally {
       setSaving(false);
     }
@@ -435,40 +427,31 @@ export default function TeamDetailPage() {
 
   const handleAddAgent = async () => {
     if (!selectedAgentId || !userData?.organizationId) return;
-    const member = allMembers.find((m) => m.id === selectedAgentId);
-    const orgId = userData.organizationId;
-    // ponytail: orgTeams for multi-org; also update legacy teamId if primary org matches
-    const updates: Record<string, unknown> = { [`orgTeams.${orgId}`]: teamId };
-    if (member?.primaryOrgId === orgId) updates.teamId = teamId;
     try {
-      await updateDoc(doc(db, "users", selectedAgentId), updates);
+      await callHubAction(user, "member.set_team", { organizationId: userData.organizationId, userId: selectedAgentId, teamId });
       setAddAgentDialogOpen(false);
       setSelectedAgentId("");
     } catch (error) {
       console.error("Error adding agent:", error);
-      alert("Error al agregar agente");
+      alert(error instanceof Error ? error.message : "Error al agregar agente");
     }
   };
 
   const handleRemoveAgent = async (memberId: string) => {
-    const member = allMembers.find((m) => m.id === memberId);
-    const orgId = userData?.organizationId ?? "";
-    const updates: Record<string, unknown> = { [`orgTeams.${orgId}`]: deleteField() };
-    if (member?.primaryOrgId === orgId) updates.teamId = null;
     try {
-      await updateDoc(doc(db, "users", memberId), updates);
+      await callHubAction(user, "member.set_team", { organizationId: userData?.organizationId, userId: memberId, teamId: null });
     } catch (error) {
       console.error("Error removing agent:", error);
-      alert("Error al quitar agente");
+      alert(error instanceof Error ? error.message : "Error al quitar agente");
     }
   };
 
   const handleToggleAvailability = async (memberId: string, currentAvailability: boolean) => {
     try {
-      await updateDoc(doc(db, "users", memberId), { isAvailable: !currentAvailability });
+      await callHubAction(user, "member.set_availability", { organizationId: userData?.organizationId, userId: memberId, available: !currentAvailability });
     } catch (error) {
       console.error("Error toggling availability:", error);
-      alert("Error al cambiar disponibilidad");
+      alert(error instanceof Error ? error.message : "Error al cambiar disponibilidad");
     }
   };
 
@@ -476,21 +459,21 @@ export default function TeamDetailPage() {
     if (!selectedNumberId) return;
 
     try {
-      await updateDoc(doc(db, "whatsappNumbers", selectedNumberId), { teamId });
+      await callHubAction(user, "number.update", { id: selectedNumberId, set: { teamId } });
       setAddNumberDialogOpen(false);
       setSelectedNumberId("");
     } catch (error) {
       console.error("Error adding number:", error);
-      alert("Error al asignar numero");
+      alert(error instanceof Error ? error.message : "Error al asignar numero");
     }
   };
 
   const handleRemoveNumber = async (numberId: string) => {
     try {
-      await updateDoc(doc(db, "whatsappNumbers", numberId), { teamId: null });
+      await callHubAction(user, "number.update", { id: numberId, set: { teamId: null } });
     } catch (error) {
       console.error("Error removing number:", error);
-      alert("Error al quitar numero");
+      alert(error instanceof Error ? error.message : "Error al quitar numero");
     }
   };
 

@@ -35,8 +35,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { db } from "@/lib/firebase";
-import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc, arrayRemove, deleteField } from "firebase/firestore";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import { getModule } from "@/lib/modules";
 
 interface TeamMember {
@@ -164,19 +165,19 @@ export default function TeamPage() {
 
   const handleChangeRole = async (memberId: string, newRole: "admin" | "agent" | "viewer") => {
     try {
-      await updateDoc(doc(db, "users", memberId), { role: newRole });
+      await callHubAction(user, "member.set_role", { organizationId: userData?.organizationId, userId: memberId, role: newRole });
     } catch (error) {
       console.error("Error changing role:", error);
-      alert("Error al cambiar el rol");
+      alert(error instanceof Error ? error.message : "Error al cambiar el rol");
     }
   };
 
   const handleToggleAvailability = async (memberId: string, currentAvailability: boolean) => {
     try {
-      await updateDoc(doc(db, "users", memberId), { isAvailable: !currentAvailability });
+      await callHubAction(user, "member.set_availability", { organizationId: userData?.organizationId, userId: memberId, available: !currentAvailability });
     } catch (error) {
       console.error("Error toggling availability:", error);
-      alert("Error al cambiar disponibilidad");
+      alert(error instanceof Error ? error.message : "Error al cambiar disponibilidad");
     }
   };
 
@@ -187,48 +188,29 @@ export default function TeamPage() {
     if (!orgId) return;
 
     try {
-      const member = members.find((m) => m.id === memberId);
-      const updates: Record<string, unknown> = {
-        organizationIds: arrayRemove(orgId),
-        [`orgTeams.${orgId}`]: deleteField(),
-      };
-
-      // Si la org eliminada era la principal (campo legacy organizationId), hay
-      // que reasignarla o limpiarla: si no, q1 (where organizationId == orgId)
-      // lo seguiría mostrando como miembro del equipo para siempre.
-      if (member?.organizationId === orgId) {
-        const remainingOrgId = member.organizationIds.find((id) => id !== orgId) ?? null;
-        updates.organizationId = remainingOrgId;
-        updates.teamId = remainingOrgId ? member.orgTeams[remainingOrgId] ?? null : null;
-      }
-
-      await updateDoc(doc(db, "users", memberId), updates);
+      await callHubAction(user, "member.remove", { organizationId: orgId, userId: memberId });
     } catch (error) {
       console.error("Error removing member:", error);
-      alert("Error al eliminar miembro");
+      alert(error instanceof Error ? error.message : "Error al eliminar miembro");
     }
   };
 
   const handleChangeOrg = async (memberId: string, orgId: string) => {
     try {
-      await updateDoc(doc(db, "users", memberId), { organizationId: orgId });
+      await callHubAction(user, "member.set_primary_org", { organizationId: orgId, userId: memberId });
       toast.success("Organización actualizada");
     } catch (error) {
       console.error("Error changing org:", error);
-      alert("Error al cambiar organización");
+      alert(error instanceof Error ? error.message : "Error al cambiar organización");
     }
   };
 
   const handleChangeTeam = async (memberId: string, teamId: string | null) => {
     try {
-      const updates: Record<string, unknown> = {};
-      if (userData?.organizationId) {
-        updates[`orgTeams.${userData.organizationId}`] = teamId ?? deleteField();
-      }
-      await updateDoc(doc(db, "users", memberId), updates);
+      await callHubAction(user, "member.set_team", { organizationId: userData?.organizationId, userId: memberId, teamId });
     } catch (error) {
       console.error("Error changing team:", error);
-      alert("Error al cambiar equipo");
+      alert(error instanceof Error ? error.message : "Error al cambiar equipo");
     }
   };
 
