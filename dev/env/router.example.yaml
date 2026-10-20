@@ -1,0 +1,31 @@
+# hub-router: Función 1: webhooks de Twilio, Meta y ValueText
+# Copia este archivo a router.yaml (queda fuera de git) y llena los <...>. deploy.ps1 lo usa solo.
+# OJO: --env-vars-file REEMPLAZA todas las variables de la función: este archivo debe tener el conjunto completo.
+
+# Base con nombre del hub; sin esto todo cae en (default)
+FIRESTORE_DATABASE: 'dev-hub-conversaciones'
+# Proyecto de desarrollo
+GOOGLE_CLOUD_PROJECT: 'ambiente-desarrollo-ti'
+# La firma de Twilio se calcula sobre esta URL
+PUBLIC_BASE_URL: '<URL de la función; se conoce tras el primer despliegue>'
+# SECRETO
+META_APP_SECRET: '<secreto de la app de Meta (varios, separados por coma)>'
+# SECRETO; va también en ?secret= de la URL del webhook
+VALUETEXT_WEBHOOK_SECRET: '<secreto compartido con el Outbound Message de Salesforce>'
+
+# --- Opcionales (descomenta lo que uses) ---
+# Con cola (1.34): tema de Pub/Sub. Sin esta variable el router procesa en proceso y necesita además las SF_* y TWILIO_*
+# INCOMING_TOPIC: 'projects/ambiente-desarrollo-ti/topics/<tema>'
+# Opcional
+# PUBSUB_REGION: 'us-central1'
+# Salesforce: URL de la instancia
+# SF_INSTANCE_URL: 'https://<tu-instancia>.my.salesforce.com'
+# Salesforce: app conectada
+# SF_CLIENT_ID: '<client id>'
+# SECRETO
+# SF_CLIENT_SECRET: '<client secret>'
+# SF_USERNAME: '<usuario de integración>'
+# SECRETO
+# SF_PASSWORD: '<contraseña + token>'
+# Opcional: callback de estado al enviar plantillas de campaña
+# TWILIO_STATUS_CALLBACK_URL: '<url pública de la función que recibe los estados de Twilio>'

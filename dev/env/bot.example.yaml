@@ -1,0 +1,16 @@
+# hub-bot: Función 3: motor del bot (Abacus), sin estado
+# Copia este archivo a bot.yaml (queda fuera de git) y llena los <...>. deploy.ps1 lo usa solo.
+# OJO: --env-vars-file REEMPLAZA todas las variables de la función: este archivo debe tener el conjunto completo.
+
+# Base con nombre del hub; sin esto todo cae en (default)
+FIRESTORE_DATABASE: 'dev-hub-conversaciones'
+# Proyecto de desarrollo
+GOOGLE_CLOUD_PROJECT: 'ambiente-desarrollo-ti'
+# SECRETO; el mismo que usan queue-incoming y jobs-run en X-Service-Secret
+BOT_FUNCTION_SECRET: '<secreto>'
+
+# --- Opcionales (descomenta lo que uses) ---
+# Opcional; este es el default
+# ABACUS_CHATLLM_HOST: 'https://cleber.abacus.ai'
+# Opcional; este es el default
+# MAX_HISTORY_MESSAGES: '10'

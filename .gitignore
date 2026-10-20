@@ -13,3 +13,6 @@ ui-debug.log
 .next/
 next-env.d.ts
 *.tsbuildinfo
+# Variables de entorno de las funciones (con secretos): solo se versionan las plantillas
+dev/env/*.yaml
+!dev/env/*.example.yaml

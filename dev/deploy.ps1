@@ -8,8 +8,8 @@ Por qué existe: un `gcloud functions deploy` que omite un flag lo vuelve al def
 timeout). Aquí cada función lleva TODOS sus valores en una tabla, y después de desplegar se lee de vuelta lo que quedó en la revisión.
 
 - `-Project` es obligatorio y no tiene default: el proyecto activo de gcloud en esta máquina NO es el del hub, nunca se confía en él.
-- No toca las variables de entorno: un redeploy sin `--set-env-vars` conserva las que la función ya tiene. En el PRIMER despliegue
-  pásalas con `-EnvVarsFile` (YAML `CLAVE: valor`); `--set-env-vars` en el comando reemplazaría todas y ya no se usa.
+- Variables de entorno: si existe `dev\env\<nombre>.yaml` (o `-EnvVarsFile`) se aplican TODAS desde ese archivo (reemplaza las que la función
+  tenga); si no existe, no se tocan. Plantillas y qué va en cada una: `dev\env\README.md`. No despliega con valores `<...>` sin llenar.
 - Los valores de la tabla son una propuesta (300/40 es el de la tarea 1.25 para las funciones del camino del mensaje): ajústalos aquí,
   en un solo lugar. `--concurrency` mayor a 1 exige `--cpu` 1 o más y `--memory` de 512Mi o más; sin eso el despliegue falla.
 - `jobs-run` va con `--max-instances=1` Y `--concurrency=1`: con concurrencia 40 una sola instancia atendería dos ticks a la vez.
@@ -63,7 +63,14 @@ foreach ($name in $targets) {
         "--timeout=$($f.Timeout)", "--max-instances=$($f.Max)", "--concurrency=$($f.Concurrency)",
         "--cpu=$($f.Cpu)", "--memory=$($f.Memory)"
     )
-    if ($EnvVarsFile) { $deployArgs += "--env-vars-file=$EnvVarsFile" }
+    # Variables de entorno: `-EnvVarsFile` manda; si no, `dev\env\<nombre>.yaml` (fuera de git; plantilla: `<nombre>.example.yaml`).
+    # Ese archivo REEMPLAZA todas las variables de la función, así que debe traer el conjunto completo. Sin archivo no se tocan.
+    $envFile = if ($EnvVarsFile) { $EnvVarsFile } else { Join-Path $PSScriptRoot "env\$name.yaml" }
+    if (Test-Path $envFile) {
+        if (Get-Content $envFile | Where-Object { $_ -notmatch '^\s*#' } | Select-String -Pattern '<[^>]+>' -Quiet) { throw "$envFile todavía tiene valores <...> sin llenar." }
+        $deployArgs += "--env-vars-file=$envFile"
+    } elseif ($EnvVarsFile) { throw "No existe $EnvVarsFile" }
+    else { Write-Host "(sin dev\env\$name.yaml: se conservan las variables de entorno que la función ya tenga)" -ForegroundColor Yellow }
     Invoke-Gcloud $deployArgs
 
     if ($f.NoCpuThrottling) {
