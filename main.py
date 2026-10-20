@@ -6,9 +6,9 @@ Despliegue (las funciones comparten el paquete; cambia solo el entry point):
         --entry-point=<entry point> --trigger-http --project=<proyecto explícito> \\
         --max-instances=300 --concurrency=40
 
-    whatsapp-webhook    whatsapp_webhook     Twilio
-    valuetext-webhook   valuetext_webhook    ValueText (Outbound Message de Salesforce)
-    meta-webhook        meta_webhook         Meta Cloud API
+    whatsapp-webhook    whatsapp_webhook     Twilio (firma X-Twilio-Signature; PUBLIC_BASE_URL = URL pública de esta función)
+    valuetext-webhook   valuetext_webhook    ValueText, Outbound Message de Salesforce (?secret= = VALUETEXT_WEBHOOK_SECRET)
+    meta-webhook        meta_webhook         Meta Cloud API (firma X-Hub-Signature-256; META_APP_SECRET)
     inactivity-followup inactivity_followup  cron del dashboard (X-Cron-Secret)
     lead-webhook        lead_webhook         Fase 2, sobre el contrato de entrada único
     actions-execute     actions_execute      endpoint de acciones: los bots piden, el hub ejecuta (X-Bot-Id + Bearer)
@@ -31,7 +31,7 @@ import functions_framework
 
 import modules  # noqa: F401  registra los handlers de cada módulo contra el núcleo
 from channels import (check_campaign_ready, delivery_statuses, send_campaign_template, send_handoff_template,
-                      send_whatsapp_message, webhooks)
+                      send_whatsapp_message, webhook_auth, webhooks)
 from core import actions, close_by_phone as close_by_phone_mod, outbound, situacion, user_actions
 from core import account_actions, admin_actions, broadcast_actions, conversation_actions  # noqa: F401  declaran las acciones de usuario
 from core.db import get_executor
@@ -61,6 +61,8 @@ def health(request):
 def whatsapp_webhook(request):
     if request.method != "POST":
         return "OK", 200
+    if not webhook_auth.twilio_authorized(webhook_auth.public_url(request), request.form, request.headers):
+        return "Forbidden", 403
     return webhooks.handle_twilio(request.form, _run)
 
 
@@ -68,6 +70,8 @@ def whatsapp_webhook(request):
 def valuetext_webhook(request):
     if request.method != "POST":
         return "OK", 200
+    if not webhook_auth.valuetext_authorized(request.args, request.headers):
+        return "Forbidden", 403
     return webhooks.handle_valuetext(request.get_data(as_text=True), _run)
 
 
@@ -93,6 +97,8 @@ def meta_webhook(request):
         return webhooks.handle_meta_verification(request.args)
     if request.method != "POST":
         return "OK", 200
+    if not webhook_auth.meta_authorized(request.get_data(), request.headers):   # el cuerpo crudo: la firma se calcula sobre los bytes exactos
+        return "Forbidden", 403
     return webhooks.handle_meta(request.get_json(silent=True), _run)
 
 
