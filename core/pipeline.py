@@ -25,7 +25,8 @@ Diferencias entre plataformas que se resolvieron como CONFIGURACIÓN del bot, no
   handoffConfig.waitingMessage    texto mientras espera asesor
   scheduleConfig.viaBot           True: el bot redacta el aviso de fuera de horario
   injectPhoneContext              antepone el teléfono a la primera respuesta (por defecto, solo Twilio)
-  tools                           [{"name", "event", "phase": "early"|"main"}]; sin esto, DEFAULT_TOOLS
+  tools                           [{"name", "event", "phase": "early"|"main"|"endpoint"}]; sin esto, DEFAULT_TOOLS.
+                                  "endpoint": solo se pide por `POST /actions/execute`; el pipeline nunca la detecta en la respuesta
   outcomeActions / outcomeTool    vocabulario de clasificación del motivo
   broadcastResponseCounters       {acción: contador} de respuesta a campañas
 """
@@ -36,7 +37,7 @@ from dataclasses import dataclass
 from ai import engine
 from ai.service import DEFAULT_AI_OUTCOME_ACTIONS, DEFAULT_AI_OUTCOME_TOOL, with_expediente
 from ai.parsing import detect, detect_action, detect_handoff, detect_mention, extract_bot_response, extract_image_from_text
-from core import broadcasts, conversations as cv, expediente, handoff as ho, outcomes
+from core import action_log, broadcasts, conversations as cv, expediente, handoff as ho, outcomes
 from core.db import get_db, get_executor
 from core.default_tools import register_defaults
 from core.numbers import apply_active_bot_override
@@ -64,6 +65,9 @@ DEFAULT_TOOLS = [
     {"name": "Agendar_Recordatorio", "event": "agendar_recordatorio", "phase": "main"},
     # Sin parámetros: Abacus lo reporta en lugares distintos, así que se detecta por mención
     {"name": "Cancelar_Recordatorio", "event": "cancelar_recordatorio", "phase": "main", "match": "mention"},
+    # Solo por el endpoint (1.46): el handoff y la clasificación del motivo los sigue detectando el pipeline en los bots que no migraron
+    {"name": "Transferir_a_Asesor", "event": "transferir_a_asesor", "phase": "endpoint"},
+    {"name": "Clasificar_Motivo", "event": "clasificar_motivo", "phase": "endpoint"},
 ]
 
 
@@ -90,6 +94,10 @@ class Turn:
         self.response = ""
         self.handled = False
         self.stop = False
+        self.stop_reason = ""
+        self.via_endpoint = False
+        self.turn_id = ""
+        self.executed: dict[str, dict] = {}   # acciones que el bot pidió por el endpoint durante este turno (1.46)
         self.flags: dict = {}
         self._futures: list = []
 
@@ -242,20 +250,32 @@ def _run(t: Turn) -> None:
     messages = ho.apply_out_of_hours_context(messages, t.conv_data, bot.get("scheduleConfig"))
     t.messages = messages
 
+    # Durante la llamada el bot puede pedir acciones al endpoint (1.44); se registran con este id para leerlas al volver
+    t.turn_id = action_log.new_turn_id()
+    action_log.mark_turn(t.conv_id, t.turn_id, db=db)
     t.api_result = engine.send_to_bot(bot, messages, conv_id=t.conv_id, customer_phone=t.customer)
     bot_type = bot.get("type", "chatllm")
+    _read_executed_actions(t)
 
-    # 9. Clasificación del motivo: antes del handoff, para que quede etiquetada aunque escale
-    motivo = detect_action(t.api_result, bot_type, bot.get("outcomeActions") or DEFAULT_AI_OUTCOME_ACTIONS,
-                           tool_name=bot.get("outcomeTool", DEFAULT_AI_OUTCOME_TOOL))
-    if motivo:
-        t.fire(outcomes.set_conversation_outcome, t.conv_id, motivo, motivo, db=db)
+    # 9. Clasificación del motivo: antes del handoff, para que quede etiquetada aunque escale.
+    #    Si el bot ya la pidió por el endpoint, ya se aplicó: no se vuelve a detectar en su respuesta.
+    if "clasificar_motivo" not in t.executed:
+        motivo = detect_action(t.api_result, bot_type, bot.get("outcomeActions") or DEFAULT_AI_OUTCOME_ACTIONS,
+                               tool_name=bot.get("outcomeTool", DEFAULT_AI_OUTCOME_TOOL))
+        if motivo:
+            t.fire(outcomes.set_conversation_outcome, t.conv_id, motivo, motivo, db=db)
 
-    # 10. Tools tempranos: deben resolverse antes del handoff (p. ej. crear el Lead que el handoff exige)
-    done: set[str] = set()
+    # 10. Tools tempranos: deben resolverse antes del handoff (p. ej. crear el Lead que el handoff exige).
+    #     Lo que el bot ya ejecutó por el endpoint cuenta como hecho: no se detecta de nuevo en su respuesta.
+    done: set[str] = set(t.executed)
     _run_tools(t, "early", done)
 
-    # 11. Handoff pedido por el bot
+    # 11. Handoff pedido por el bot. Si lo pidió por el endpoint, el hub ya decidió (módulo, horario) y aplicó el estado:
+    #     aquí solo se le contesta al cliente según el resultado.
+    transfer = t.executed.get("transferir_a_asesor")
+    if transfer:
+        _answer_after_transfer(t, transfer["result"])
+        return
     handoff = detect_handoff(t.api_result, bot_type)
     if handoff["triggered"]:
         if _handoff_blocked(t, "tool call"):
@@ -284,6 +304,26 @@ def _run(t: Turn) -> None:
         text = f"{text}\n{image_url}".strip()
         image_url = None
     t.say(text, media_url=image_url)
+
+
+def _read_executed_actions(t: Turn) -> None:
+    """Lo que el bot pidió por el endpoint durante el turno, y la conversación al día con lo que esas acciones escribieron."""
+    t.executed = action_log.executed_in_turn(t.conv_id, t.turn_id, db=t.db)
+    if not t.executed:
+        return
+    fresh = t.db.collection("conversations").document(t.conv_id).get()
+    if fresh.exists:
+        t.conv_data.update(fresh.to_dict() or {})
+
+
+def _answer_after_transfer(t: Turn, result: dict) -> None:
+    """Contesta al cliente tras `transferir_a_asesor`. El estado de la conversación ya lo dejó el endpoint."""
+    estado = result.get("estado")
+    schedule = t.bot.get("scheduleConfig", {}) or {}
+    text = extract_bot_response(t.api_result)
+    if estado == "fuera_de_horario" and not schedule.get("viaBot"):
+        text = result.get("mensaje") or ho.build_out_of_hours_message(schedule)   # el aviso del admin, no lo que improvise el bot
+    t.say(text)
 
 
 def _run_tools(t: Turn, phase: str, done: set) -> None:

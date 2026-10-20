@@ -27,11 +27,12 @@ from concurrent.futures import Future
 from contracts.actions import (CONVERSACION_NO_ENCONTRADA, ERROR_EXTERNO, NO_AUTORIZADO, ACCION_NO_PERMITIDA,
                                ActionRequest, ActionResponse)
 from contracts.base import ContractError
-from core import idempotency, tools
+from core import action_log, idempotency, tools
 from core.db import get_db
 from core.default_tools import register_defaults
 from core.numbers import get_bot_for_conversation
 from core.pipeline import DEFAULT_TOOLS
+from core.tools import dispatch
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +52,8 @@ class ActionContext:
         self.customer = conv_data.get("customerPhone", "")
         self.conv_data, self.messages = conv_data, []
         self.response, self.handled, self.stop = "", False, False
+        self.stop_reason = ""       # por qué un handler de `handoff_gate` frenó la acción (se le devuelve al bot)
+        self.via_endpoint = True    # los handlers que le hablan al cliente (`turn.say`) no deben hacerlo aquí: lo dice el pipeline
         self.flags: dict = {}
         self.futures: list[Future] = []
 
@@ -70,6 +73,9 @@ class ActionContext:
 
     def wait(self, futures=None) -> None:
         """Nada que esperar: todo corrió en `fire`."""
+
+    def emit(self, event: str, **params) -> None:
+        dispatch(event, self.conv_data, {"turn": self, "bot": self.bot, "conv_id": self.conv_id, **params})
 
     def failed(self) -> bool:
         """Una operación lanzó, o devolvió False (las de Salesforce devuelven False si no se confirmó)."""
@@ -151,6 +157,8 @@ def execute_action(request: ActionRequest, bot_id: str, db=None) -> ActionRespon
 
     if response.ok:
         idempotency.save_result(IDEMPOTENCY_SOURCE, key, response.to_dict(), db)
+        action_log.record(request.conversation_id, request.idempotency_key, tool_spec["event"], tool_spec.get("name", ""),
+                          response.to_dict(), conv.get("turnId"), db)
     else:
         idempotency.release(IDEMPOTENCY_SOURCE, key, db)  # un reintento con la misma clave debe volver a correr
     return response

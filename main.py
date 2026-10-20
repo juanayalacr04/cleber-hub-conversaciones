@@ -17,6 +17,9 @@ Despliegue (las funciones comparten el paquete; cambia solo el entry point):
     bot                 bot                  función 3, sin estado: /bot/turn y /bot/summary (ai/service.py; X-Service-Secret = BOT_FUNCTION_SECRET).
                                              Timeout largo (`--timeout=300`) por la llamada a Abacus, concurrencia propia (1.25)
     actions-execute     actions_execute      endpoint de acciones: los bots piden, el hub ejecuta (X-Bot-Id + Bearer)
+                                             Se despliega como función propia: la reentrada (1.45) llega a otra instancia, no a la que espera al bot.
+                                             `--timeout=120` (una acción hace varias llamadas a Salesforce de hasta 30 s; el valor por defecto, 60 s, no alcanza),
+                                             menor que el timeout del turno que la espera y que el del paso HTTP del bot en Abacus (a confirmar en 1.47)
     user-actions-execute user_actions_execute endpoint de los usuarios del dashboard (token de Firebase; FIREBASE_PROJECT_ID, ALLOWED_ORIGINS)
     situacion-detectada situacion_detectada      webhook del bot de Ventas hacia Servicio (X-Api-Secret = SITUACION_API_SECRET)
     close-by-phone      close_by_phone           Outbound Message de Salesforce que cierra conversaciones por teléfono (?secret= = EXTERNAL_API_SECRET)

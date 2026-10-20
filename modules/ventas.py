@@ -470,7 +470,12 @@ def _handoff_gate(conv: dict, p: dict) -> None:
     # Si ya se intentó crear el Lead en este turno (haya tenido éxito o no), el handoff ya se resolvió
     if p["trigger"] == "tool call" and turn.flags.get("lead_attempted"):
         return
-    respond_handoff_no_lead(turn)
+    if turn.via_endpoint:
+        # El bot pidió transferir por el endpoint: no se le habla al cliente ni se re-invoca al bot. Se le devuelve qué falta
+        # y él crea el Lead y vuelve a pedir la transferencia.
+        turn.stop_reason = "Falta crear el Lead antes de transferir: pide los datos al cliente, ejecuta Crear_Lead y vuelve a transferir"
+    else:
+        respond_handoff_no_lead(turn)
     turn.stop = True
 
 

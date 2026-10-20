@@ -1,7 +1,8 @@
 import pytest
 
 from ai import engine
-from core import tools
+from contracts.actions import ActionRequest
+from core import actions, tools
 from core.pipeline import Incoming, process_message
 from tests.fakes import FakeDB
 
@@ -25,6 +26,8 @@ def env(monkeypatch):
 
     def fake_engine(bot_config, messages, conv_id=None, customer_phone=""):
         bot_calls.append({"messages": list(messages), "conv_id": conv_id, "phone": customer_phone})
+        if state.get("durante"):    # el bot pide acciones al endpoint en medio del turno (1.46)
+            state["durante"](conv_id)
         return state["result"]
 
     monkeypatch.setattr(engine, "send_to_bot", fake_engine)
@@ -306,3 +309,127 @@ def test_un_error_del_motor_no_tumba_el_turno(env):
     env.state["result"] = {"error": "HTTP 500"}
     env.run("hola")
     assert env.sent[-1]["text"].startswith("Lo siento, hubo un error")
+
+
+# ---- acciones pedidas por el endpoint durante el turno (1.46) ----
+
+class Endpoint:
+    """El bot de Abacus llamando de vuelta al hub mientras el pipeline espera su respuesta."""
+
+    def __init__(self, env, bot_overrides=None):
+        self.env, self.responses = env, {}
+        env.db.seed("bots", "bot1", dict(env.bot, **(bot_overrides or {})))
+        env.db.seed("whatsappNumbers", "n1", {"phoneNumber": BOT_NUMBER})
+
+    def pide(self, action, data=None, key=None):
+        def durante(conv_id):
+            r = actions.execute_action(ActionRequest(action, conv_id, key or f"k-{action}", data or {}), "bot1", self.env.db)
+            self.responses[action] = r
+        previous = self.env.state.get("durante")
+        self.env.state["durante"] = (lambda c: (previous(c), durante(c))) if previous else durante
+        return self
+
+
+def test_el_pipeline_no_vuelve_a_ejecutar_el_tool_que_el_bot_ya_pidio_al_endpoint(env):
+    ran = []
+    tools.tool("guardar_nombre")(lambda conv, p: ran.append(p["turn"].via_endpoint))
+    Endpoint(env).pide("guardar_nombre", {"nombre": "Ana"})
+    # la respuesta del bot además trae el segmento clásico: sin el registro, el pipeline lo ejecutaría otra vez
+    env.state["result"] = ok("Listo, Ana", [{"toolName": "Guardar_Nombre_Cliente", "input": {"nombre": "Ana"}}])
+    env.run("soy Ana")
+    assert ran == [True]
+
+
+def test_el_endpoint_registra_la_accion_con_el_id_del_turno(env):
+    Endpoint(env).pide("guardar_nombre", {"nombre": "Ana"})
+    env.run("soy Ana")
+    conv = env.conv()
+    log = list(env.db.data[f"conversations/{conv['id']}/actionLog"].values())
+    assert [(r["event"], r["turnId"], r["status"]) for r in log] == [("guardar_nombre", conv["turnId"], "done")]
+
+
+def test_un_tool_que_no_pidio_por_el_endpoint_sigue_detectandose_en_la_respuesta(env):
+    ran = []
+    tools.tool("guardar_nombre")(lambda conv, p: ran.append(p["turn"].via_endpoint))
+    env.state["result"] = ok("Listo", [{"toolName": "Guardar_Nombre_Cliente", "input": {"nombre": "Ana"}}])
+    env.run("soy Ana")
+    assert ran == [False]
+
+
+def test_la_conversacion_del_turno_ve_lo_que_escribio_el_endpoint(env):
+    visto = []
+    tools.tool("registrar_cita")(lambda conv, p: None)
+    tools.tool("handoff_gate")(lambda conv, p: visto.append(conv.get("customerName")))
+    Endpoint(env).pide("guardar_nombre", {"nombre": "Ana"})
+    env.state["result"] = ok("Te conecto.", [{"toolName": "Transferir_a_Asesor", "input": {"motivo": "x"}}])
+    env.run("soy Ana, quiero un asesor")
+    assert visto and visto[0] == "Ana"
+
+
+def test_clasificar_motivo_por_el_endpoint_se_aplica_una_vez(env):
+    Endpoint(env).pide("clasificar_motivo", {"motivo": "interes_cita"})
+    env.state["result"] = ok("Va", [{"toolName": "Clasificar_Motivo", "input": {"motivo": "otro_motivo"}}])
+    env.run("quiero cita")
+    assert env.conv()["conversationOutcome"] == "interes_cita"
+
+
+def test_clasificar_motivo_fuera_del_vocabulario_del_bot_se_rechaza(env):
+    endpoint = Endpoint(env).pide("clasificar_motivo", {"motivo": "inventado"})
+    env.run("hola")
+    r = endpoint.responses["clasificar_motivo"]
+    assert not r.ok and r.error.code == "datos_invalidos" and "interes_cita" in r.error.message
+    assert "conversationOutcome" not in env.conv()
+
+
+def test_transferir_por_el_endpoint_escala_y_el_pipeline_solo_contesta(env):
+    applied = []
+    tools.tool("handoff_applied")(lambda conv, p: applied.append((p["trigger"], p["motivo"])))
+    endpoint = Endpoint(env).pide("transferir_a_asesor", {"motivo": "cotización"})
+    env.state["result"] = ok("Te comunico con un asesor.")   # sin segmento de tool: solo el registro dice que se transfirió
+    env.run("necesito precio")
+    conv = env.conv()
+    assert endpoint.responses["transferir_a_asesor"].result == {"estado": "escalado"}
+    assert (conv["status"], conv["handoffReason"]) == ("waiting_agent", "cotización")
+    assert applied == [("tool call", "cotización")]
+    assert [m["text"] for m in env.sent] == ["Te comunico con un asesor."]
+
+
+def test_transferir_fuera_de_horario_no_escala_y_el_cliente_recibe_el_aviso_del_admin(env):
+    blocked = []
+    tools.tool("handoff_blocked_out_of_hours")(lambda conv, p: blocked.append(p["trigger"]))
+    endpoint = Endpoint(env, {"scheduleConfig": SCHEDULE_CERRADO}).pide("transferir_a_asesor", {"motivo": "x"})
+    env.state["result"] = ok("Ya te comunico con un asesor.")   # lo que el bot dijo sin saber que no se pudo
+    env.run("quiero un asesor", bot_overrides={"scheduleConfig": SCHEDULE_CERRADO})
+    conv = env.conv()
+    assert endpoint.responses["transferir_a_asesor"].result["estado"] == "fuera_de_horario"
+    assert conv["status"] == "bot" and conv["handoffBlockedAt"] is not None and blocked == ["tool call"]
+    assert env.sent[-1]["text"].startswith("Cerrado.")
+
+
+def test_transferir_fuera_de_horario_con_aviso_del_bot_envia_lo_que_el_bot_redacto(env):
+    cfg = dict(SCHEDULE_CERRADO, viaBot=True)
+    Endpoint(env, {"scheduleConfig": cfg}).pide("transferir_a_asesor")
+    env.state["result"] = ok("Ahorita no hay nadie, te escribimos mañana.")
+    env.run("quiero un asesor", bot_overrides={"scheduleConfig": cfg})
+    assert env.sent[-1]["text"] == "Ahorita no hay nadie, te escribimos mañana."
+
+
+def test_transferir_frenado_por_el_gate_le_dice_al_bot_que_falta_y_no_escala(env):
+    def gate(conv, p):
+        assert p["turn"].via_endpoint
+        p["turn"].stop_reason = "Falta el Lead"
+        p["turn"].stop = True
+    tools.tool("handoff_gate")(gate)
+    endpoint = Endpoint(env).pide("transferir_a_asesor")
+    env.state["result"] = ok("Primero necesito unos datos.")
+    env.run("quiero un asesor")
+    r = endpoint.responses["transferir_a_asesor"]
+    assert not r.ok and r.error.code == "precondicion_fallida" and r.error.message == "Falta el Lead"
+    assert env.conv()["status"] == "bot"
+    assert [m["text"] for m in env.sent] == ["Primero necesito unos datos."]
+
+
+def test_transferir_dos_veces_no_repite(env):
+    Endpoint(env).pide("transferir_a_asesor", key="a").pide("transferir_a_asesor", key="b")
+    env.run("quiero un asesor")
+    assert env.conv()["status"] == "waiting_agent"

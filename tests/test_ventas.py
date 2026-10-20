@@ -416,3 +416,42 @@ def test_situacion_servicio_descarta_el_lead_y_cierra(env):
     env.run("necesito servicio", bot=bot)
     assert env.conv()["status"] == "closed"
     assert env.sf.patched_lead()[-1]["GCL_RazonNoCompra__c"] == "Servicio"
+
+
+# ---- transferir por el endpoint (1.46) ----
+
+def _bot_pide(env, monkeypatch, *pedidos):
+    """El bot llama al endpoint de acciones, en orden, mientras el pipeline espera su respuesta."""
+    from contracts.actions import ActionRequest
+    from core import actions
+    env.db.seed("bots", "bot1", env.bot)
+    env.responses = []
+
+    def fake_engine(bot, messages, conv_id=None, customer_phone=""):
+        env.bot_calls.append(messages[-1]["text"])
+        for i, (action, data) in enumerate(pedidos):
+            env.responses.append(actions.execute_action(ActionRequest(action, conv_id, f"k{i}", data), "bot1", env.db))
+        return env.state["default"]
+
+    monkeypatch.setattr(engine, "send_to_bot", fake_engine)
+
+
+def test_transferir_sin_lead_por_el_endpoint_no_le_habla_al_cliente_y_le_dice_al_bot_que_falta(env, monkeypatch):
+    _bot_pide(env, monkeypatch, ("transferir_a_asesor", {"motivo": "cotización"}))
+    env.state["default"] = {"success": True, "result": {"response": "¿Me das tu nombre completo?", "toolResults": []}}
+    env.run("necesito una cotización")   # sin la palabra clave "asesor": solo transfiere el bot, por el endpoint
+    r = env.responses[0]
+    assert not r.ok and r.error.code == "precondicion_fallida" and "Crear_Lead" in r.error.message
+    assert env.conv()["status"] == "bot"
+    assert env.bot_calls == ["necesito una cotización"] and env.sent == ["¿Me das tu nombre completo?"]   # sin re-invocar al bot ni mensaje del gate
+
+
+def test_crear_lead_y_transferir_por_el_endpoint_escala_con_el_lead(env, monkeypatch):
+    _bot_pide(env, monkeypatch, ("crear_lead", {"nombre": "Ana"}), ("transferir_a_asesor", {"motivo": "cotización"}))
+    env.state["default"] = {"success": True, "result": {"response": "Te conecto", "toolResults": []}}
+    env.run("hola")
+    conv = env.conv()
+    assert [r.ok for r in env.responses] == [True, True] and env.responses[1].result == {"estado": "escalado"}
+    assert (conv["leadId"], conv["status"], conv["handoffReason"]) == ("00QNEW", "waiting_agent", "cotización")
+    assert env.sent == ["Te conecto"] and len(env.sf.find("POST", "/sobjects/Lead/")) == 1
+    assert {"Validacion_Prospecto__c": "Llamada urgente", "Status": "Contactado"} in env.sf.patched_lead()

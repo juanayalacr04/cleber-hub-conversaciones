@@ -174,12 +174,19 @@ def block_handoff_out_of_hours(conv_id: str, conv_data: dict, bot: dict, from_nu
     como el evento `handoff_blocked_out_of_hours` al registro de handlers.
     """
     from core.conversations import add_message
-    from core.tools import dispatch
 
     db = db or get_db()
     text = text or build_out_of_hours_message(schedule_config)
     add_message(conv_id, "bot", text, db=db)
     send(bot, from_number, to_number, text)
+    mark_handoff_blocked(conv_id, conv_data, bot, trigger, db=db)
+
+
+def mark_handoff_blocked(conv_id: str, conv_data: dict, bot: dict, trigger: str, db=None) -> None:
+    """La marca de `block_handoff_out_of_hours` sin el aviso al cliente: lo usa el endpoint de acciones (1.46), que no manda mensajes."""
+    from core.tools import dispatch
+
+    db = db or get_db()
     if not conv_data.get("handoffBlockedAt"):
         db.collection("conversations").document(conv_id).update({"handoffBlockedAt": firestore.SERVER_TIMESTAMP})
         conv_data["handoffBlockedAt"] = True
