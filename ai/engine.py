@@ -151,3 +151,25 @@ def send_to_bot(bot_config: dict, messages: list, conv_id: str | None = None, cu
     if conv_id:
         payload["externalSessionId"] = conv_id
     return _post_json(url, payload, headers)
+
+
+def prime_session(bot_config: dict, conv_id: str, message: str) -> bool:
+    """Le "cuenta" al bot lo que se mandó fuera de banda (plantilla + contexto) para que tenga el contexto listo
+    cuando el cliente responda. Solo para los motores de Abacus: un bot externo recibe el historial completo en
+    cada llamada. No ejecuta herramientas: el mensaje es un resumen, no una petición del cliente. Nunca lanza."""
+    bot_type = bot_config.get("type", "chatllm")
+    if bot_type not in ("chatllm", "workflow"):
+        return False
+    try:
+        if bot_type == "workflow":
+            result = send_to_bot(bot_config, [{"is_user": True, "text": message}], conv_id=conv_id)
+        else:
+            abacus = bot_config.get("abacusConfig", {})
+            payload = {"deploymentToken": abacus.get("deploymentToken"), "deploymentId": abacus.get("deploymentId"),
+                       "message": message, "externalSessionId": conv_id}
+            result = _post_json(f"{abacus.get('apiHost') or DEFAULT_CHATLLM_HOST}/api/v0/getConversationResponse", payload,
+                                {"Content-Type": "application/json", "User-Agent": "WhatsAppProxy/2.0"})
+        return "error" not in result
+    except Exception as e:
+        log.error("Error preparando la sesión %s del bot: %s", conv_id, e)
+        return False

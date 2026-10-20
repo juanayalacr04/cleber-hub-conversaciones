@@ -23,7 +23,7 @@ from google.cloud import firestore
 
 from contracts.actions import DATOS_INVALIDOS, PRECONDICION_FALLIDA
 from contracts.actions import ERROR_EXTERNO, ERROR_INTERNO
-from core import authz
+from core import authz, outbound
 from core.conversations import add_message, resolve_vertical
 from core.numbers import get_bot_for_conversation
 from core.user_actions import UserActionError, UserContext, declare
@@ -173,19 +173,6 @@ def add_note(ctx: UserContext, data: dict) -> dict:
 
 # --------------------------------------------------------------------------- mensajes del agente
 
-_send = None
-
-
-def configure_sender(fn) -> None:
-    """Inyecta `send(bot, to_number, from_number, text, media_url=None)`, el envío por el proveedor del número.
-
-    Lo cablea `main.py` con `channels.send_whatsapp_message`: `core/` no importa `channels/` (hoy el envío es
-    una llamada directa; con la función 1 (1.36) pasa a pedirse al router).
-    """
-    global _send
-    _send = fn
-
-
 @declare("conversation.send_message", scope="conversation")
 def send_message(ctx: UserContext, data: dict) -> dict:
     text = _text(data, "text", MAX_MESSAGE, required=False)
@@ -201,12 +188,12 @@ def send_message(ctx: UserContext, data: dict) -> dict:
 
     # El canal web solo guarda el mensaje: el widget lo recibe por onSnapshot
     if conv.get("channel") != "web":
-        if _send is None:
+        if not outbound.is_configured("text"):
             raise UserActionError(ERROR_INTERNO, "El envío por WhatsApp no está configurado")
         bot, from_number = get_bot_for_conversation(conv["botId"], conv.get("whatsappNumberId"), ctx.db)
         if not bot:
             raise UserActionError(PRECONDICION_FALLIDA, "El bot de la conversación no existe")
-        if not _send(bot, customer, from_number, text, media_url=media_url):
+        if not outbound.send_text(bot, customer, from_number, text, media_url=media_url):
             # Nada se guarda si el proveedor no aceptó el mensaje: el agente ve el error y puede reintentar
             raise UserActionError(ERROR_EXTERNO, "El proveedor no aceptó el mensaje", retryable=True)
 

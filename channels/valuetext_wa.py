@@ -8,7 +8,8 @@ import logging
 import xml.etree.ElementTree as ET
 
 from core import http
-from crm import salesforce
+from core.outbound import FAILED, NOT_CONFIGURED, TemplateError
+from crm import salesforce, templates
 
 log = logging.getLogger(__name__)
 SMS_BUCKET = "rsplus__SMS_Bucket__c"
@@ -48,6 +49,18 @@ def send_valuetext_message(bot_config: dict, to_number: str, message: str) -> st
             log.error("Error insertando SMS_Bucket: %s", e)
             return None
     return None
+
+
+def send_valuetext_handoff_template(number: dict, to_number: str, lead_id: str | None, sf_config: dict | None) -> str:
+    """Plantilla de handoff a Servicio por ValueText: `serviceHandoffTemplateName` es el Template Id y el Lead
+    (`lead_id`) llena sus variables. Devuelve el Id del SMS_Bucket; lanza `TemplateError`."""
+    template_id = number.get("serviceHandoffTemplateName")
+    if not template_id or not salesforce.has_credentials(sf_config or {}):
+        raise TemplateError(NOT_CONFIGURED, "ValueText service handoff template or Salesforce credentials not configured")
+    bucket_id = templates.send_valuetext_template(sf_config, number.get("valuetextSenderId", ""), to_number, lead_id, template_id)
+    if not bucket_id:
+        raise TemplateError(FAILED, "Failed to send WhatsApp template")
+    return bucket_id
 
 
 def parse_salesforce_outbound_message(raw_xml: str) -> list[dict]:

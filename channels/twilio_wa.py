@@ -7,6 +7,7 @@ import urllib.parse
 
 from core import http
 from core.broadcasts import update_recipient_delivery
+from core.outbound import FAILED, NOT_CONFIGURED, TemplateError
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +47,27 @@ def send_twilio_message(bot_config: dict, to_number: str, from_number: str, mess
                 _sleep(1)
     log.error("No se pudo enviar por Twilio tras %d intentos: %s", ATTEMPTS, last_error)
     return None
+
+
+def send_twilio_handoff_template(number: dict, to_number: str, variables: dict) -> str:
+    """Plantilla de handoff a Servicio por Twilio (Content Template). Devuelve el SID; lanza `TemplateError`."""
+    account_sid, auth_token = number.get("twilioAccountSid"), number.get("twilioAuthToken")
+    content_sid = number.get("serviceHandoffContentSid")
+    if not (account_sid and auth_token and content_sid):
+        raise TemplateError(NOT_CONFIGURED, "Twilio service handoff template not configured")
+    form = {"To": f"whatsapp:{to_number}", "From": number.get("phoneNumber", ""), "ContentSid": content_sid,
+            "ContentVariables": json.dumps(variables)}
+    headers = {
+        "Authorization": "Basic " + base64.b64encode(f"{account_sid}:{auth_token}".encode()).decode(),
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    try:
+        _, body = http.request(f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json",
+                               urllib.parse.urlencode(form).encode("utf-8"), headers, timeout=15)
+        return json.loads(body).get("sid")
+    except Exception as e:
+        log.error("Error enviando la plantilla por Twilio: %s", e)
+        raise TemplateError(FAILED, "Failed to send WhatsApp template")
 
 
 def process_twilio_status(msg_sid: str, message_status: str, error_message: str = "", db=None) -> None:

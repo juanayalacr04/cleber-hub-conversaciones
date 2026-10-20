@@ -13,6 +13,7 @@ Despliegue (las funciones comparten el paquete; cambia solo el entry point):
     lead-webhook        lead_webhook         Fase 2, sobre el contrato de entrada único
     actions-execute     actions_execute      endpoint de acciones: los bots piden, el hub ejecuta (X-Bot-Id + Bearer)
     user-actions-execute user_actions_execute endpoint de los usuarios del dashboard (token de Firebase; FIREBASE_PROJECT_ID, ALLOWED_ORIGINS)
+    situacion-detectada situacion_detectada      webhook del bot de Ventas hacia Servicio (X-Api-Secret = SITUACION_API_SECRET)
 """
 import json
 import logging
@@ -20,15 +21,15 @@ import logging
 import functions_framework
 
 import modules  # noqa: F401  registra los handlers de cada módulo contra el núcleo
-from channels import send_whatsapp_message, webhooks
-from core import actions, user_actions
+from channels import send_handoff_template, send_whatsapp_message, webhooks
+from core import actions, outbound, situacion, user_actions
 from core import account_actions, admin_actions, broadcast_actions, conversation_actions  # noqa: F401  declaran las acciones de usuario
 from core.db import get_executor
 from jobs import inactivity
 from jobs.auth import cron_authorized
 
 
-conversation_actions.configure_sender(send_whatsapp_message)
+outbound.configure(send_text=send_whatsapp_message, send_template=send_handoff_template)
 
 
 def _run(fn, *args):
@@ -106,4 +107,18 @@ def user_actions_execute(request):
     except Exception:
         logging.getLogger(__name__).exception("user_actions_execute")
         body, status = {"error": "Internal error"}, 500
+    return json.dumps(body), status, headers
+
+
+@functions_framework.http
+def situacion_detectada(request):
+    """POST /integrations/situacion-detectada: el bot de Ventas pide mandar al cliente a Servicio (core/situacion.py)."""
+    headers = {"Content-Type": "application/json"}
+    if request.method != "POST":
+        return json.dumps({"error": "Method not allowed"}), 405, headers
+    try:
+        body, status = situacion.handle(request.headers, request.args, request.get_json(silent=True))
+    except Exception:
+        logging.getLogger(__name__).exception("situacion_detectada")
+        body, status = {"error": "Internal server error"}, 500
     return json.dumps(body), status, headers

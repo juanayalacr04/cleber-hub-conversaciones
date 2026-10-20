@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from core import conversation_actions, user_actions as ua
+from core import conversation_actions, outbound, user_actions as ua
 from tests.fakes import FakeDB
 
 TOKENS = {"t-admin": "admin1", "t-ana": "ana", "t-beto": "beto", "t-olga": "olga", "t-vera": "vera"}
@@ -235,9 +235,9 @@ def enviados():
     def fake(bot, to, from_, text, media_url=None):
         sent.append({"bot": bot, "to": to, "from": from_, "text": text, "media": media_url})
         return "SID1"
-    conversation_actions.configure_sender(fake)
+    outbound.configure(send_text=fake)
     yield sent
-    conversation_actions.configure_sender(None)
+    outbound.configure()
 
 
 def en_curso(db, **extra):
@@ -264,7 +264,7 @@ def test_enviar_imagen_sin_texto(db, enviados):
 
 def test_si_el_proveedor_falla_no_se_guarda_nada(db, enviados):
     en_curso(db)
-    conversation_actions.configure_sender(lambda *a, **k: None)
+    outbound.configure(send_text=lambda *a, **k: None)
     body, status = run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Hola")
     assert status == 200 and body["error"]["code"] == "error_externo" and body["error"]["retryable"]
     assert "conversations/ana/messages" not in db.data and "lastMessageSender" not in conv(db, "ana")
@@ -287,7 +287,7 @@ def test_enviar_exige_telefono_bot_y_envio_configurado(db, enviados):
     body, _ = run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Hola")   # sin teléfono ni bot
     assert body["error"]["code"] == "precondicion_fallida"
     en_curso(db)
-    conversation_actions.configure_sender(None)
+    outbound.configure()
     body, status = run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Hola")
     assert status == 500 and body["error"]["code"] == "error_interno"
 
