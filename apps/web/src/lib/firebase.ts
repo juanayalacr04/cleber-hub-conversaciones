@@ -15,8 +15,9 @@ const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-// Base default (decisión 0.16). Una sola base para todos los módulos.
-export const db = getFirestore(app);
+// Una sola base para todos los módulos: la `(default)` o, si el proyecto la comparte con otra aplicación, una con nombre
+// (NEXT_PUBLIC_FIRESTORE_DATABASE). Debe ser la misma que usa la función (FIRESTORE_DATABASE) y la de firebase.json.
+export const db = getFirestore(app, process.env.NEXT_PUBLIC_FIRESTORE_DATABASE || "(default)");
 // Archivos adjuntos de la bandeja. Requiere el bucket de Storage del proyecto (pendiente de habilitar).
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();

@@ -26,7 +26,7 @@ if (getApps().length === 0) {
   app = getApps()[0];
 }
 
-adminDb = getFirestore(app);
+adminDb = getFirestore(app, process.env.NEXT_PUBLIC_FIRESTORE_DATABASE || "(default)");
 
 export const adminAuth = getAuth(app);
 export { adminDb };

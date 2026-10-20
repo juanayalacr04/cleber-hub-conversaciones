@@ -76,7 +76,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [x] 0.9 🔒 Portar las ~200 líneas de reglas granulares del repo de Servicio
 - [x] 0.10 Extender las reglas para validar también **equipo/vertical**, no solo organización
   - 🔁 Las reglas de lectura se conservan. Las de escritura (`create`, `update`, `delete`, `write`) se eliminan cuando la función 2 sea la única puerta (1.40). La lógica de `canAccessTeam` se porta a Python (1.37)
-- [ ] 0.11 **Pruebas automatizadas de reglas** con `@firebase/rules-unit-testing`: un usuario de la organización A no puede leer documentos de la B — **Diferida:** se probarán con datos reales sobre GCP dev (`dev-hub-conversaciones`), sin emulador
+- [ ] 0.11 **Pruebas automatizadas de reglas** con `@firebase/rules-unit-testing`: un usuario de la organización A no puede leer documentos de la B — **Diferida:** se probarán con datos reales sobre GCP dev (`ambiente-desarrollo-ti`), sin emulador
   - 🔁 Se simplifica: con reglas solo de lectura basta probar el aislamiento por organización y equipo en lecturas
 
 ### Esquema
@@ -86,7 +86,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
   - 🔁 ⏩ Pasa a ser el **expediente** (D13: clave teléfono + organización): datos del cliente más resumen de cada conversación pasada. Lo consume el bot, así que se adelanta. Se construye en 1.38
 - [ ] 0.14 `conversations.source` / `.externalId`
 - [x] 0.15 **Unicidad de `sfBrandCode`** (validación o índice)
-- [x] 0.16 Base **default** de Firestore, location `nam5`; Functions en `us-central1`
+- [x] 0.16 Base de Firestore, location `nam5`; Functions en `us-central1` — en desarrollo (`ambiente-desarrollo-ti`, proyecto compartido) es una base **con nombre**, `dev-hub-conversaciones`: `firebase.json`, `NEXT_PUBLIC_FIRESTORE_DATABASE` (web) y `FIRESTORE_DATABASE` (función) deben llevar el mismo ID. En producción se decide al crear el proyecto
 
 ### Dashboard como shell
 
