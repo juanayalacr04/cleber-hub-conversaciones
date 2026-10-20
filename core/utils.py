@@ -25,6 +25,16 @@ def normalize_mx_phone(phone: str) -> str:
     return re.sub(r"^(\+52)1(\d{10})$", r"\1\2", phone)
 
 
+def to_e164(raw: str) -> str:
+    """E.164 con `+`, en el formato que usa el hub para México: 52 + 10 dígitos (sin el 1 legacy)."""
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) == 13 and digits.startswith("521"):
+        digits = "52" + digits[3:]
+    elif len(digits) == 10:
+        digits = "52" + digits
+    return "+" + digits
+
+
 def phone_variants(phone: str) -> list[str]:
     """Formas del mismo teléfono a buscar: el recibido, y su par legacy +521 / moderno +52."""
     variants = [phone]

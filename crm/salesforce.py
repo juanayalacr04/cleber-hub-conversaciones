@@ -165,6 +165,18 @@ def query(sf_config: dict, soql: str, timeout: int = 30) -> list[dict] | None:
     return data.get("records", []) if ok else None
 
 
+def query_all(sf_config: dict, soql: str, timeout: int = 30) -> list[dict] | None:
+    """Todos los registros de una consulta SOQL, siguiendo `nextRecordsUrl`. None si algún tramo falló."""
+    path, records = f"/services/data/{API_VERSION}/query?q={urllib.parse.quote(soql)}", []
+    while path:
+        ok, data = call(sf_config, "GET", path, timeout=timeout)
+        if not ok:
+            return None
+        records += data.get("records", [])
+        path = data.get("nextRecordsUrl")
+    return records
+
+
 def soql_quote(value: str) -> str:
     """Escapa un valor para usarlo entre comillas simples en SOQL."""
     return value.replace("\\", "\\\\").replace("'", "\\'")

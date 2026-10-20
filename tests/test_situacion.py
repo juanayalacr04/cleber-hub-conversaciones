@@ -42,7 +42,7 @@ def entorno(monkeypatch):
     outbound.configure(send_template=send_handoff_template)
     yield
     outbound.configure()
-    main.outbound.configure(send_text=main.send_whatsapp_message, send_template=main.send_handoff_template)
+    main.wire_outbound()
 
 
 @pytest.fixture

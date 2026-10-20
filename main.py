@@ -14,6 +14,9 @@ Despliegue (las funciones comparten el paquete; cambia solo el entry point):
     actions-execute     actions_execute      endpoint de acciones: los bots piden, el hub ejecuta (X-Bot-Id + Bearer)
     user-actions-execute user_actions_execute endpoint de los usuarios del dashboard (token de Firebase; FIREBASE_PROJECT_ID, ALLOWED_ORIGINS)
     situacion-detectada situacion_detectada      webhook del bot de Ventas hacia Servicio (X-Api-Secret = SITUACION_API_SECRET)
+
+user-actions-execute atiende también `broadcast.send` y `broadcast.retry`, que mandan una campaña completa y tardan minutos:
+desplegarla con `--timeout=900` (el valor por defecto, 60 s, la cortaría a medias).
 """
 import json
 import logging
@@ -21,7 +24,8 @@ import logging
 import functions_framework
 
 import modules  # noqa: F401  registra los handlers de cada módulo contra el núcleo
-from channels import send_handoff_template, send_whatsapp_message, webhooks
+from channels import (check_campaign_ready, delivery_statuses, send_campaign_template, send_handoff_template,
+                      send_whatsapp_message, webhooks)
 from core import actions, outbound, situacion, user_actions
 from core import account_actions, admin_actions, broadcast_actions, conversation_actions  # noqa: F401  declaran las acciones de usuario
 from core.db import get_executor
@@ -29,7 +33,13 @@ from jobs import inactivity
 from jobs.auth import cron_authorized
 
 
-outbound.configure(send_text=send_whatsapp_message, send_template=send_handoff_template)
+def wire_outbound() -> None:
+    """Inyecta en `core.outbound` los envíos del router (`channels/`)."""
+    outbound.configure(send_text=send_whatsapp_message, send_template=send_handoff_template, send_campaign=send_campaign_template,
+                       check_campaign=check_campaign_ready, delivery_statuses=delivery_statuses)
+
+
+wire_outbound()
 
 
 def _run(fn, *args):

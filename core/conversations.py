@@ -238,6 +238,12 @@ def create_new_conversation(db, bot_id: str, org_id: str, customer_phone: str,
     return conv_ref.id, conv_data, []
 
 
+def find_open_conversation(db, customer_phone: str, org_id: str) -> str | None:
+    """Id de la conversación no cerrada más reciente de un cliente en una organización (cualquier bot), o None."""
+    docs = db.collection("conversations").where("customerPhone", "==", customer_phone).where("organizationId", "==", org_id)         .order_by("lastMessageAt", direction=firestore.Query.DESCENDING).stream()
+    return next((d.id for d in docs if (d.to_dict() or {}).get("status") != "closed"), None)
+
+
 def update_abacus_conversation_id(conv_id: str, abacus_conv_id: str, db=None) -> None:
     (db or get_db()).collection("conversations").document(conv_id).update({"abacusConversationId": abacus_conv_id})
 

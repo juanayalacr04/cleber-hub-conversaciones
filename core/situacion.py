@@ -30,6 +30,7 @@ from ai import engine  # transitorio, como en core/pipeline.py: pasa a la funci�
 from core import conversations as cv, outbound
 from core.db import get_db
 from core.numbers import get_bot_by_id
+from core.utils import to_e164
 from crm import salesforce
 
 log = logging.getLogger(__name__)
@@ -47,24 +48,11 @@ def authorized(headers, args, env=None) -> bool:
     return hmac.compare_digest(received.encode(), secret.encode())
 
 
-def normalize_phone(raw: str) -> str:
-    """E.164 con `+`, en el formato que usa el hub para México: 52 + 10 dígitos (sin el 1 legacy)."""
-    digits = "".join(c for c in raw if c.isdigit())
-    if len(digits) == 13 and digits.startswith("521"):
-        digits = "52" + digits[3:]
-    elif len(digits) == 10:
-        digits = "52" + digits
-    return "+" + digits
+normalize_phone = to_e164
 
 
 def _text(value) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
-
-
-def _open_conversation(db, customer_phone: str, org_id: str) -> str | None:
-    docs = db.collection("conversations").where("customerPhone", "==", customer_phone).where("organizationId", "==", org_id) \
-        .order_by("lastMessageAt", direction=firestore.Query.DESCENDING).stream()
-    return next((d.id for d in docs if (d.to_dict() or {}).get("status") != "closed"), None)
 
 
 def _sf_config(db, org_id: str, vertical: str | None) -> dict:
@@ -103,7 +91,7 @@ def handle(headers, args, body, db=None, env=None) -> tuple[dict, int]:
     # Conversación: la abierta de este cliente con este número, o una nueva
     customer_phone = f"whatsapp:{e164}"
     bot = get_bot_by_id(bot_id, db) if bot_id else None
-    conv_id = _open_conversation(db, customer_phone, org_id)
+    conv_id = cv.find_open_conversation(db, customer_phone, org_id)
     if conv_id is None:
         conv_id, _, _ = cv.create_new_conversation(db, bot_id, org_id, customer_phone, team_id, number_id, bot_config=bot,
                                                    customer_name=customer_name, direction="outbound", source=SOURCE)

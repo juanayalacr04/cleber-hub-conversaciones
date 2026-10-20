@@ -36,6 +36,7 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import { modulePath, conversationPath } from "@/lib/routes";
 import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -202,17 +203,10 @@ export default function BroadcastDetailPage() {
     setSendError("");
 
     try {
-      const token = await user?.getIdToken();
-      const response = await fetch(`/api/broadcasts/${broadcastId}/send`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setSendError(data.error || "Error al enviar");
-      }
-    } catch {
-      setSendError("Error al enviar la campaña");
+      // La función 2 envía y responde al terminar: puede tardar minutos en campañas grandes
+      await callHubAction(user, "broadcast.send", { id: broadcastId });
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Error al enviar la campaña");
     } finally {
       setSending(false);
     }
@@ -224,20 +218,12 @@ export default function BroadcastDetailPage() {
     setTestResult(null);
     setSendError("");
     try {
-      const token = await user?.getIdToken();
-      const response = await fetch(`/api/broadcasts/${broadcastId}/test-send`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ testPhone: testPhone.trim(), recipientId: testRecipientId || undefined }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setSendError(data.error || "Error en envío de prueba");
-      } else {
-        setTestResult({ sent: data.sent, failed: data.failed, conversationId: data.conversationId ?? null, results: data.results || [] });
-      }
-    } catch {
-      setSendError("Error al enviar prueba");
+      const data = await callHubAction<{ sent: number; failed: number; conversationId?: string | null; results?: { index: number; success: boolean; conversationId?: string; error?: string }[] }>(
+        user, "broadcast.test_send", { id: broadcastId, testPhone: testPhone.trim(), recipientId: testRecipientId || undefined }
+      );
+      setTestResult({ sent: data.sent, failed: data.failed, conversationId: data.conversationId ?? null, results: data.results || [] });
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Error al enviar prueba");
     } finally {
       setTestSending(false);
     }
@@ -249,20 +235,11 @@ export default function BroadcastDetailPage() {
     setRefreshResult(null);
     setSendError("");
     try {
-      const token = await user?.getIdToken();
-      const response = await fetch(`/api/broadcasts/${broadcastId}/refresh`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setSendError(data.error || "Error al refrescar");
-      } else {
-        setRefreshResult({ recipients: data.recipients, preserved: data.preserved ?? 0, skipped: data.skipped, date: data.date, skippedDetails: data.skippedDetails });
-        setCurrentPage(1);
-      }
-    } catch {
-      setSendError("Error al refrescar los destinatarios");
+      const data = await callHubAction<{ recipients: number; preserved?: number; skipped: number; skippedDetails?: { id: string; reason: string; rawPhone: string | null; name: string | null }[] }>(user, "broadcast.refresh", { id: broadcastId });
+      setRefreshResult({ recipients: data.recipients, preserved: data.preserved ?? 0, skipped: data.skipped, skippedDetails: data.skippedDetails });
+      setCurrentPage(1);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Error al refrescar los destinatarios");
     } finally {
       setRefreshing(false);
     }
@@ -273,15 +250,9 @@ export default function BroadcastDetailPage() {
     setRetrying(true);
     setSendError("");
     try {
-      const token = await user?.getIdToken();
-      const response = await fetch(`/api/broadcasts/${broadcastId}/retry`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await response.json();
-      if (!response.ok) setSendError(data.error || "Error al reintentar");
-    } catch {
-      setSendError("Error al reintentar el envío");
+      await callHubAction(user, "broadcast.retry", { id: broadcastId });
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Error al reintentar el envío");
     } finally {
       setRetrying(false);
     }
@@ -293,19 +264,9 @@ export default function BroadcastDetailPage() {
     setCheckStatusResult(null);
     setSendError("");
     try {
-      const token = await user?.getIdToken();
-      const response = await fetch(`/api/broadcasts/${broadcastId}/check-status`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setSendError(data.error || "Error al verificar estatus");
-      } else {
-        setCheckStatusResult(data);
-      }
-    } catch {
-      setSendError("Error al verificar estatus de entregas");
+      setCheckStatusResult(await callHubAction<{ checked: number; delivered: number; failed: number }>(user, "broadcast.check_status", { id: broadcastId }));
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Error al verificar estatus de entregas");
     } finally {
       setCheckingStatus(false);
     }

@@ -5,14 +5,22 @@
 
 El servidor pone lo que el cliente no decide: `id`, organización, estado `draft`, contadores en cero, autor
 (del token), fecha y total de destinatarios. El módulo (`vertical`) se deriva del equipo del número de WhatsApp,
-o del bot como respaldo, y solo si no sale de ahí se acepta el que manda la pantalla. El envío, los reintentos
-y la verificación de entregas (`api/broadcasts/*`) siguen en el dashboard y migran en otra tarea.
+o del bot como respaldo, y solo si no sale de ahí se acepta el que manda la pantalla.
+
+Las demás acciones operan sobre una campaña existente (`{id}`) y delegan en `core/campaigns.py`:
+
+    broadcast.send           write   Envía los destinatarios pendientes (larga: la función necesita un timeout alto)
+    broadcast.retry          write   Reintenta los fallidos y omitidos
+    broadcast.refresh        write   Recalcula los destinatarios de un recordatorio / no-show desde Salesforce
+    broadcast.check_status   write   Consulta al proveedor si lo enviado ya se entregó
+    broadcast.test_send      super   `{id, testPhone, recipientId?}`: manda un destinatario a un teléfono de prueba
 """
 import re
 
 from google.cloud import firestore
 
 from contracts.actions import DATOS_INVALIDOS, ERROR_INTERNO
+from core import campaigns
 from core.admin_actions import Entity, _clean, _ref_in_org
 from core.schema import VERTICALS
 from core.user_actions import UserActionError, UserContext, declare
@@ -108,3 +116,33 @@ def create(ctx: UserContext, data: dict) -> dict:
         "createdBy": ctx.requester.uid, "createdAt": firestore.SERVER_TIMESTAMP, "completedAt": None,
     })
     return {"id": ref.id}
+
+
+@declare("broadcast.send", scope="doc", level="write", collection="broadcasts")
+def send(ctx: UserContext, data: dict) -> dict:
+    return campaigns.send(ctx.db, ctx.doc_id, ctx.doc)
+
+
+@declare("broadcast.retry", scope="doc", level="write", collection="broadcasts")
+def retry(ctx: UserContext, data: dict) -> dict:
+    return campaigns.retry(ctx.db, ctx.doc_id, ctx.doc)
+
+
+@declare("broadcast.refresh", scope="doc", level="write", collection="broadcasts")
+def refresh(ctx: UserContext, data: dict) -> dict:
+    return campaigns.refresh(ctx.db, ctx.doc_id, ctx.doc)
+
+
+@declare("broadcast.check_status", scope="doc", level="write", collection="broadcasts")
+def check_status(ctx: UserContext, data: dict) -> dict:
+    return campaigns.check_status(ctx.db, ctx.doc_id, ctx.doc)
+
+
+@declare("broadcast.test_send", scope="doc", level="super", collection="broadcasts")
+def test_send(ctx: UserContext, data: dict) -> dict:
+    phone, recipient_id = data.get("testPhone"), data.get("recipientId")
+    if not isinstance(phone, str) or not any(c.isdigit() for c in phone):
+        raise UserActionError(DATOS_INVALIDOS, "testPhone is required")
+    if recipient_id is not None and not isinstance(recipient_id, str):
+        raise UserActionError(DATOS_INVALIDOS, "recipientId inválido")
+    return campaigns.send_test(ctx.db, ctx.doc_id, ctx.doc, phone, recipient_id)
