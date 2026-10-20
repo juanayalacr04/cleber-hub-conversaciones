@@ -150,11 +150,37 @@ def test_numero_se_normaliza_y_referencias_deben_ser_de_la_organizacion(db):
     assert run(db, "t-admin", "number.create", organizationId="honda", fields={**base, "leadTemplateId": "tpl1"})[1] == 200
 
 
-def test_numero_duplicado_se_rechaza_pero_se_puede_editar_a_si_mismo(db):
-    body, status = run(db, "t-admin", "number.create", organizationId="honda", fields={"phoneNumber": "whatsapp:+529", "provider": "twilio"})
-    assert status == 400 and "ya está dado de alta" in body["error"]["message"]
-    assert run(db, "t-admin", "number.update", id="n1", set={"phoneNumber": "+521", "displayName": "Sucursal"})[1] == 200
+def test_un_telefono_puede_repetirse_pero_solo_uno_activo(db):
+    db.data["whatsappNumbers"]["n1"]["status"] = "active"
+    dup = {"phoneNumber": "whatsapp:+521", "provider": "twilio"}
+    # activo por defecto: choca con n1
+    body, status = run(db, "t-admin", "number.create", organizationId="honda", fields=dup)
+    assert status == 400 and "ya está activo" in body["error"]["message"]
+    # inactivo: se permite repetirlo
+    body, status = run(db, "t-admin", "number.create", organizationId="honda", fields={**dup, "status": "inactive"})
+    assert status == 200
+    n2 = body["result"]["id"]
+    # y también en otra organización
+    assert run(db, "t-root", "number.create", organizationId="kia", fields={**dup, "status": "inactive"})[1] == 200
+    # activar el repetido choca; desactivar el actual y luego activarlo funciona
+    assert run(db, "t-admin", "number.update", id=n2, set={"status": "active"})[1] == 400
+    assert run(db, "t-admin", "number.update", id="n1", set={"status": "inactive"})[1] == 200
+    assert run(db, "t-admin", "number.update", id=n2, set={"status": "active"})[1] == 200
+    assert run(db, "t-admin", "number.update", id="n1", set={"status": "active"})[1] == 400
+
+
+def test_cambiar_el_telefono_de_un_activo_a_uno_ocupado_se_rechaza(db):
+    db.data["whatsappNumbers"]["n1"]["status"] = "active"
+    db.data["whatsappNumbers"]["n-kia"]["status"] = "active"
+    assert run(db, "t-root", "number.update", id="n1", set={"phoneNumber": "+529"})[1] == 400
+    assert run(db, "t-root", "number.update", id="n1", set={"phoneNumber": "+521", "displayName": "Sucursal"})[1] == 200  # el suyo
     assert doc(db, "whatsappNumbers", "n1")["displayName"] == "Sucursal"
+
+
+def test_editar_otros_campos_de_un_numero_ya_en_conflicto_no_se_bloquea(db):
+    db.data["whatsappNumbers"]["n1"]["status"] = "active"
+    db.seed("whatsappNumbers", "n-dup", {"organizationId": "honda", "phoneNumber": "whatsapp:+521", "status": "active", "provider": "twilio"})
+    assert run(db, "t-admin", "number.update", id="n1", set={"displayName": "X"})[1] == 200
 
 
 def test_cambiar_el_equipo_de_un_numero_mueve_sus_conversaciones_abiertas(db):

@@ -15,6 +15,7 @@ Cada entidad se declara con una lista blanca de campos y sus tipos; de ella sale
 Reglas comunes:
   - Un campo fuera de la lista blanca, o con tipo equivocado, se rechaza. Cambiar `organizationId` de un
     recurso (moverlo de marca) y los campos de plataforma de una organización son solo del superadmin.
+  - Un teléfono puede repetirse en varios números, pero solo uno puede estar `active` a la vez.
   - Lo que el recurso referencia (equipo, bot, plantilla) debe ser de su misma organización.
   - Los cascos de borrado y reasignación que la pantalla hacía a mano (agentes y números de un equipo,
     conversaciones abiertas de un número) viven aquí.
@@ -140,15 +141,30 @@ def _unlink_team(ctx: UserContext, team_id: str) -> None:
         snap.reference.update({"teamId": None})
 
 
+def _check_single_active(ctx: UserContext, fields: dict, old: dict | None) -> None:
+    """Un teléfono puede estar dado de alta varias veces, pero activo en un solo lugar.
+
+    El webhook resuelve el número por teléfono entre los `active`: dos activos chocan en silencio.
+    Solo se revisa cuando la escritura cambia el teléfono o el estado, para no bloquear la edición de
+    otros campos de un número que ya estaba en conflicto.
+    """
+    if old is not None and "phoneNumber" not in fields and "status" not in fields:
+        return
+    phone = fields.get("phoneNumber") or (old or {}).get("phoneNumber")
+    status = fields.get("status", (old or {}).get("status") if old is not None else "active")
+    if not phone or status != "active":
+        return
+    query = ctx.db.collection("whatsappNumbers").where("phoneNumber", "==", phone).where("status", "==", "active")
+    if any(snap.id != ctx.doc_id for snap in query.limit(2).stream()):
+        raise UserActionError(DATOS_INVALIDOS, f"El número {phone} ya está activo en otro registro; desactívalo antes")
+
+
 def _check_number(ctx, fields, org_id, old):
     if fields.get("phoneNumber"):
         phone = fields["phoneNumber"].strip()
         phone = phone if phone.startswith("whatsapp:") else f"whatsapp:{phone}"
         fields["phoneNumber"] = phone
-        # El webhook resuelve el número por teléfono: dos documentos con el mismo número chocan en silencio
-        for snap in ctx.db.collection("whatsappNumbers").where("phoneNumber", "==", phone).limit(2).stream():
-            if snap.id != ctx.doc_id:
-                raise UserActionError(DATOS_INVALIDOS, f"El número {phone} ya está dado de alta")
+    _check_single_active(ctx, fields, old)
     _ref_in_org(ctx, "teams", fields.get("teamId"), "El equipo", org_id)
     _ref_in_org(ctx, "bots", fields.get("defaultBotId"), "El bot", org_id)
     for key in NUMBER_TEMPLATE_FIELDS:
