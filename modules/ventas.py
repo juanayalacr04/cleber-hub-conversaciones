@@ -403,7 +403,6 @@ def _crear_lead(conv: dict, p: dict) -> ActionResponse | None:
         return ActionResponse.failure(ACCION_NO_PERMITIDA, "Este bot no tiene Salesforce configurado")
     if conv.get("leadId"):
         return ActionResponse.success({"leadId": conv["leadId"]}, status="duplicate")
-    turn.flags["lead_attempted"] = True
     claimed, concurrent = claim(turn.conv_id, "leadId", "leadCreationClaimedAt", db=turn.db)
     if not claimed:
         if not concurrent:
@@ -411,6 +410,7 @@ def _crear_lead(conv: dict, p: dict) -> ActionResponse | None:
             return ActionResponse.failure(ERROR_EXTERNO, "El Lead se está creando en otra solicitud; reintenta en unos segundos", retryable=True)
         conv["leadId"] = concurrent  # otra invocación ya creó el Lead: se sigue con ese
         return ActionResponse.success({"leadId": concurrent}, status="duplicate")
+    turn.flags["lead_attempted"] = True  # solo si esta invocación intentó crearlo: con el claim ajeno el handoff sigue exigiendo Lead
     lead_id = create_salesforce_lead(sf, conv, p["input"], _brand_code(turn.db, conv.get("organizationId") or turn.org_id))
     if lead_id:
         conv["leadId"] = lead_id

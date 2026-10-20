@@ -288,6 +288,21 @@ def test_crear_lead_por_el_endpoint_con_la_creacion_en_curso_pide_reintentar_y_n
     assert not env.sf.find("POST", "/sobjects/Lead/")
 
 
+def test_crear_lead_con_el_claim_ajeno_y_transferir_en_el_mismo_turno_no_escala_sin_lead(env):
+    env.run("hola")
+    cid = env.conv()["id"]
+    env.db.data["conversations"][cid]["leadCreationClaimedAt"] = datetime.now(timezone.utc)  # otra invocación lo está creando
+    env.state["results"] = [
+        {"success": True, "result": {"response": "Te conecto", "toolResults": [
+            {"toolName": "Crear_Lead", "input": {"nombre": "Ana"}}, {"toolName": "Transferir_a_Asesor", "input": {"motivo": "cotización"}}]}},
+        {"success": True, "result": {"response": "¿Me das tu nombre completo?", "toolResults": []}},  # follow-up tras el contexto
+    ]
+    env.run("quiero cotizar y hablar con alguien")
+    conv = env.conv()
+    assert conv["status"] == "bot" and "leadId" not in conv
+    assert not env.sf.find("POST", "/sobjects/Lead/")
+
+
 def test_crear_lead_y_transferir_en_el_mismo_turno_escala_con_el_lead_recien_creado(env):
     env.state["default"] = {"success": True, "result": {"response": "Te conecto", "toolResults": [
         {"toolName": "Transferir_a_Asesor", "input": {"motivo": "cotización"}}, {"toolName": "Crear_Lead", "input": {"nombre": "Ana"}}]}}
