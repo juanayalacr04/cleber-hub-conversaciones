@@ -10,7 +10,7 @@ Cada entidad se declara con una lista blanca de campos y sus tipos; de ella sale
     <entidad>.delete   {id}
 
     team · number (whatsappNumbers) · bot · template · label · organization (alta solo superadmin)
-    member.set_role · member.set_availability · member.set_team · member.remove · member.set_primary_org
+    member.set_role · member.set_availability · member.set_team · member.remove · member.set_primary_org · member.invite
 
 Reglas comunes:
   - Un campo fuera de la lista blanca, o con tipo equivocado, se rechaza. Cambiar `organizationId` de un
@@ -20,22 +20,29 @@ Reglas comunes:
   - Los cascos de borrado y reasignación que la pantalla hacía a mano (agentes y números de un equipo,
     conversaciones abiertas de un número) viven aquí.
 """
+import html
 import json
+import logging
+import os
 from dataclasses import dataclass, field
 from typing import Callable
 
 from google.cloud import firestore
 
 from contracts.actions import DATOS_INVALIDOS, NO_AUTORIZADO, PRECONDICION_FALLIDA
-from core import authz
+from core import authz, http
 from core.conversations import resolve_vertical
 from core.schema import BOT_TYPES, VERTICALS, assert_unique_brand_code
 from core.user_actions import UserActionError, UserContext, declare
 
+log = logging.getLogger(__name__)
 MAX_BYTES = 200_000
 OPEN_STATUSES = ["bot", "waiting_agent", "with_agent"]
 BATCH_SIZE = 499
 ROLES = ("admin", "agent", "viewer")
+ROLE_LABELS = {"admin": "Administrador", "agent": "Agente", "viewer": "Observador"}
+FALLBACK_APP_URL = "https://web-delta-three-35.vercel.app"
+DEFAULT_INVITE_FROM = "usr.prd.sistemas@cleber.com"
 LABEL_COLORS = ("red", "orange", "yellow", "green", "blue", "purple", "pink", "gray")
 NUMBER_TEMPLATE_FIELDS = ("leadTemplateId", "followupOpeningTemplateId", "followupReminderTemplateId",
                           "followupClosingTemplateId", "scheduledContactTemplateId", "situationTemplateId")
@@ -423,3 +430,86 @@ def member_set_primary_org(ctx: UserContext, data: dict) -> dict:
 
 
 register_entities()
+
+
+# --------------------------------------------------------------------------- invitaciones
+
+def _org_ids(user: dict) -> list:
+    return list(user.get("organizationIds") or ([user["organizationId"]] if user.get("organizationId") else []))
+
+
+def _send_invite_email(ctx: UserContext, email: str, role: str) -> bool:
+    """Correo de invitación por el webhook de correo (`INVITE_EMAIL_WEBHOOK_URL`). Un fallo no deshace la invitación."""
+    url = os.environ.get("INVITE_EMAIL_WEBHOOK_URL")
+    if not url:
+        log.warning("INVITE_EMAIL_WEBHOOK_URL sin configurar: la invitación a %s no se envió por correo", email)
+        return False
+    org = ctx.db.collection("organizations").document(ctx.org_id).get().to_dict() or {}
+    org_name = html.escape(org.get("name") or ctx.org_id)
+    app_url = ctx.origin or os.environ.get("APP_URL", "").strip().rstrip("/") or FALLBACK_APP_URL  # el origen ya viene validado
+    content = (
+        '<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">'
+        "<h2>Has sido invitado a la plataforma</h2>"
+        f"<p>Un administrador te ha invitado a unirte al equipo de <strong>{org_name}</strong> como "
+        f"<strong>{ROLE_LABELS[role]}</strong>.</p><p>Haz clic en el siguiente enlace para acceder:</p>"
+        f'<a href="{html.escape(app_url)}" style="display: inline-block; padding: 12px 24px; background-color: #000; '
+        'color: #fff; text-decoration: none; border-radius: 6px; margin: 16px 0;">Acceder a la plataforma</a>'
+        f'<p style="color: #666; font-size: 14px;">Inicia sesión con tu cuenta de Google asociada a <strong>{html.escape(email)}</strong>.</p></div>'
+    )
+    body = json.dumps({"to": email, "from": os.environ.get("INVITE_EMAIL_FROM", DEFAULT_INVITE_FROM),
+                       "subject": f"Invitación a la plataforma de Conversaciones — {org_name}", "content": content}).encode("utf-8")
+    try:
+        http.request(url, body, {"Content-Type": "application/json"}, timeout=15)
+        return True
+    except Exception as e:
+        log.error("No se pudo enviar el correo de invitación a %s: %s", email, e)
+        return False
+
+
+@declare("member.invite", scope="org", level="admin")
+def member_invite(ctx: UserContext, data: dict) -> dict:
+    """Invita por email a la organización. El alta real ocurre en el primer inicio de sesión (`me.claim_invite`)."""
+    raw = data.get("email")
+    email = raw.strip().lower() if isinstance(raw, str) else ""
+    role = data.get("role")
+    if "@" not in email or role not in ROLES:
+        raise UserActionError(DATOS_INVALIDOS, f"Se requiere un email válido y un role ({', '.join(ROLES)})")
+    team_id = data.get("teamId") or None
+    if team_id is not None and not isinstance(team_id, str):
+        raise UserActionError(DATOS_INVALIDOS, "teamId inválido")
+    _ref_in_org(ctx, "teams", team_id, "El equipo", ctx.org_id)
+
+    org, uid = ctx.org_id, ctx.requester.uid
+    found = {}
+    for candidate in dict.fromkeys([raw.strip(), email]):  # los documentos viejos pueden traer el email con mayúsculas
+        for snap in ctx.db.collection("users").where("email", "==", candidate).stream():
+            found[snap.id] = snap
+    member = next((s for s in found.values() if org in _org_ids(s.to_dict() or {})), None)
+    team_update = {"teamId": team_id, f"orgTeams.{org}": team_id} if team_id else {}
+
+    if member is not None:
+        existing = member.to_dict() or {}
+        if existing.get("lastLoginAt") is not None:
+            raise UserActionError(PRECONDICION_FALLIDA, "Ya existe un usuario activo con este email en la organización")
+        if existing.get("isSuperAdmin") and not ctx.requester.is_super_admin:
+            raise UserActionError(NO_AUTORIZADO, "Solo un superadmin puede modificar a un superadmin")
+        member.reference.update({"role": role, "invitedBy": uid, **team_update})  # pre-registrado: se actualiza el rol
+    elif found:
+        # Ya existe en otra organización: se agrega esta. El rol es global en el usuario, así que solo un
+        # superadmin lo cambia; si no, un admin de una marca podría ascender a alguien en las demás.
+        snap = next(iter(found.values()))
+        existing = snap.to_dict() or {}
+        if existing.get("isSuperAdmin") and not ctx.requester.is_super_admin:
+            raise UserActionError(NO_AUTORIZADO, "Solo un superadmin puede modificar a un superadmin")
+        updates = {"organizationIds": firestore.ArrayUnion(list(dict.fromkeys([*_org_ids(existing), org]))),
+                   "invitedBy": uid, **team_update}
+        if ctx.requester.is_super_admin:
+            updates["role"] = role
+        snap.reference.update(updates)
+        role = updates.get("role", existing.get("role") or role)
+    else:
+        ref = ctx.db.collection("users").document()
+        ref.set({"id": ref.id, "email": email, "name": "", "role": role, "organizationId": org, "organizationIds": [org],
+                 "teamId": team_id, "orgTeams": {org: team_id} if team_id else {}, "status": "offline", "photoURL": None,
+                 "createdAt": firestore.SERVER_TIMESTAMP, "lastLoginAt": None, "invitedBy": uid})
+    return {"emailSent": _send_invite_email(ctx, email, role)}

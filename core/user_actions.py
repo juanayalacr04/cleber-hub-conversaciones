@@ -62,6 +62,7 @@ class UserContext:
     doc_id: str | None = None
     doc: dict | None = None    # para scope `doc`
     claims: dict | None = None  # token verificado: uid, email, email_verified, name, picture
+    origin: str | None = None   # Origin de la petición, solo si está en ALLOWED_ORIGINS (p. ej. el enlace de una invitación)
 
 
 @dataclass
@@ -199,7 +200,8 @@ def _locate(spec: UserAction, requester: authz.Requester, data: dict, db) -> Use
     return UserContext(db, requester, org_id, conv_id, conv)
 
 
-def execute_user_action(uid: str, action: str, data: dict, db=None, claims: dict | None = None) -> ActionResponse:
+def execute_user_action(uid: str, action: str, data: dict, db=None, claims: dict | None = None,
+                        origin: str | None = None) -> ActionResponse:
     """Ejecuta `action` en nombre del usuario `uid` (ya autenticado). Nunca lanza."""
     db = db or get_db()
     spec = _REGISTRY.get(action)
@@ -214,6 +216,7 @@ def execute_user_action(uid: str, action: str, data: dict, db=None, claims: dict
         located = _locate(spec, requester, data, db)
     if isinstance(located, ActionResponse):
         return located
+    located.origin = origin
     try:
         return ActionResponse.success(spec.handler(located, data) or {})
     except UserActionError as e:
@@ -232,5 +235,6 @@ def handle(headers, body, db=None, verifier=None) -> tuple[dict, int]:
     data = body.get("data", {}) if isinstance(body, dict) else None
     if not isinstance(action, str) or not action or not isinstance(data, dict):
         return {"error": "Se esperaba {action: str, data: objeto}"}, 400
-    response = execute_user_action(claims["uid"], action, data, db, claims)
+    origin = headers.get("Origin") if cors_headers(headers.get("Origin")) else None
+    response = execute_user_action(claims["uid"], action, data, db, claims, origin)
     return response.to_dict(), 200 if response.ok else _STATUS.get(response.error.code, 200)

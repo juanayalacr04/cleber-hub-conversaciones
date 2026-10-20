@@ -1,8 +1,9 @@
 import importlib
+import json
 
 import pytest
 
-from core import admin_actions, user_actions as ua
+from core import admin_actions, http, user_actions as ua
 from tests.fakes import FakeDB
 
 TOKENS = {"t-admin": "admin1", "t-ana": "ana", "t-olga": "olga", "t-root": "root", "t-vera": "vera"}
@@ -319,3 +320,105 @@ def test_organizacion_principal_solo_superadmin(db):
     assert u["organizationId"] == "honda" and u["organizationIds"] == ["kia", "honda"]
     body, _ = run(db, "t-root", "member.set_primary_org", organizationId="no-hay", userId="kiauser")
     assert body["error"]["code"] == "precondicion_fallida"
+
+
+# --------------------------------------------------------------------------- invitaciones
+
+@pytest.fixture
+def correos(monkeypatch):
+    sent = []
+    monkeypatch.setenv("INVITE_EMAIL_WEBHOOK_URL", "https://correo.example/hook")
+    monkeypatch.setattr(http, "request", lambda url, data=None, headers=None, method="POST", timeout=30: sent.append((url, json.loads(data))) or (200, "ok"))
+    return sent
+
+
+def invite(db, token="t-admin", **data):
+    return run(db, token, "member.invite", **{"organizationId": "honda", "email": "nuevo@x.com", "role": "agent", **data})
+
+
+def by_email(db, email):
+    return [u for u in db.data["users"].values() if u.get("email") == email]
+
+
+def test_invitar_crea_el_preregistrado_y_manda_el_correo(db, correos):
+    body, status = invite(db, teamId="ventas", email="  Nuevo@X.com ")
+    assert status == 200 and body["result"] == {"emailSent": True}
+    (user,) = by_email(db, "nuevo@x.com")
+    assert (user["role"], user["organizationIds"], user["orgTeams"], user["teamId"]) == ("agent", ["honda"], {"honda": "ventas"}, "ventas")
+    assert user["lastLoginAt"] is None and user["invitedBy"] == "admin1" and user["id"] in db.data["users"]
+    url, mail = correos[0]
+    assert url == "https://correo.example/hook" and mail["to"] == "nuevo@x.com"
+    assert "Honda" in mail["content"] and "Agente" in mail["content"] and "Honda" in mail["subject"]
+
+
+def test_el_enlace_del_correo_usa_solo_origenes_permitidos(db, correos, monkeypatch):
+    monkeypatch.setenv("ALLOWED_ORIGINS", "https://hub.example.com")
+    monkeypatch.setenv("APP_URL", "https://canonica.example.com/")
+    headers = lambda origin: {"Authorization": "Bearer t-admin", "Origin": origin}
+    body = {"action": "member.invite", "data": {"organizationId": "honda", "email": "a@x.com", "role": "agent"}}
+    ua.handle(headers("https://hub.example.com"), body, db=db, verifier=verifier)
+    ua.handle(headers("https://phishing.example"), {**body, "data": {**body["data"], "email": "b@x.com"}}, db=db, verifier=verifier)
+    assert 'href="https://hub.example.com"' in correos[0][1]["content"]
+    assert 'href="https://canonica.example.com"' in correos[1][1]["content"]   # origen no permitido: se ignora
+
+
+def test_sin_webhook_de_correo_la_invitacion_se_crea_igual(db, monkeypatch):
+    monkeypatch.delenv("INVITE_EMAIL_WEBHOOK_URL", raising=False)
+    body, status = invite(db)
+    assert status == 200 and body["result"] == {"emailSent": False} and by_email(db, "nuevo@x.com")
+
+
+def test_si_el_correo_falla_la_invitacion_no_se_deshace(db, monkeypatch):
+    monkeypatch.setenv("INVITE_EMAIL_WEBHOOK_URL", "https://correo.example/hook")
+
+    def falla(*a, **k):
+        raise OSError("sin red")
+    monkeypatch.setattr(http, "request", falla)
+    assert invite(db)[0]["result"] == {"emailSent": False} and by_email(db, "nuevo@x.com")
+
+
+def test_invitar_valida_email_rol_y_equipo(db, correos):
+    assert invite(db, email="sin-arroba")[1] == 400
+    assert invite(db, role="dios")[1] == 400
+    assert invite(db, teamId="kia-t")[1] == 400   # equipo de otra organización
+    assert by_email(db, "nuevo@x.com") == [] and correos == []
+
+
+def test_solo_admin_de_la_organizacion_invita(db, correos):
+    assert invite(db, token="t-ana")[1] == 403
+    assert invite(db, token="t-olga")[1] == 403
+    assert invite(db, token="t-root")[1] == 200
+
+
+def test_reinvitar_a_un_preregistrado_actualiza_el_rol_y_a_un_activo_se_rechaza(db, correos):
+    invite(db, role="agent")
+    invite(db, role="viewer", teamId="servicio")
+    (user,) = by_email(db, "nuevo@x.com")
+    assert user["role"] == "viewer" and user["orgTeams"] == {"honda": "servicio"}
+    user["lastLoginAt"] = "ayer"
+    body, _ = invite(db)
+    assert body["error"]["code"] == "precondicion_fallida"
+
+
+def test_invitar_a_un_usuario_de_otra_organizacion_no_le_cambia_el_rol(db, correos):
+    db.data["users"]["kiauser"] = {"id": "kiauser", "email": "k@x.com", "role": "agent", "organizationId": "kia"}
+    assert invite(db, email="k@x.com", role="admin", teamId="ventas")[1] == 200
+    k = db.data["users"]["kiauser"]
+    assert k["organizationIds"] == ["kia", "honda"] and k["role"] == "agent" and k["orgTeams"] == {"honda": "ventas"}
+    assert "Agente" in correos[0][1]["content"]
+    # un superadmin sí puede fijar el rol
+    db.data["users"]["kiauser"]["organizationIds"] = ["kia"]
+    assert invite(db, token="t-root", email="k@x.com", role="admin")[1] == 200
+    assert db.data["users"]["kiauser"]["role"] == "admin"
+
+
+def test_no_se_invita_para_modificar_a_un_superadmin(db, correos):
+    db.data["users"]["root"].update({"email": "root@x.com", "organizationIds": ["kia"]})
+    assert invite(db, email="root@x.com")[1] == 403
+    assert db.data["users"]["root"]["organizationIds"] == ["kia"]
+
+
+def test_el_nombre_de_la_organizacion_se_escapa_en_el_correo(db, correos):
+    db.data["organizations"]["honda"]["name"] = "<script>x</script>"
+    invite(db)
+    assert "<script>" not in correos[0][1]["content"] and "&lt;script&gt;" in correos[0][1]["content"]

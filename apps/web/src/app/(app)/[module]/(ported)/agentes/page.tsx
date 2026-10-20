@@ -235,35 +235,21 @@ export default function TeamPage() {
 
     setInviting(true);
     try {
-      const token = await user?.getIdToken();
-      const res = await fetch("/api/invite", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          email: inviteEmail.trim(),
-          role: inviteRole,
-          organizationId: inviteOrgId || userData?.organizationId,
-          ...(inviteTeamId ? { teamId: inviteTeamId } : {}),
-        }),
+      const { emailSent } = await callHubAction<{ emailSent: boolean }>(user, "member.invite", {
+        email: inviteEmail.trim(),
+        role: inviteRole,
+        organizationId: inviteOrgId || userData?.organizationId,
+        ...(inviteTeamId ? { teamId: inviteTeamId } : {}),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        toast.error(data.error || "Error al enviar invitación");
-        return;
-      }
-
+      if (!emailSent) toast.warning("La invitación se creó, pero no se pudo enviar el correo. Avísale que ya puede entrar con su cuenta de Google.");
       toast.success(`Invitación enviada a ${inviteEmail}`);
       setInviteDialogOpen(false);
       setInviteEmail("");
       setInviteTeamId("");
     } catch (error) {
       console.error("Error inviting:", error);
-      toast.error("Error al enviar invitación");
+      toast.error(error instanceof Error ? error.message : "Error al enviar invitación");
     } finally {
       setInviting(false);
     }

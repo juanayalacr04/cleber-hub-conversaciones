@@ -15,17 +15,20 @@ pertenezca a la misma organización. Todos los datos de contexto salen de la con
     conversation.mark_appointment write   Marcar o desmarcar la cita con agente (`marked`)
     conversation.rename_customer  write   Nombre del cliente (`name`, vacío para borrarlo)
     conversation.add_note         write   Nota interna (`text`)
+    conversation.send_message     write   Mensaje del agente al cliente (`text` y/o `mediaUrl`)
 """
 from datetime import datetime, timezone
 
 from google.cloud import firestore
 
 from contracts.actions import DATOS_INVALIDOS, PRECONDICION_FALLIDA
+from contracts.actions import ERROR_EXTERNO, ERROR_INTERNO
 from core import authz
-from core.conversations import resolve_vertical
+from core.conversations import add_message, resolve_vertical
+from core.numbers import get_bot_for_conversation
 from core.user_actions import UserActionError, UserContext, declare
 
-MAX_NAME, MAX_NOTE, MAX_REASON = 120, 4000, 200
+MAX_NAME, MAX_NOTE, MAX_REASON, MAX_MESSAGE = 120, 4000, 200, 4096
 APPOINTMENT_OUTCOME = "cita_agente_bdc"
 
 # Campos que se limpian cuando la conversación deja de estar con un agente
@@ -166,3 +169,53 @@ def add_note(ctx: UserContext, data: dict) -> dict:
     note.set({"authorId": ctx.requester.uid, "authorName": user.get("name") or user.get("email") or "Agente",
               "text": text, "createdAt": firestore.SERVER_TIMESTAMP})
     return {"noteId": note.id}
+
+
+# --------------------------------------------------------------------------- mensajes del agente
+
+_send = None
+
+
+def configure_sender(fn) -> None:
+    """Inyecta `send(bot, to_number, from_number, text, media_url=None)`, el envío por el proveedor del número.
+
+    Lo cablea `main.py` con `channels.send_whatsapp_message`: `core/` no importa `channels/` (hoy el envío es
+    una llamada directa; con la función 1 (1.36) pasa a pedirse al router).
+    """
+    global _send
+    _send = fn
+
+
+@declare("conversation.send_message", scope="conversation")
+def send_message(ctx: UserContext, data: dict) -> dict:
+    text = _text(data, "text", MAX_MESSAGE, required=False)
+    media_url = data.get("mediaUrl")
+    if media_url is not None and (not isinstance(media_url, str) or not media_url.startswith("https://")):
+        raise UserActionError(DATOS_INVALIDOS, "mediaUrl debe ser una URL https")
+    if not text and not media_url:
+        raise UserActionError(DATOS_INVALIDOS, "Falta text o mediaUrl")
+    conv = ctx.conv
+    customer = conv.get("customerPhone")
+    if not customer or not conv.get("botId"):
+        raise UserActionError(PRECONDICION_FALLIDA, "La conversación no tiene teléfono del cliente o bot")
+
+    # El canal web solo guarda el mensaje: el widget lo recibe por onSnapshot
+    if conv.get("channel") != "web":
+        if _send is None:
+            raise UserActionError(ERROR_INTERNO, "El envío por WhatsApp no está configurado")
+        bot, from_number = get_bot_for_conversation(conv["botId"], conv.get("whatsappNumberId"), ctx.db)
+        if not bot:
+            raise UserActionError(PRECONDICION_FALLIDA, "El bot de la conversación no existe")
+        if not _send(bot, customer, from_number, text, media_url=media_url):
+            # Nada se guarda si el proveedor no aceptó el mensaje: el agente ve el error y puede reintentar
+            raise UserActionError(ERROR_EXTERNO, "El proveedor no aceptó el mensaje", retryable=True)
+
+    message_id = add_message(ctx.conv_id, "agent", text, agent_id=ctx.requester.uid, media_url=media_url, db=ctx.db)
+
+    # Tiempo de primera respuesta del ciclo (una sola vez por ciclo)
+    waiting = conv.get("waitingStartedAt")
+    if not conv.get("firstAgentResponseAt") and waiting:
+        secs = max(0, round((datetime.now(timezone.utc) - waiting).total_seconds()))
+        _ref(ctx).update({"firstAgentResponseAt": firestore.SERVER_TIMESTAMP, "responseTimeSecs": secs,
+                          "responseTimes": firestore.ArrayUnion([secs])})
+    return {"messageId": message_id}

@@ -499,24 +499,11 @@ export default function ConversationChat({ conversationId, showBackButton = true
         setPendingFile(null);
       }
 
-      const token = await user.getIdToken();
-      const response = await fetch("/api/send-message", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          conversationId,
-          text: newMessage.trim(),
-          agentId: user.uid,
-          ...(mediaUrl && { mediaUrl }),
-        }),
+      await callHubAction(user, "conversation.send_message", {
+        conversationId,
+        text: newMessage.trim(),
+        ...(mediaUrl && { mediaUrl }),
       });
-
-      if (!response.ok) {
-        throw new Error("Failed to send message");
-      }
 
       setNewMessage("");
     } catch (error) {
@@ -584,29 +571,21 @@ export default function ConversationChat({ conversationId, showBackButton = true
 
     setClosing(true);
     try {
-      const closeToken = await user.getIdToken();
       // La despedida solo se manda dentro de la ventana de 24 h de WhatsApp: fuera de ella el proveedor la rechaza
       const lastCustMsg = conversation.lastCustomerMessageAt;
       const withinWhatsApp24h = lastCustMsg && (Date.now() - lastCustMsg.toMillis()) < 24 * 60 * 60 * 1000;
       if (withinWhatsApp24h) {
-        await fetch("/api/send-message", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${closeToken}`,
-          },
-          body: JSON.stringify({
-            conversationId,
-            text: "Esta conversacion ha sido cerrada. Si necesitas ayuda nuevamente, no dudes en escribirnos. ¡Gracias!",
-            agentId: user.uid,
-          }),
-        });
+        // Si la despedida falla, la conversación se cierra igual
+        await callHubAction(user, "conversation.send_message", {
+          conversationId,
+          text: "Esta conversacion ha sido cerrada. Si necesitas ayuda nuevamente, no dudes en escribirnos. ¡Gracias!",
+        }).catch((err) => console.error("Error enviando la despedida:", err));
       }
 
       await callHubAction(user, "conversation.close", { conversationId, reason: closeReason });
 
       // Fire close webhook if configured
-      fetch("/api/conversations/close-webhook", {
+      user.getIdToken().then((closeToken) => fetch("/api/conversations/close-webhook", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -616,7 +595,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
           conversationId,
           closedBy: "agent",
         }),
-      }).catch((err) => console.error("Error firing close webhook:", err));
+      })).catch((err) => console.error("Error firing close webhook:", err));
 
       setCloseDialogOpen(false);
       setCloseReason("");

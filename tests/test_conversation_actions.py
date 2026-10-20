@@ -1,4 +1,5 @@
 import importlib
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -38,6 +39,9 @@ def db():
     d.seed("conversations", "ana", {"organizationId": "honda", "teamId": "ventas", "status": "with_agent",
                                     "assignedAgentId": "ana", "assignedAt": "x", "waitingStartedAt": "y",
                                     "firstAgentResponseAt": "z", "responseTimeSecs": 9, "responseTimes": [1, 2]})
+    d.seed("bots", "bot1", {"organizationId": "honda", "name": "Bot"})
+    d.seed("whatsappNumbers", "n1", {"organizationId": "honda", "phoneNumber": "whatsapp:+521", "provider": "twilio",
+                                     "twilioAccountSid": "AC1", "twilioAuthToken": "tok", "teamId": "ventas"})
     d.seed("conversations", "cerrada", {"organizationId": "honda", "teamId": "ventas", "status": "closed", "closedAt": "x"})
     return d
 
@@ -219,3 +223,98 @@ def test_nota_vacia_se_rechaza(db):
 def test_otra_organizacion_no_puede_nada(db):
     for action, data in [("conversation.close", {"reason": "x"}), ("conversation.add_note", {"text": "x"}), ("conversation.take", {})]:
         assert run(db, "t-olga", action, conversationId="espera", **data)[1] == 404
+
+
+# --------------------------------------------------------------------------- mensajes del agente
+
+@pytest.fixture
+def enviados():
+    """Sustituye el envío por el proveedor y recuerda lo que se mandó."""
+    sent = []
+
+    def fake(bot, to, from_, text, media_url=None):
+        sent.append({"bot": bot, "to": to, "from": from_, "text": text, "media": media_url})
+        return "SID1"
+    conversation_actions.configure_sender(fake)
+    yield sent
+    conversation_actions.configure_sender(None)
+
+
+def en_curso(db, **extra):
+    db.data["conversations"]["ana"].update({"customerPhone": "whatsapp:+528100", "botId": "bot1", "whatsappNumberId": "n1", **extra})
+
+
+def test_enviar_mensaje_manda_por_el_proveedor_del_numero_y_lo_guarda(db, enviados):
+    en_curso(db)
+    body, status = run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Hola", agentId="beto")
+    assert status == 200
+    assert enviados == [{"bot": enviados[0]["bot"], "to": "whatsapp:+528100", "from": "whatsapp:+521", "text": "Hola", "media": None}]
+    assert enviados[0]["bot"]["twilioConfig"]["accountSid"] == "AC1"
+    msg = db.data["conversations/ana/messages"][body["result"]["messageId"]]
+    assert (msg["sender"], msg["agentId"], msg["text"]) == ("agent", "ana", "Hola")   # el autor es el del token
+    assert conv(db, "ana")["lastMessageSender"] == "agent" and conv(db, "ana")["lastMessagePreview"] == "Hola"
+
+
+def test_enviar_imagen_sin_texto(db, enviados):
+    en_curso(db)
+    body, status = run(db, "t-ana", "conversation.send_message", conversationId="ana", mediaUrl="https://f.example/a.png")
+    assert status == 200 and enviados[0]["media"] == "https://f.example/a.png"
+    assert conv(db, "ana")["lastMessagePreview"] == "📎 Archivo adjunto"
+
+
+def test_si_el_proveedor_falla_no_se_guarda_nada(db, enviados):
+    en_curso(db)
+    conversation_actions.configure_sender(lambda *a, **k: None)
+    body, status = run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Hola")
+    assert status == 200 and body["error"]["code"] == "error_externo" and body["error"]["retryable"]
+    assert "conversations/ana/messages" not in db.data and "lastMessageSender" not in conv(db, "ana")
+
+
+def test_el_canal_web_solo_guarda(db, enviados):
+    en_curso(db, channel="web")
+    assert run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Hola")[1] == 200
+    assert enviados == [] and len(db.data["conversations/ana/messages"]) == 1
+
+
+@pytest.mark.parametrize("data", [{}, {"text": "  "}, {"mediaUrl": "http://inseguro/a.png"}, {"text": "x", "mediaUrl": 5}, {"text": 5}])
+def test_enviar_mensaje_invalido(db, enviados, data):
+    en_curso(db)
+    assert run(db, "t-ana", "conversation.send_message", conversationId="ana", **data)[1] == 400
+    assert enviados == []
+
+
+def test_enviar_exige_telefono_bot_y_envio_configurado(db, enviados):
+    body, _ = run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Hola")   # sin teléfono ni bot
+    assert body["error"]["code"] == "precondicion_fallida"
+    en_curso(db)
+    conversation_actions.configure_sender(None)
+    body, status = run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Hola")
+    assert status == 500 and body["error"]["code"] == "error_interno"
+
+
+def test_solo_el_agente_asignado_o_un_admin_escriben_y_el_viewer_no(db, enviados):
+    en_curso(db)
+    assert run(db, "t-beto", "conversation.send_message", conversationId="ana", text="Hola")[1] == 403
+    assert run(db, "t-vera", "conversation.send_message", conversationId="ana", text="Hola")[1] == 403
+    assert run(db, "t-olga", "conversation.send_message", conversationId="ana", text="Hola")[1] == 404
+    assert enviados == []
+    assert run(db, "t-admin", "conversation.send_message", conversationId="ana", text="Hola")[1] == 200
+
+
+def test_tiempo_de_primera_respuesta_se_registra_una_sola_vez(db, enviados):
+    en_curso(db, waitingStartedAt=datetime.now(timezone.utc) - timedelta(seconds=90))
+    for key in ("firstAgentResponseAt", "responseTimeSecs", "responseTimes"):   # ciclo nuevo: aún sin primera respuesta
+        db.data["conversations"]["ana"].pop(key)
+    run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Uno")
+    c = conv(db, "ana")
+    assert 89 <= c["responseTimeSecs"] <= 95 and len(c["responseTimes"]) == 1 and c["firstAgentResponseAt"] is not None
+    run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Dos")
+    assert len(conv(db, "ana")["responseTimes"]) == 1
+
+
+def test_sin_espera_registrada_no_hay_tiempo_de_respuesta(db, enviados):
+    en_curso(db)
+    db.data["conversations"]["ana"].pop("waitingStartedAt", None)
+    db.data["conversations"]["ana"].pop("firstAgentResponseAt", None)
+    run(db, "t-ana", "conversation.send_message", conversationId="ana", text="Hola")
+    assert "firstAgentResponseAt" not in conv(db, "ana")

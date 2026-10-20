@@ -243,8 +243,8 @@ def update_abacus_conversation_id(conv_id: str, abacus_conv_id: str, db=None) ->
 
 
 def add_message(conv_id: str, sender: str, text: str, agent_id: str | None = None,
-                media_url: str | None = None, db=None) -> None:
-    """Agrega un mensaje y actualiza el resumen de la conversación en un solo batch."""
+                media_url: str | None = None, db=None) -> str:
+    """Agrega un mensaje y actualiza el resumen de la conversación en un solo batch. Devuelve el id del mensaje."""
     db = db or get_db()
     now = datetime.now(timezone.utc)
     conv_ref = db.collection("conversations").document(conv_id)
@@ -262,6 +262,7 @@ def add_message(conv_id: str, sender: str, text: str, agent_id: str | None = Non
         "lastMessageSender": sender,
     })
     batch.commit()
+    return msg_ref.id
 
 
 def update_conversation_status(conv_id: str, status: str, db=None) -> None:
