@@ -610,9 +610,9 @@ class Req:
         return self._body
 
 
-def test_el_runner_conoce_los_seis_jobs():
-    assert sorted(runner.JOBS) == ["appointment-reminders", "close-inactive", "inactivity-followup", "no-show", "scheduled-contact",
-                                   "verify-lead-templates"]
+def test_el_runner_conoce_los_siete_jobs():
+    assert sorted(runner.JOBS) == ["appointment-reminders", "close-inactive", "conversation-summaries", "inactivity-followup", "no-show",
+                                   "scheduled-contact", "verify-lead-templates"]
     assert runner.run("no-existe") is None
     assert runner.run("no-show", FakeDB()) == {"processed": 0, "message": "No no_show broadcasts found"}
 

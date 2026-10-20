@@ -9,10 +9,11 @@ entry point para todos, así cada job conserva su propia cadencia:
     verify-lead-templates     plantillas de Lead de ValueText que fallaron
     appointment-reminders     destinatarios de las campañas de recordatorio de cita
     no-show                   destinatarios de las campañas de no-show
+    conversation-summaries    resumen de las conversaciones cerradas, para el expediente del cliente (1.38)
 
 Todos son idempotentes: un tick repetido o fuera de hora no manda nada dos veces.
 """
-from jobs import close_inactive, inactivity_ladder, reminders, scheduled_contacts, verify_templates
+from jobs import close_inactive, inactivity_ladder, reminders, scheduled_contacts, summaries, verify_templates
 
 JOBS = {
     "inactivity-followup": inactivity_ladder.run,
@@ -21,6 +22,7 @@ JOBS = {
     "verify-lead-templates": verify_templates.run,
     "appointment-reminders": lambda db=None: reminders.run("appointment_reminder", db),
     "no-show": lambda db=None: reminders.run("no_show", db),
+    "conversation-summaries": summaries.run,
 }
 
 

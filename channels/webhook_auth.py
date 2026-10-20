@@ -13,7 +13,7 @@ Sin la configuración necesaria se rechaza todo, salvo `ALLOW_UNAUTHENTICATED_WE
 
 Twilio firma la URL exacta que tiene configurada. Detrás del balanceador de Google la que ve Flask puede diferir (esquema, host, y en
 las funciones el nombre de la función no está en la ruta): con `PUBLIC_BASE_URL` se fija el prefijo público de ESA función, por ejemplo
-`https://us-central1-<proyecto>.cloudfunctions.net/whatsapp-webhook` o, en el router, `https://<host>`.
+`https://us-central1-<proyecto>.cloudfunctions.net/router`; la ruta (`/webhook/twilio`) se suma sola.
 """
 import logging
 import os

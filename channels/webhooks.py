@@ -1,19 +1,19 @@
-"""Webhooks de los proveedores: parsean la petición, responden rápido y mandan el trabajo a segundo plano.
+"""Webhooks de los proveedores: parsean la petición, deduplican, publican en la cola y responden.
 
-Son funciones puras sobre datos ya extraídos de la petición (formulario, cuerpo, argumentos), para
-poder probarlas sin Flask. `run(fn, *args)` agenda el trabajo (en producción, el executor de
-`core.db`) y `main.py` los envuelve en los entry points de las Cloud Functions.
+Son funciones puras sobre datos ya extraídos de la petición (formulario, cuerpo, argumentos), para poder probarlas sin Flask.
+`publish(event)` publica un `ChannelEvent` en la cola (`channels/event_queue.py`) y **no regresa hasta que la cola lo aceptó**; si
+falla, el webhook suelta la marca de deduplicación y responde 500 para que el proveedor reintente. El router no escribe en Firestore
+(salvo `processed_events`, que es su deduplicación): lo que hay que guardar viaja en el evento y lo guarda la función 2
+(`channels/ingest.py`). `channels/router.py` los enruta.
 """
 import json
 import logging
+import uuid
+from datetime import datetime, timezone
 
-from channels import inbound
-from channels.meta_wa import process_meta_status
-from channels.twilio_wa import process_twilio_status
 from channels.valuetext_wa import parse_salesforce_outbound_message
-from core import idempotency
-from core.conversations import save_agent_outbound, save_template_outbound
-from core import credentials
+from contracts.messages import ChannelEvent, DeliveryStatus, IncomingMessage, OutboundRecord
+from core import credentials, idempotency
 from core.db import get_db
 from core.utils import normalize_mx_phone
 
@@ -38,21 +38,46 @@ def to_whatsapp(number: str) -> str:
     return f"whatsapp:{number if number.startswith('+') else '+' + number}"
 
 
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _publish(publish, event: ChannelEvent, dedupe: tuple[str, str] | None = None, db=None) -> bool:
+    """Deduplica (si hay ID), publica y devuelve True; False si no se pudo publicar (se suelta la marca para que el reintento pase)."""
+    if dedupe and idempotency.is_duplicate(*dedupe, db=db):
+        log.info("%s: duplicado ignorado, id=%s", dedupe[0], dedupe[1])
+        return True
+    try:
+        publish(event)
+        return True
+    except Exception:
+        log.exception("no se pudo publicar el evento %s en la cola", event.kind)
+        if dedupe:
+            idempotency.release(*dedupe, db=db)
+        return False
+
+
 # --------------------------------------------------------------------------- Twilio
 
-def handle_twilio(form, run) -> tuple:
-    """Mensaje entrante o callback de estado de Twilio. Responde 200 de inmediato."""
+def handle_twilio(form, publish, db=None) -> tuple:
+    """Mensaje entrante o callback de estado de Twilio. Responde 200 cuando la cola lo aceptó."""
     message_status = form.get("MessageStatus", "")
-    if message_status:  # callback de un mensaje ya enviado: no trae Body
-        run(process_twilio_status, form.get("MessageSid", ""), message_status, form.get("ErrorMessage", ""))
-        return "", 200
+    if message_status:  # callback de un mensaje ya enviado: no trae Body (y el mismo SID llega varias veces, una por estado)
+        sid = form.get("MessageSid", "")
+        if not sid:
+            return "", 200
+        status = DeliveryStatus("twilio", sid, message_status, form.get("ErrorMessage", ""))
+        return ("", 200) if _publish(publish, ChannelEvent.of(status), db=db) else ("", 500)
 
     from_number, to_number = form.get("From", ""), form.get("To", "")
     body, profile_name = form.get("Body", "").strip(), form.get("ProfileName", "").strip()
     if not from_number or not body:
         return "", 200
-    run(inbound.process_twilio_message, from_number, to_number, body, profile_name)
-    return "", 200
+    sid = form.get("MessageSid", "")
+    message = IncomingMessage(message_id=sid or uuid.uuid4().hex, provider="twilio", from_number=normalize_mx_phone(from_number),
+                              to_number=to_number, body=body, contact_name=profile_name, received_at=_now())
+    # Twilio reintenta si tardamos en contestar: se deduplica por MessageSid
+    return ("", 200) if _publish(publish, ChannelEvent.of(message), ("twilio", sid), db=db) else ("", 500)
 
 
 # --------------------------------------------------------------------------- ValueText
@@ -65,14 +90,12 @@ def _first_media_url(media_json_raw: str) -> str | None:
         return None
 
 
-def handle_valuetext(raw_body: str, run, db=None) -> tuple:
-    """Outbound Message de Salesforce (SOAP). Responde el ACK de inmediato; un registro = un mensaje."""
+def handle_valuetext(raw_body: str, publish, db=None) -> tuple:
+    """Outbound Message de Salesforce (SOAP). Un registro = un evento. ACK cuando la cola los aceptó todos; si alguno falla, sin ACK
+    (Salesforce reintenta y lo ya publicado se ignora por duplicado)."""
+    failed = False
     for fields in parse_salesforce_outbound_message(raw_body):
         sobject_id = fields.get("_sobject_id", "")
-        if idempotency.is_duplicate("valuetext", sobject_id, db=db):
-            log.info("ValueText: duplicado ignorado, sobject_id=%s", sobject_id)
-            continue
-
         number = fields.get("rsplus__Number__c", "")
         sender = fields.get("rsplus__Sender_ID__c", "")
         body = fields.get("rsplus__Message__c", "").strip()
@@ -84,18 +107,24 @@ def handle_valuetext(raw_body: str, run, db=None) -> tuple:
 
         if not number or (not body and not media_url):
             continue
+        outbound = msg_type.lower() == "outbound"
+        if outbound and origin.lower() == BOT_ORIGIN:
+            continue  # lo mandó el bot: ya lo guardó nuestro flujo
 
-        if msg_type.lower() == "outbound":
-            if origin.lower() == BOT_ORIGIN:
-                continue  # lo mandó el bot: ya lo guardó nuestro flujo
-            if fields.get("rsplus__Template_ID__c"):
-                run(save_template_outbound, to_whatsapp(number), to_whatsapp(sender), body)  # recordatorio o campaña
-            else:
-                run(save_agent_outbound, to_whatsapp(number), to_whatsapp(sender), body, media_url)  # agente humano
-            continue
-
-        run(inbound.process_valuetext_message, to_whatsapp(number), to_whatsapp(sender), body, name,
-            fields.get("Last_Msg_Source__c", ""))
+        if outbound:
+            is_template = bool(fields.get("rsplus__Template_ID__c"))   # recordatorio o campaña, o un asesor humano
+            payload = OutboundRecord(to_number=to_whatsapp(number), from_number=to_whatsapp(sender), body=body,
+                                     media_url=None if is_template else media_url, is_template=is_template, source_id=sobject_id)
+        else:
+            payload = IncomingMessage(
+                message_id=sobject_id or uuid.uuid4().hex, provider="valuetext", from_number=normalize_mx_phone(to_whatsapp(number)),
+                to_number=to_whatsapp(sender), body=body, contact_name=name, received_at=_now(),
+                # Last_Msg_Source__c nunca se limpia: el pipeline solo lo respeta si hay agente activo
+                from_agent_system=fields.get("Last_Msg_Source__c", "").lower() == "salesforce")
+        if not _publish(publish, ChannelEvent.of(payload), ("valuetext", sobject_id), db=db):
+            failed = True
+    if failed:
+        return "Service Unavailable", 500, {"Content-Type": "text/plain"}
     return SOAP_ACK, 200, SOAP_HEADERS
 
 
@@ -120,14 +149,18 @@ def handle_meta_verification(args, db=None) -> tuple:
     return (challenge, 200) if found else ("Forbidden", 403)
 
 
-def handle_meta(body: dict | None, run) -> tuple:
-    """POST de Meta: estados de entrega y mensajes de texto. Responde 200 de inmediato."""
+def handle_meta(body: dict | None, publish, db=None) -> tuple:
+    """POST de Meta: estados de entrega y mensajes de texto. Responde 200 cuando la cola los aceptó; Meta reintenta ante un 500."""
+    failed = False
     try:
         for entry in (body or {}).get("entry", []):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
                 for status_update in value.get("statuses", []):
-                    run(process_meta_status, status_update)
+                    if not status_update.get("id"):
+                        continue
+                    status = DeliveryStatus("meta", status_update["id"], status_update.get("status", ""))
+                    failed |= not _publish(publish, ChannelEvent.of(status), db=db)
 
                 messages = value.get("messages", [])
                 if not messages:
@@ -144,7 +177,11 @@ def handle_meta(body: dict | None, run) -> tuple:
                     if not sender or not text:
                         continue
                     sender = sender if sender.startswith("+") else f"+{sender}"
-                    run(inbound.process_meta_message, normalize_mx_phone(f"whatsapp:{sender}"), phone_number_id, text, contact_name)
+                    message = IncomingMessage(
+                        message_id=msg.get("id") or uuid.uuid4().hex, provider="meta",
+                        from_number=normalize_mx_phone(f"whatsapp:{sender}"), phone_number_id=phone_number_id, body=text,
+                        contact_name=contact_name, received_at=_now())
+                    failed |= not _publish(publish, ChannelEvent.of(message), ("meta", msg.get("id", "")), db=db)   # Meta reintenta hasta el 200
     except Exception:
         log.exception("error parseando el webhook de Meta")
-    return "OK", 200
+    return ("Service Unavailable", 500) if failed else ("OK", 200)

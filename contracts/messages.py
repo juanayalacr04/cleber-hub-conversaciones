@@ -148,3 +148,100 @@ class SendResult:
             provider_message_id=optional(data, "providerMessageId", str, None, name),
             error=optional(data, "error", str, None, name),
         )
+
+
+EVENT_KINDS = ("message", "status", "outbound")
+
+
+@dataclass
+class DeliveryStatus:
+    """Estado de entrega de un mensaje que mandamos (campañas): sent, delivered, read, failed."""
+    provider: str
+    provider_message_id: str
+    status: str
+    error: str = ""
+
+    def to_dict(self) -> dict:
+        return {"provider": self.provider, "providerMessageId": self.provider_message_id, "status": self.status, "error": self.error}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DeliveryStatus":
+        name = "DeliveryStatus"
+        data = as_dict(data, name)
+        return cls(provider=one_of(required(data, "provider", name=name), PROVIDERS, "provider", name),
+                   provider_message_id=required(data, "providerMessageId", name=name), status=required(data, "status", name=name),
+                   error=optional(data, "error", str, "", name))
+
+
+@dataclass
+class OutboundRecord:
+    """Eco de un mensaje que salió por fuera de la plataforma (un asesor desde Salesforce, o una plantilla masiva): solo se registra."""
+    to_number: str                  # el cliente
+    from_number: str                # el número del bot
+    body: str = ""
+    media_url: str | None = None
+    is_template: bool = False       # recordatorio o campaña, no un asesor
+    source_id: str = ""             # ID del registro en el sistema de origen: base de la deduplicación
+
+    def to_dict(self) -> dict:
+        return {"to": self.to_number, "from": self.from_number, "body": self.body, "mediaUrl": self.media_url, "isTemplate": self.is_template,
+                "sourceId": self.source_id}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "OutboundRecord":
+        name = "OutboundRecord"
+        data = as_dict(data, name)
+        return cls(to_number=required(data, "to", name=name), from_number=required(data, "from", name=name),
+                   body=optional(data, "body", str, "", name), media_url=optional(data, "mediaUrl", str, None, name),
+                   is_template=optional(data, "isTemplate", bool, False, name), source_id=optional(data, "sourceId", str, "", name))
+
+
+@dataclass
+class ChannelEvent:
+    """Lo que viaja por la cola del router a las reglas: un mensaje del cliente, un estado de entrega o un eco de salida.
+
+    Solo uno de `message`, `status` y `outbound` va lleno, según `kind`. El router no escribe en Firestore: todo lo que
+    hay que guardar viaja aquí y lo guarda la función 2.
+    """
+    kind: str
+    message: IncomingMessage | None = None
+    status: DeliveryStatus | None = None
+    outbound: OutboundRecord | None = None
+
+    @property
+    def event_id(self) -> str:
+        """Identificador del evento para deduplicar al consumir (la cola entrega al menos una vez)."""
+        if self.kind == "message":
+            return f"{self.message.provider}__{self.message.message_id}"
+        if self.kind == "status":
+            return f"{self.status.provider}__{self.status.provider_message_id}__{self.status.status}"
+        return f"outbound__{self.outbound.source_id}" if self.outbound.source_id else ""
+
+    @property
+    def ordering_key(self) -> str:
+        """Clave de orden de la cola. Mensajes y ecos de una misma conversación comparten clave (número del bot + cliente);
+        los estados se ordenan por el mensaje al que se refieren (sent → delivered → read)."""
+        if self.kind == "message":
+            return self.message.ordering_key
+        if self.kind == "outbound":
+            return f"{digits(self.outbound.from_number)}_{digits(self.outbound.to_number)}"
+        return f"status_{self.status.provider_message_id}"
+
+    def to_dict(self) -> dict:
+        payload = {"message": self.message, "status": self.status, "outbound": self.outbound}[self.kind]
+        return {"schemaVersion": SCHEMA_VERSION, "kind": self.kind, self.kind: payload.to_dict()}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ChannelEvent":
+        name = "ChannelEvent"
+        data = as_dict(data, name)
+        check_version(data)
+        kind = one_of(required(data, "kind", name=name), EVENT_KINDS, "kind", name)
+        body = required(data, kind, dict, name)
+        parsed = {"message": IncomingMessage, "status": DeliveryStatus, "outbound": OutboundRecord}[kind].from_dict(body)
+        return cls(kind=kind, **{kind: parsed})
+
+    @classmethod
+    def of(cls, payload) -> "ChannelEvent":
+        kind = {IncomingMessage: "message", DeliveryStatus: "status", OutboundRecord: "outbound"}[type(payload)]
+        return cls(kind=kind, **{kind: payload})

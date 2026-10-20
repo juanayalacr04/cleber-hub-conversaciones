@@ -6,7 +6,7 @@ import pytest
 from werkzeug.datastructures import MultiDict
 
 import main
-from channels import signatures, webhook_auth
+from channels import event_queue, signatures, webhook_auth
 from core import credentials, numbers
 from tests.fakes import FakeDB
 
@@ -194,21 +194,21 @@ def test_la_salida_de_desarrollo_abre_los_tres(db):
 
 @pytest.fixture
 def handled(monkeypatch):
-    """Cuenta lo que el entry point manda a procesar, sin lanzar hilos."""
+    """Cuenta los eventos que el router publica en la cola, sin Pub/Sub."""
     calls = []
-    monkeypatch.setattr(main, "_run", lambda fn, *args: calls.append((fn.__name__, args)))
+    monkeypatch.setattr(event_queue, "_publisher", type("Cola", (), {"publish": lambda self, event: calls.append((event.kind, event))})())
     return calls
 
 
 def test_entry_point_de_twilio(db, handled, monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_URL", HOOK_URL)
-    form = MultiDict(INBOUND)
-    assert main.whatsapp_webhook(Req(form=form, headers=signed(form))) == ("", 200)
-    assert [name for name, _ in handled] == ["process_twilio_message"]
-    assert main.whatsapp_webhook(Req(form=form)) == ("Forbidden", 403)
-    assert main.whatsapp_webhook(Req(form=form, headers=signed(form, token="falso"))) == ("Forbidden", 403)
+    form, url = MultiDict(INBOUND), HOOK_URL + "/webhook/twilio"
+    assert main.router(Req("/webhook/twilio", form=form, headers=signed(form, url=url))) == ("", 200)
+    assert [name for name, _ in handled] == ["message"]
+    assert main.router(Req("/webhook/twilio", form=form)) == ("Forbidden", 403)
+    assert main.router(Req("/webhook/twilio", form=form, headers=signed(form, token="falso", url=url))) == ("Forbidden", 403)
     assert len(handled) == 1                                                       # lo rechazado no se procesa
-    assert main.whatsapp_webhook(Req(method="GET")) == ("OK", 200)
+    assert main.router(Req("/webhook/twilio", method="GET")) == ("OK", 200)
 
 
 def test_entry_point_de_meta(handled, monkeypatch):
@@ -216,10 +216,10 @@ def test_entry_point_de_meta(handled, monkeypatch):
     body = json.dumps({"entry": [{"changes": [{"value": {"metadata": {"phone_number_id": "9"}, "contacts": [{"profile": {"name": "L"}}],
                                                          "messages": [{"type": "text", "from": "528186019229", "text": {"body": "Hola"}}]}}]}]}).encode()
     signed_headers = {"X-Hub-Signature-256": signatures.meta_signature("app-secret", body)}
-    assert main.meta_webhook(Req(body=body, headers=signed_headers)) == ("OK", 200)
-    assert [name for name, _ in handled] == ["process_meta_message"]
-    assert main.meta_webhook(Req(body=body)) == ("Forbidden", 403)
-    assert main.meta_webhook(Req(body=body + b" ", headers=signed_headers)) == ("Forbidden", 403)
+    assert main.router(Req("/webhook/meta", body=body, headers=signed_headers)) == ("OK", 200)
+    assert [name for name, _ in handled] == ["message"]
+    assert main.router(Req("/webhook/meta", body=body)) == ("Forbidden", 403)
+    assert main.router(Req("/webhook/meta", body=body + b" ", headers=signed_headers)) == ("Forbidden", 403)
     assert len(handled) == 1
 
 
@@ -227,21 +227,21 @@ def test_el_get_de_verificacion_de_meta_no_pide_firma(db, monkeypatch):
     credentials.store(db, "numbers", "n-meta", {"metaWebhookVerifyToken": "mi-token"})
     monkeypatch.setattr("channels.webhooks.get_db", lambda: db)
     args = {"hub.mode": "subscribe", "hub.verify_token": "mi-token", "hub.challenge": "42"}
-    assert main.meta_webhook(Req(method="GET", args=args)) == ("42", 200)
+    assert main.router(Req("/webhook/meta", method="GET", args=args)) == ("42", 200)
 
 
 def test_entry_point_de_valuetext(handled, monkeypatch):
     monkeypatch.setenv("VALUETEXT_WEBHOOK_SECRET", "s3")
     soap = "<soapenv:Envelope/>"
-    assert main.valuetext_webhook(Req(args={"secret": "s3"}, body=soap.encode()))[1] == 200
-    assert main.valuetext_webhook(Req(args={"secret": "malo"}, body=soap.encode())) == ("Forbidden", 403)
-    assert main.valuetext_webhook(Req(body=soap.encode())) == ("Forbidden", 403)
-    assert main.valuetext_webhook(Req(method="GET")) == ("OK", 200)
+    assert main.router(Req("/webhook/valuetext", args={"secret": "s3"}, body=soap.encode()))[1] == 200
+    assert main.router(Req("/webhook/valuetext", args={"secret": "malo"}, body=soap.encode())) == ("Forbidden", 403)
+    assert main.router(Req("/webhook/valuetext", body=soap.encode())) == ("Forbidden", 403)
+    assert main.router(Req("/webhook/valuetext", method="GET")) == ("OK", 200)
 
 
 def test_sin_configuracion_los_tres_webhooks_rechazan_todo(db, handled):
     form = MultiDict(INBOUND)
     # el token del número sí está, pero sin PUBLIC_BASE_URL la URL que ve la función no es la que Twilio firmó
-    assert main.whatsapp_webhook(Req(form=form, headers=signed(form)))[1] == 403
-    assert main.meta_webhook(Req(body=b"{}"))[1] == 403
-    assert main.valuetext_webhook(Req(body=b"<a/>"))[1] == 403
+    assert main.router(Req("/webhook/twilio", form=form, headers=signed(form)))[1] == 403
+    assert main.router(Req("/webhook/meta", body=b"{}"))[1] == 403
+    assert main.router(Req("/webhook/valuetext", body=b"<a/>"))[1] == 403

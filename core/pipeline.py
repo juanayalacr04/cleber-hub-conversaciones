@@ -34,8 +34,9 @@ from concurrent.futures import as_completed
 from dataclasses import dataclass
 
 from ai import engine
+from ai.service import DEFAULT_AI_OUTCOME_ACTIONS, DEFAULT_AI_OUTCOME_TOOL, with_expediente
 from ai.parsing import detect, detect_action, detect_handoff, detect_mention, extract_bot_response, extract_image_from_text
-from core import broadcasts, conversations as cv, handoff as ho, outcomes
+from core import broadcasts, conversations as cv, expediente, handoff as ho, outcomes
 from core.db import get_db, get_executor
 from core.default_tools import register_defaults
 from core.numbers import apply_active_bot_override
@@ -49,8 +50,6 @@ RESET_MESSAGE = "Conversación reiniciada. Envía un mensaje para comenzar de nu
 DEFAULT_HANDOFF_MESSAGE = "Entendido, te comunico con un asesor. En un momento te atenderán."
 DEFAULT_WAITING_MESSAGE = "Tu mensaje fue recibido. Un asesor te atenderá pronto."
 OUT_OF_HOURS_INSTRUCTION = '__ADMIN_FOLLOW_INSTRUCTIONS_MESSAGE_OUTPUT__ , "{text}"'
-DEFAULT_AI_OUTCOME_ACTIONS = ("interes_cita", "otro_motivo")
-DEFAULT_AI_OUTCOME_TOOL = "Clasificar_Motivo"
 
 # Tools conocidos por los bots actuales. Un bot con `tools[]` propio ignora esta lista; agregar
 # un tool nuevo es agregar una entrada a la configuración del bot, no una función.
@@ -179,12 +178,16 @@ def _run(t: Turn) -> None:
     # 3. Guardar el mensaje del cliente y reiniciar la inactividad
     is_new = len(t.messages) == 0
     bot_text = inc.body
+    if is_new:
+        # Una conversación nueva de un cliente que ya escribió antes: el bot recibe sus datos y los últimos resúmenes (1.38).
+        # Una reabierta no: su sesión en Abacus ya los tiene. Cuando el turno pase a la función 3 (1.46) viajan en `BotRequest.expediente`.
+        bot_text = with_expediente(inc.body, expediente.load(db, t.org_id, t.customer))
     if is_new and bot.get("injectPhoneContext", inc.provider == "twilio"):
         # El bot no conoce el teléfono por sí mismo; se antepone al texto en la MISMA llamada
         # (sin round-trip extra) y se guarda aparte en la plataforma.
         context = f'<<CONTEXTO>> Teléfono del cliente: "{t.customer.replace("whatsapp:", "")}"'
         t.fire(cv.add_message, t.conv_id, "system", context, db=db)
-        bot_text = f"{context}\n\n{inc.body}"
+        bot_text = f"{context}\n\n{bot_text}"
     t.fire(cv.add_message, t.conv_id, "customer", inc.body, db=db)
     t.fire(cv.reset_inactivity, t.conv_id, t.conv_data.get("inactivityRemindersSent", 0), db=db)
     t.messages.append({"is_user": True, "text": bot_text})
