@@ -26,11 +26,9 @@ import {
   onSnapshot,
   getDocs,
   doc,
-  setDoc,
-  writeBatch,
-  serverTimestamp,
 } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 
 interface WhatsAppNumber {
   id: string;
@@ -284,67 +282,40 @@ export default function NewBroadcastPage() {
 
     setSaving(true);
     try {
-      const broadcastRef = doc(collection(db, "broadcasts"));
-
       const isReminderType = type === "appointment_reminder" || type === "no_show";
       const cleanMapping = isReminderType ? variableMapping.filter(Boolean) : [];
 
-      await setDoc(broadcastRef, {
-        id: broadcastRef.id,
+      // La función 2 pone el id, el estado, los contadores, el autor y la fecha, y valida que el número y el bot
+      // sean de la organización. Los destinatarios se guardan en lotes antes que la campaña.
+      const { id: broadcastId } = await callHubAction<{ id: string }>(user, "broadcast.create", {
         organizationId: userData?.organizationId,
-        vertical: campaignVertical,
-        name,
-        whatsappNumberId,
-        botId,
-        templateName,
-        templateBody: templateBody || null,
-        templateLanguage,
-        // Para appointment_reminder/no_show con mapeo definido, genera un skeleton de
-        // parámetros para Meta (buildTemplateComponents los rellena por índice al enviar).
-        // Twilio y ValueText ignoran este campo, usan contentSid/rsplus__Template_ID__c.
-        templateComponents: cleanMapping.length > 0
-          ? [{ type: "body", parameters: cleanMapping.map(() => ({ type: "text", text: "" })) }]
-          : [],
-        contentSid: contentSid || null,
-        valuetextObjectApi: valuetextObjectApi || null,
-        variableMapping: isReminderType ? cleanMapping : null,
-        botInstructions: botInstructions || null,
-        type,
-        reminderConfig: type === "appointment_reminder" ? { daysBefore, eventType } : type === "no_show" ? { eventType } : null,
-        status: "draft",
-        totalRecipients: type === "manual" ? recipients.length : 0,
-        sentCount: 0,
-        deliveredCount: 0,
-        failedCount: 0,
-        createdBy: user?.uid ?? null,
-        createdAt: serverTimestamp(),
-        completedAt: null,
+        fields: {
+          vertical: campaignVertical,
+          name,
+          whatsappNumberId,
+          botId,
+          templateName,
+          templateBody: templateBody || null,
+          templateLanguage,
+          // Para appointment_reminder/no_show con mapeo definido, genera un skeleton de
+          // parámetros para Meta (buildTemplateComponents los rellena por índice al enviar).
+          // Twilio y ValueText ignoran este campo, usan contentSid/rsplus__Template_ID__c.
+          templateComponents: cleanMapping.length > 0
+            ? [{ type: "body", parameters: cleanMapping.map(() => ({ type: "text", text: "" })) }]
+            : [],
+          contentSid: contentSid || null,
+          valuetextObjectApi: valuetextObjectApi || null,
+          variableMapping: isReminderType ? cleanMapping : null,
+          botInstructions: botInstructions || null,
+          type,
+          reminderConfig: type === "appointment_reminder" ? { daysBefore, eventType } : type === "no_show" ? { eventType } : null,
+        },
+        recipients,
       });
 
-      const recipientsRef = collection(db, "broadcasts", broadcastRef.id, "recipients");
-      for (let i = 0; i < recipients.length; i += 500) {
-        const batch = writeBatch(db);
-        for (const recipient of recipients.slice(i, i + 500)) {
-          const recipientRef = doc(recipientsRef);
-          batch.set(recipientRef, {
-            id: recipientRef.id,
-            phone: recipient.phone,
-            name: recipient.name || null,
-            variables: recipient.variables || null,
-            salesforceRecordId: recipient.salesforceRecordId || null,
-            conversationId: null,
-            status: "pending",
-            errorMessage: null,
-            whatsappMessageId: null,
-            sentAt: null,
-          });
-        }
-        await batch.commit();
-      }
-
-      router.push(modulePath(moduleId, `/campanas/${broadcastRef.id}`));
-    } catch {
-      setError("Error al crear la campaña");
+      router.push(modulePath(moduleId, `/campanas/${broadcastId}`));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al crear la campaña");
     } finally {
       setSaving(false);
     }
