@@ -36,3 +36,25 @@ def is_duplicate(source: str, external_id: str, db=None) -> bool:
     except Exception as e:
         log.error("idempotency_error source=%s external_id=%s error=%s", source, external_id, e)
         return False
+
+
+def get_result(source: str, external_id: str, db=None) -> dict | None:
+    """Resultado guardado con `save_result` para un evento ya procesado (None si no hay)."""
+    snap = (db or get_db()).collection(COLLECTION).document(event_key(source, external_id)).get()
+    return (snap.to_dict() or {}).get("result") if snap.exists else None
+
+
+def save_result(source: str, external_id: str, result: dict, db=None) -> None:
+    """Guarda el resultado del evento: un reintento con la misma clave recibe el mismo resultado."""
+    try:
+        (db or get_db()).collection(COLLECTION).document(event_key(source, external_id)).update({"result": result})
+    except Exception as e:
+        log.error("idempotency_save_result_error source=%s external_id=%s error=%s", source, external_id, e)
+
+
+def release(source: str, external_id: str, db=None) -> None:
+    """Quita la marca de procesado: el evento falló y un reintento debe volver a ejecutarse."""
+    try:
+        (db or get_db()).collection(COLLECTION).document(event_key(source, external_id)).delete()
+    except Exception as e:
+        log.error("idempotency_release_error source=%s external_id=%s error=%s", source, external_id, e)
