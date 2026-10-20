@@ -1,7 +1,7 @@
 /**
- * Autorización de las rutas de API. Estas rutas usan el Admin SDK, que no pasa por las reglas de
- * Firestore, así que lo que las reglas garantizan al navegador hay que garantizarlo aquí:
- * pertenecer a la organización del recurso, y el equipo para quien no es admin.
+ * Autorización de las rutas de API que quedan en el dashboard (consultas a Abacus y a Salesforce). Usan el Admin SDK, que no
+ * pasa por las reglas de Firestore: hay que pertenecer a la organización del recurso. Toda escritura vive en la función de
+ * reglas de negocio (core/user_actions.py), que tiene su propia autorización (core/authz.py).
  */
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
@@ -34,17 +34,6 @@ export const inOrg = (r: Requester, orgId: string | null | undefined): boolean =
 
 export const isAdminIn = (r: Requester, orgId: string | null | undefined): boolean =>
   r.isSuperAdmin || (r.role === "admin" && inOrg(r, orgId));
-
-/** Equipo del usuario en una organización: `orgTeams` manda sobre el `teamId` plano (legado). */
-export const teamIn = (r: Requester, orgId: string): string | null => r.orgTeams[orgId] ?? r.teamId;
-
-/** Misma regla que Firestore: admin ve toda su organización; el agente, solo su equipo. */
-export function canAccessConversation(r: Requester, conv: { organizationId?: string; teamId?: string | null }): boolean {
-  if (!inOrg(r, conv.organizationId)) return false;
-  if (isAdminIn(r, conv.organizationId)) return true;
-  const team = teamIn(r, conv.organizationId!);
-  return !!team && team === conv.teamId;
-}
 
 const forbidden = (msg = "No tienes permiso para esta operación") => NextResponse.json({ error: msg }, { status: 403 });
 

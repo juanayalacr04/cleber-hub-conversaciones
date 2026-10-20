@@ -1,5 +1,9 @@
 rules_version = '2';
 
+// Solo lectura (tarea 1.40, §7.7): las pantallas leen Firestore en vivo y piden toda escritura a la función de reglas de
+// negocio (core/user_actions.py), que valida el token, los permisos y el estado antes de escribir. La función escribe con el
+// Admin SDK, que no pasa por estas reglas. Aquí no debe volver a aparecer `create`, `update`, `delete` ni `write`:
+// tests/test_firestore_rules.py lo verifica.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -16,17 +20,8 @@ service cloud.firestore {
       return isAuthenticated() && getUserData().role == "admin";
     }
 
-    function isAgent() {
-      return isAuthenticated() && getUserData().role in ["admin", "agent"];
-    }
-
     function isSuperAdmin() {
       return isAuthenticated() && getUserData().isSuperAdmin == true;
-    }
-
-    // Agente actualmente asignado a la conversación que se está editando (null si no tiene)
-    function currentAssignedAgent() {
-      return resource.data.get("assignedAgentId", null);
     }
 
     function belongsToOrg(orgId) {
@@ -77,65 +72,31 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/conversations/$(convId)).data.get("teamId", null);
     }
 
-    // Campos que el usuario nunca puede cambiarse a sí mismo: decidirían a qué datos accede.
-    function protectedUserFields() {
-      return ["role", "organizationId", "organizationIds", "isSuperAdmin", "teamId", "orgTeams"];
-    }
-
     // ── Users ──
     match /users/{userId} {
-      // El propio doc siempre se puede leer, incluso si aún no existe. Sin esta
-      // condición el primer login de un invitado falla: `resource` es null y
-      // `resource.data.organizationId` rompe la regla (deniega en vez de exists=false).
+      // El propio doc siempre se puede leer, incluso si aún no existe. Sin esta condición el primer
+      // login de un invitado falla: `resource` es null y `resource.data.organizationId` rompe la regla
+      // (deniega en vez de exists=false). El reclamo de la invitación (me.claim_invite) lo hace la función.
       allow get: if isAuthenticated() && (
         request.auth.uid == userId
         || (resource != null && (isSuperAdmin() || sharesOrgWithUser(resource.data)))
       );
-      // Búsqueda del doc pre-registrado por email (flujo de invitación): las reglas se
-      // evalúan por documento, así que el invitado solo alcanza el doc de su propio email.
-      allow list: if isAuthenticated() && (
-        resource.data.get("email", "") == request.auth.token.email
-        || isSuperAdmin()
-        || sharesOrgWithUser(resource.data)
-      );
-      // Nadie se crea a sí mismo como superadmin. role y organizaciones del alta siguen
-      // dependiendo del cliente (flujo de invitación): pendiente moverlo al servidor.
-      allow create: if isAuthenticated() && request.auth.uid == userId
-        && request.resource.data.get("isSuperAdmin", false) != true;
-      allow update: if isAuthenticated() && (
-        // Users can update their own doc but NOT role, organizations, team or superadmin flag
-        (request.auth.uid == userId
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedUserFields()))
-        // Admins in the same org can change roles; superadmins across any org
-        || (isAdmin() && (isSuperAdmin() || sharesOrgWithUser(resource.data)))
-      );
-      // Al migrar el doc pre-registrado a users/{uid} se borra el original
-      allow delete: if isAuthenticated()
-        && resource.data.get("email", "") == request.auth.token.email;
+      allow list: if isAuthenticated() && (isSuperAdmin() || sharesOrgWithUser(resource.data));
     }
 
     // ── Bots ──
     match /bots/{botId} {
       allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
-      allow write: if isAdmin() && (isSuperAdmin() || belongsToOrg(
-        resource == null ? request.resource.data.organizationId : resource.data.organizationId
-      ));
     }
 
     // ── Teams ──
     match /teams/{teamId} {
       allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
-      allow write: if isAdmin() && (isSuperAdmin() || belongsToOrg(
-        resource == null ? request.resource.data.organizationId : resource.data.organizationId
-      ));
     }
 
     // ── WhatsApp Numbers ──
     match /whatsappNumbers/{numberId} {
       allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
-      allow write: if isAdmin() && (isSuperAdmin() || belongsToOrg(
-        resource == null ? request.resource.data.organizationId : resource.data.organizationId
-      ));
     }
 
     // ── Conversations ──
@@ -143,100 +104,41 @@ service cloud.firestore {
       allow read: if isAuthenticated()
         && canAccessTeam(resource.data.organizationId, resource.data.get("teamId", null));
 
-      allow create: if isAgent()
-        && canAccessTeam(request.resource.data.organizationId, request.resource.data.get("teamId", null));
-
-      // El fork se basa en el status actual (no en assignedAgentId: main.py nunca lo
-      // limpia al reescalar a waiting_agent, así que puede traer un valor viejo aunque
-      // nadie la tenga tomada activamente).
-      // status != "with_agent" (bot/waiting_agent/closed): solo un admin puede tomarla
-      // desde ESPERANDO y asignarla a un agente específico. Cualquier agente puede
-      // seguir editando otros campos (ej. etiquetas) sin pasarla a "with_agent".
-      // status == "with_agent": ya asignada y activa — el agente dueño solo puede
-      // liberarla (regresar a bot, cerrar) o editar campos que no sean assignedAgentId/
-      // teamId (ej. marcar cita, etiquetas); no puede reasignarla a otro agente ni
-      // transferirla de equipo. Un admin puede hacer cualquiera de esas dos cosas.
-      allow update: if isAgent()
-        && canAccessTeam(resource.data.organizationId, resource.data.get("teamId", null)) && (
-        isAdmin() || isSuperAdmin() ||
-        (resource.data.status == "with_agent"
-          ? (
-              currentAssignedAgent() == request.auth.uid &&
-              (request.resource.data.get("assignedAgentId", null) == null ||
-                request.resource.data.assignedAgentId == currentAssignedAgent()) &&
-              request.resource.data.get("teamId", null) == resource.data.get("teamId", null)
-            )
-          : request.resource.data.status != "with_agent")
-      );
-
-      allow delete: if isAgent()
-        && canAccessTeam(resource.data.organizationId, resource.data.get("teamId", null));
-
-      // Messages subcollection
       match /messages/{messageId} {
         allow read: if isAuthenticated() && canAccessTeam(convOrg(convId), convTeam(convId));
-        // Con conversación asignada (with_agent), solo el agente dueño o un admin
-        // pueden mandar mensajes — igual que las demás acciones sobre esa conversación.
-        allow write: if isAgent() && canAccessTeam(convOrg(convId), convTeam(convId)) && (
-          isAdmin() || isSuperAdmin() ||
-          get(/databases/$(database)/documents/conversations/$(convId)).data.status != "with_agent" ||
-          get(/databases/$(database)/documents/conversations/$(convId)).data.get("assignedAgentId", null) == request.auth.uid
-        );
       }
 
-      // Notes subcollection
       match /notes/{noteId} {
         allow read: if isAuthenticated() && canAccessTeam(convOrg(convId), convTeam(convId));
-        allow write: if isAgent() && canAccessTeam(convOrg(convId), convTeam(convId));
       }
     }
 
     // ── Templates ──
     match /templates/{templateId} {
       allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
-      allow write: if isAdmin() && (isSuperAdmin() || belongsToOrg(
-        resource == null ? request.resource.data.organizationId : resource.data.organizationId
-      ));
     }
 
     // ── Organizations ──
     match /organizations/{orgId} {
       allow read: if isSuperAdmin() || belongsToOrg(orgId);
-      allow create, delete: if isSuperAdmin();
-      // El admin de la organización edita solo su configuración (nombre, zona horaria, Salesforce por
-      // marca). sfBrandCode, plan y el resto los cambia un superadmin. No hay credenciales aquí.
-      allow update: if isSuperAdmin() || (isAdmin() && belongsToOrg(orgId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "settings", "salesforceConfig"]));
     }
 
     // ── Labels ──
     match /labels/{labelId} {
       allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
-      allow write: if isAdmin() && (isSuperAdmin() || belongsToOrg(
-        resource == null ? request.resource.data.organizationId : resource.data.organizationId
-      ));
     }
 
     // ── Web Channels ──
     match /webChannels/{channelId} {
       allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
-      allow write: if isAdmin() && (isSuperAdmin() || belongsToOrg(
-        resource == null ? request.resource.data.organizationId : resource.data.organizationId
-      ));
     }
 
     // ── Broadcasts ──
     match /broadcasts/{broadcastId} {
       allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
-      allow write: if isAgent() && (isSuperAdmin() || belongsToOrg(
-        resource == null ? request.resource.data.organizationId : resource.data.organizationId
-      ));
 
       match /recipients/{recipientId} {
         allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(
-          get(/databases/$(database)/documents/broadcasts/$(broadcastId)).data.organizationId
-        ));
-        allow write: if isAgent() && (isSuperAdmin() || belongsToOrg(
           get(/databases/$(database)/documents/broadcasts/$(broadcastId)).data.organizationId
         ));
       }
