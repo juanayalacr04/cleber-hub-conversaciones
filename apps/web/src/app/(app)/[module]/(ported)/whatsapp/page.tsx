@@ -328,7 +328,11 @@ export default function WhatsAppNumbersPage() {
 
   const handleCreate = async () => {
     const orgId = (userData?.isSuperAdmin && formOrgId) ? formOrgId : userData?.organizationId;
-    if (!formPhoneNumber.trim() || !orgId) return;
+    if (!formPhoneNumber.trim()) return;
+    if (!orgId) {
+      alert("No hay una organización activa. Si eres superadmin, crea una en Organizaciones y elígela en el selector.");
+      return;
+    }
 
     setSaving(true);
     try {

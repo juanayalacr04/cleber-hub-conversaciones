@@ -53,7 +53,15 @@ export default function NewBotPage() {
   const handleCreate = async () => {
     const orgId = (userData?.isSuperAdmin && formOrgId) ? formOrgId : userData?.organizationId;
     const vertical = moduleVertical ?? (chosenVertical || null);
-    if (!name.trim() || !orgId || !vertical) return;
+    if (!name.trim()) return;
+    if (!orgId) {
+      alert("No hay una organización activa. Si eres superadmin, crea una en Organizaciones y elígela en el selector.");
+      return;
+    }
+    if (!vertical) {
+      alert("Selecciona el módulo del bot");
+      return;
+    }
 
     setSaving(true);
     try {

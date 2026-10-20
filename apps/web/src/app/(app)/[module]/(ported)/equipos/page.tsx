@@ -185,7 +185,11 @@ export default function TeamsPage() {
   const handleCreateTeam = async () => {
     const orgId = (userData?.isSuperAdmin && formOrgId) ? formOrgId : userData?.organizationId;
     const teamVertical = vertical ?? (formVertical || null);
-    if (!formName.trim() || !orgId) return;
+    if (!formName.trim()) return;
+    if (!orgId) {
+      alert("No hay una organización activa. Si eres superadmin, crea una en Organizaciones y elígela en el selector.");
+      return;
+    }
     if (!teamVertical) {
       alert("Selecciona el módulo del equipo");
       return;

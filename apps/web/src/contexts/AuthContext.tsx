@@ -44,6 +44,8 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   organizations: OrgOption[];
   setSelectedOrgId: (orgId: string) => void;
+  /** Vuelve a leer la lista de organizaciones (el superadmin la necesita tras crear o renombrar una). */
+  refreshOrganizations: () => Promise<void>;
   currentOrgName: string | null;
 }
 
@@ -187,18 +189,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, []);
 
+  // Todas las organizaciones, para el superadmin. Trabaja con la que tenía elegida; si no hay (primer inicio de sesión, o la guardada
+  // en el navegador ya no existe, p. ej. de otro proyecto) usa su organización principal y, si tampoco, la primera de la lista.
+  const loadSuperadminOrgs = async (primaryOrgId: string | null) => {
+    try {
+      const orgsSnap = await getDocs(query(collection(db, "organizations"), orderBy("name")));
+      const orgs = orgsSnap.docs.map((d) => ({ id: d.id, name: d.data().name as string }));
+      setOrganizations(orgs);
+      const exists = (id: string | null) => !!id && orgs.some((o) => o.id === id);
+      const next = exists(selectedOrgId) ? selectedOrgId : exists(primaryOrgId) ? primaryOrgId : orgs[0]?.id ?? null;
+      if (next && next !== selectedOrgId) setSelectedOrgId(next);
+    } catch (error) {
+      console.error("Error cargando las organizaciones:", error);
+    }
+  };
+
+  const refreshOrganizations = async () => {
+    if (rawUserData?.isSuperAdmin) await loadSuperadminOrgs(rawUserData.organizationId);
+  };
+
   // Fetch organizations: todas para superadmin, solo las propias para usuario multi-org
   useEffect(() => {
     if (rawUserData?.isSuperAdmin) {
-      const fetchOrgs = async () => {
-        const orgsSnap = await getDocs(query(collection(db, "organizations"), orderBy("name")));
-        const orgs = orgsSnap.docs.map((d) => ({ id: d.id, name: d.data().name as string }));
-        setOrganizations(orgs);
-        if (!selectedOrgId && rawUserData.organizationId) {
-          setSelectedOrgId(rawUserData.organizationId);
-        }
-      };
-      fetchOrgs();
+      loadSuperadminOrgs(rawUserData.organizationId);
       return;
     }
 
@@ -269,7 +282,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, userData, loading: loading || verticalPending, accessDenied, userDataError, signInWithGoogle, signOut, organizations, setSelectedOrgId, currentOrgName }}
+      value={{ user, userData, loading: loading || verticalPending, accessDenied, userDataError, signInWithGoogle, signOut, organizations, setSelectedOrgId, refreshOrganizations, currentOrgName }}
     >
       {children}
     </AuthContext.Provider>

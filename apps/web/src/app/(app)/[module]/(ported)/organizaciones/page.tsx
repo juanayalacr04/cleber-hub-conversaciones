@@ -60,7 +60,7 @@ interface OrgStats {
 }
 
 export default function OrganizationsPage() {
-  const { userData, user } = useAuth();
+  const { userData, user, refreshOrganizations } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [orgStats, setOrgStats] = useState<Record<string, OrgStats>>({});
   const [loading, setLoading] = useState(true);
@@ -155,6 +155,7 @@ export default function OrganizationsPage() {
           },
         });
       }
+      await refreshOrganizations();   // el selector de organización de las demás pantallas
       setDialogOpen(false);
       setName("");
       setEditingOrg(null);
