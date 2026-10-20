@@ -9,8 +9,9 @@
  *   2. Definir su color en globals.css: `--<color>` y `--<color>-soft`, y
  *      `body[data-mod="<id>"] { --mod: ...; --mod-soft: ...; }`.
  *   3. Pantallas propias: carpeta `src/app/(app)/[module]/<pantalla>/page.tsx` que consulte
- *      su propia API. Una pantalla compartida (p. ej. la ficha de conversación) pide su panel
- *      al registro `conversationPanels` (se agrega en la Fase 1, tarea 1.22b).
+ *      su propia API. Una pantalla compartida (p. ej. la ficha de conversación) pide sus paneles
+ *      al registro `conversationPanels` (`src/components/conversations/panels.tsx`): se agrega
+ *      una entrada con la vertical del módulo y sus pestañas.
  *
  * `vertical` es el mismo valor que `teams.vertical` y `conversations.vertical` en Firestore.
  */

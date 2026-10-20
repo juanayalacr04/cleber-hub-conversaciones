@@ -39,8 +39,6 @@ import {
   Paperclip,
   FileIcon,
   CalendarCheck,
-  Clock,
-  ChevronDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -49,7 +47,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
@@ -79,10 +76,8 @@ import { es } from "date-fns/locale";
 import { useAuth } from "@/contexts/AuthContext";
 import { callHubAction } from "@/lib/hub-actions";
 import { cn } from "@/lib/utils";
-import LeadsPanel from "@/components/conversations/LeadsPanel";
-import AccountsPanel from "@/components/conversations/AccountsPanel";
-import VehiclesPanel from "@/components/conversations/VehiclesPanel";
-import { ConversationOutcome, OUTCOME_LABELS, OUTCOME_COLORS } from "@/lib/conversation-outcomes";
+import { getConversationPanels } from "@/components/conversations/panels";
+import type { ConversationOutcome } from "@/lib/conversation-outcomes";
 
 const LABEL_COLORS: Record<string, { bg: string; text: string }> = {
   red:    { bg: "bg-red-100 dark:bg-red-900/30",       text: "text-red-800 dark:text-red-300" },
@@ -116,6 +111,7 @@ interface Conversation {
   labelIds?: string[];
   appointmentStatus?: "sin_cita" | "cita_bot" | "cita_agente";
   aiOutcome?: "interes_cita" | "otro_motivo" | null;
+  vertical?: "servicio" | "ventas" | null;
   conversationOutcome?: ConversationOutcome | null;
   conversationOutcomeHistory?: { outcome: ConversationOutcome; at: Timestamp }[];
   lastCustomerMessageAt?: Timestamp | null;
@@ -182,8 +178,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateSheetOpen, setTemplateSheetOpen] = useState(false);
   const [cannedIndex, setCannedIndex] = useState(0);
-  const [activeView, setActiveView] = useState<"messages" | "notes" | "leads" | "accounts" | "vehicles" | "history">("messages");
-  const [accountIds, setAccountIds] = useState<string[]>([]);
+  const [activeView, setActiveView] = useState<string>("messages");
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
@@ -705,6 +700,9 @@ export default function ConversationChat({ conversationId, showBackButton = true
     }
   };
 
+  const modulePanels = getConversationPanels(conversation?.vertical);
+  const activePanel = modulePanels.find((p) => p.id === activeView);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -791,54 +789,6 @@ export default function ConversationChat({ conversationId, showBackButton = true
                   }</span>
                 )}
               </Badge>
-              {conversation.conversationOutcome && (
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <button
-                      className={cn(
-                        "px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap flex items-center gap-1 border border-dashed border-current/40 hover:opacity-80 hover:border-current transition-all",
-                        OUTCOME_COLORS[conversation.conversationOutcome]
-                      )}
-                      title="Ver cuándo se asignó cada etiqueta"
-                    >
-                      <Clock className="h-3 w-3" />
-                      {OUTCOME_LABELS[conversation.conversationOutcome]}
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Etiquetas de la conversación</DialogTitle>
-                      <DialogDescription>Cuándo se asignó cada etiqueta, de la más reciente a la más antigua.</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-3">
-                      {(conversation.conversationOutcomeHistory ?? []).length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Sin historial disponible.</p>
-                      ) : (
-                        [...conversation.conversationOutcomeHistory!].reverse().map((entry, i) => {
-                          const date = entry.at?.toDate();
-                          return (
-                            <div key={i} className="flex items-center justify-between gap-2">
-                              <span className={cn("px-2 py-0.5 rounded-full text-xs font-medium", OUTCOME_COLORS[entry.outcome])}>
-                                {OUTCOME_LABELS[entry.outcome]}
-                              </span>
-                              <span className="text-xs text-muted-foreground whitespace-nowrap text-right">
-                                {date ? (
-                                  <>
-                                    {date.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}
-                                    {" · "}
-                                    {date.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit", hour12: true })}
-                                  </>
-                                ) : ""}
-                              </span>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              )}
             </div>
             <div className={cn("flex items-center gap-2 text-xs text-gray-500", !compact && "md:text-sm")}>
               <Phone className="h-3 w-3" />
@@ -1042,33 +992,18 @@ export default function ConversationChat({ conversationId, showBackButton = true
           <StickyNote className="mr-1 h-3 w-3" />
           Notas {notes.length > 0 && `(${notes.length})`}
         </Button>
-        <Button
-          variant={activeView === "leads" ? "default" : "ghost"}
-          size="sm"
-          className={cn("flex-shrink-0", compact && "h-7 px-2 text-xs")}
-          onClick={() => setActiveView("leads")}
-        >
-          <UserCircle className="mr-1 h-3 w-3" />
-          Leads
-        </Button>
-        <Button
-          variant={activeView === "accounts" ? "default" : "ghost"}
-          size="sm"
-          className={cn("flex-shrink-0", compact && "h-7 px-2 text-xs")}
-          onClick={() => setActiveView("accounts")}
-        >
-          <UserCircle className="mr-1 h-3 w-3" />
-          Cuentas
-        </Button>
-        <Button
-          variant={activeView === "vehicles" ? "default" : "ghost"}
-          size="sm"
-          className={cn("flex-shrink-0", compact && "h-7 px-2 text-xs")}
-          onClick={() => setActiveView("vehicles")}
-        >
-          <UserCircle className="mr-1 h-3 w-3" />
-          Vehiculos
-        </Button>
+        {modulePanels.map((panel) => (
+          <Button
+            key={panel.id}
+            variant={activeView === panel.id ? "default" : "ghost"}
+            size="sm"
+            className={cn("flex-shrink-0", compact && "h-7 px-2 text-xs")}
+            onClick={() => setActiveView(panel.id)}
+          >
+            <panel.icon className="mr-1 h-3 w-3" />
+            {panel.label}
+          </Button>
+        ))}
         <Button
           variant={activeView === "history" ? "default" : "ghost"}
           size="sm"
@@ -1126,19 +1061,8 @@ export default function ConversationChat({ conversationId, showBackButton = true
             ))
           )}
         </div>
-      ) : activeView === "leads" ? (
-        conversation ? (
-          <LeadsPanel customerPhone={conversation.customerPhone} />
-        ) : null
-      ) : activeView === "accounts" ? (
-        conversation ? (
-          <AccountsPanel
-            customerPhone={conversation.customerPhone}
-            onAccountsLoaded={setAccountIds}
-          />
-        ) : null
-      ) : activeView === "vehicles" ? (
-        <VehiclesPanel accountIds={accountIds} />
+      ) : activePanel ? (
+        conversation ? <activePanel.Component conversation={conversation} /> : null
       ) : activeView === "messages" ? (
         <>
           {/* Messages */}
