@@ -68,21 +68,16 @@ import {
   where,
   orderBy,
   onSnapshot,
-  updateDoc,
-  addDoc,
   getDocs,
   limit,
-  serverTimestamp,
-  deleteField,
   Timestamp,
-  arrayUnion,
-  arrayRemove,
   QueryDocumentSnapshot,
   DocumentData,
 } from "firebase/firestore";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useAuth } from "@/contexts/AuthContext";
+import { callHubAction } from "@/lib/hub-actions";
 import { cn } from "@/lib/utils";
 import LeadsPanel from "@/components/conversations/LeadsPanel";
 import AccountsPanel from "@/components/conversations/AccountsPanel";
@@ -228,10 +223,12 @@ export default function ConversationChat({ conversationId, showBackButton = true
 
   const handleToggleLabel = async (labelId: string) => {
     if (!conversation) return;
-    const hasLabel = conversation.labelIds?.includes(labelId);
-    await updateDoc(doc(db, "conversations", conversation.id), {
-      labelIds: hasLabel ? arrayRemove(labelId) : arrayUnion(labelId),
-    });
+    try {
+      await callHubAction(user, "conversation.toggle_label", { conversationId: conversation.id, labelId });
+    } catch (error) {
+      console.error("Error toggling label:", error);
+      alert(error instanceof Error ? error.message : "Error al cambiar la etiqueta");
+    }
   };
 
   const statusLabels = {
@@ -536,12 +533,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
     if (!user || !conversation) return;
 
     try {
-      await updateDoc(doc(db, "conversations", conversationId), {
-        status: "with_agent",
-        assignedAgentId: user.uid,
-        assignedAt: new Date(),
-        waitingStartedAt: conversation.lastMessageAt,
-      });
+      await callHubAction(user, "conversation.take", { conversationId });
     } catch (error) {
       console.error("Error taking conversation:", error);
       alert("Error al tomar conversacion");
@@ -553,11 +545,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
 
     setAssigning(true);
     try {
-      await updateDoc(doc(db, "conversations", conversationId), {
-        status: "with_agent",
-        assignedAgentId: agentId,
-        assignedAt: new Date(),
-      });
+      await callHubAction(user, "conversation.assign", { conversationId, agentId });
     } catch (error) {
       console.error("Error assigning agent:", error);
       alert("Error al asignar agente");
@@ -570,26 +558,10 @@ export default function ConversationChat({ conversationId, showBackButton = true
     if (!conversation) return;
     const next = conversation.appointmentStatus === "cita_agente" ? "sin_cita" : "cita_agente";
     try {
-      const updates: Record<string, unknown> = { appointmentStatus: next };
-      if (next === "cita_agente") {
-        updates.appointmentDate = serverTimestamp();
-        updates.conversationOutcome = "cita_agente_bdc";
-        updates.conversationOutcomeAt = serverTimestamp();
-        updates.conversationOutcomeHistory = arrayUnion({ outcome: "cita_agente_bdc", at: Timestamp.now() });
-      } else {
-        updates.appointmentDate = deleteField();
-        // Al desmarcar, rompe el candado de estado terminal a propósito: vuelve
-        // a la última clasificación del bot (o null si nunca hubo una).
-        const reverted = conversation.aiOutcome ?? null;
-        updates.conversationOutcome = reverted;
-        updates.conversationOutcomeAt = serverTimestamp();
-        if (reverted) {
-          updates.conversationOutcomeHistory = arrayUnion({ outcome: reverted, at: Timestamp.now() });
-        }
-      }
-      await updateDoc(doc(db, "conversations", conversationId), updates);
+      await callHubAction(user, "conversation.mark_appointment", { conversationId, marked: next === "cita_agente" });
     } catch (error) {
       console.error("Error updating appointment status:", error);
+      alert(error instanceof Error ? error.message : "Error al actualizar la cita");
     }
   };
 
@@ -598,15 +570,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
 
     setReturningToBot(true);
     try {
-      await updateDoc(doc(db, "conversations", conversationId), {
-        status: "bot",
-        assignedAgentId: null,
-        assignedAt: null,
-        waitingStartedAt: null,
-        firstAgentResponseAt: null,
-        responseTimeSecs: null,
-        // responseTimes array is kept for historical record
-      });
+      await callHubAction(user, "conversation.return_to_bot", { conversationId });
     } catch (error) {
       console.error("Error returning to bot:", error);
       alert("Error al devolver a bot");
@@ -639,18 +603,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
         });
       }
 
-      await updateDoc(doc(db, "conversations", conversationId), {
-        status: "closed",
-        assignedAgentId: null,
-        assignedAt: null,
-        waitingStartedAt: null,
-        firstAgentResponseAt: null,
-        responseTimeSecs: null,
-        // responseTimes array is kept for historical record
-        closedAt: new Date(),
-        closedReason: closeReason,
-        manualClose: true,
-      });
+      await callHubAction(user, "conversation.close", { conversationId, reason: closeReason });
 
       // Fire close webhook if configured
       fetch("/api/conversations/close-webhook", {
@@ -680,12 +633,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
 
     setReopening(true);
     try {
-      await updateDoc(doc(db, "conversations", conversationId), {
-        status: "bot",
-        assignedAgentId: null,
-        assignedAt: null,
-        closedAt: null,
-      });
+      await callHubAction(user, "conversation.reopen", { conversationId });
     } catch (error) {
       console.error("Error reopening conversation:", error);
       alert("Error al reabrir la conversacion");
@@ -699,13 +647,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
 
     setAddingNote(true);
     try {
-      const notesRef = collection(db, "conversations", conversationId, "notes");
-      await addDoc(notesRef, {
-        authorId: user.uid,
-        authorName: userData?.name || user.email || "Agente",
-        text: newNote.trim(),
-        createdAt: serverTimestamp(),
-      });
+      await callHubAction(user, "conversation.add_note", { conversationId, text: newNote.trim() });
       setNewNote("");
     } catch (error) {
       console.error("Error adding note:", error);
@@ -718,9 +660,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
     if (!conversation) return;
     const trimmed = editNameValue.trim();
     try {
-      await updateDoc(doc(db, "conversations", conversationId), {
-        customerName: trimmed || null,
-      });
+      await callHubAction(user, "conversation.rename_customer", { conversationId, name: trimmed });
       setEditingName(false);
     } catch (error) {
       console.error("Error saving name:", error);
@@ -732,12 +672,7 @@ export default function ConversationChat({ conversationId, showBackButton = true
 
     setTransferring(true);
     try {
-      await updateDoc(doc(db, "conversations", conversationId), {
-        teamId,
-        status: "waiting_agent",
-        assignedAgentId: null,
-        assignedAt: null,
-      });
+      await callHubAction(user, "conversation.transfer_team", { conversationId, teamId });
     } catch (error) {
       console.error("Error transferring team:", error);
       alert("Error al transferir equipo");

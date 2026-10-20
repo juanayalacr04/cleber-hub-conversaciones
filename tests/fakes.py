@@ -20,6 +20,8 @@ def _apply(doc: dict, updates: dict) -> None:
             doc[k] = doc.get(k, 0) + v.value
         elif isinstance(v, firestore.ArrayUnion):
             doc[k] = list(doc.get(k) or []) + list(v.values)
+        elif isinstance(v, firestore.ArrayRemove):
+            doc[k] = [x for x in (doc.get(k) or []) if x not in v.values]
         elif v is firestore.SERVER_TIMESTAMP:
             doc[k] = datetime.now(timezone.utc)
         else:
