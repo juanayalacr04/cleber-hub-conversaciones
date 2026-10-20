@@ -63,6 +63,27 @@ def send_valuetext_handoff_template(number: dict, to_number: str, lead_id: str |
     return bucket_id
 
 
+def bucket_statuses(sf_config: dict, bucket_ids: list[str], batch: int = 200) -> dict:
+    """Estado de los SMS_Bucket de ValueText: `{id: {"processed": bool, "status": str | None}}` de los que Salesforce devolvió."""
+    found = {}
+    for start in range(0, len(bucket_ids), batch):
+        ids = ",".join(f"'{salesforce.soql_quote(i)}'" for i in bucket_ids[start:start + batch])
+        for record in salesforce.query(sf_config, f"SELECT Id, rsplus__Processed__c, rsplus__Status__c FROM {SMS_BUCKET} WHERE Id IN ({ids})") or []:
+            found[record["Id"]] = {"processed": bool(record.get("rsplus__Processed__c")), "status": record.get("rsplus__Status__c")}
+    return found
+
+
+def bucket_statuses(sf_config: dict, bucket_ids: list[str], batch: int = 200) -> dict:
+    """Estado de los SMS_Bucket de ValueText: `{id: {"processed": bool, "status": str | None}}` de los que Salesforce devolvió."""
+    found = {}
+    for start in range(0, len(bucket_ids), batch):
+        ids = ",".join(f"'{salesforce.soql_quote(i)}'" for i in bucket_ids[start:start + batch])
+        query = f"SELECT Id, rsplus__Processed__c, rsplus__Status__c FROM {SMS_BUCKET} WHERE Id IN ({ids})"
+        for record in salesforce.query(sf_config, query) or []:
+            found[record["Id"]] = {"processed": bool(record.get("rsplus__Processed__c")), "status": record.get("rsplus__Status__c")}
+    return found
+
+
 def parse_salesforce_outbound_message(raw_xml: str) -> list[dict]:
     """Parsea el SOAP de un Outbound Message: un dict por sObject (SMS_Bucket__c) en el sobre.
 

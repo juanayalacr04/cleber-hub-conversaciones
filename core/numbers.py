@@ -110,6 +110,13 @@ def apply_channel_config(bot: dict, wa_number: dict, db=None) -> dict:
     return bot
 
 
+def sf_config_for(db, org_id: str | None, vertical: str | None) -> dict:
+    """Configuración de Salesforce de una organización para un módulo: la config por marca más las credenciales
+    del entorno. Vacía de credenciales si faltan (el llamador decide qué hacer con `has_credentials`)."""
+    org = (db.collection("organizations").document(org_id).get().to_dict() or {}) if org_id else {}
+    return salesforce.resolve_config(org.get("salesforceConfig"), vertical)
+
+
 def get_bot_for_conversation(bot_id: str, whatsapp_number_id: str | None, db=None) -> tuple[dict | None, str]:
     """Bot con la config de canal del número de una conversación. Devuelve (bot, número_del_bot).
 

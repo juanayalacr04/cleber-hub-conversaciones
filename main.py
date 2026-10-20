@@ -14,9 +14,14 @@ Despliegue (las funciones comparten el paquete; cambia solo el entry point):
     actions-execute     actions_execute      endpoint de acciones: los bots piden, el hub ejecuta (X-Bot-Id + Bearer)
     user-actions-execute user_actions_execute endpoint de los usuarios del dashboard (token de Firebase; FIREBASE_PROJECT_ID, ALLOWED_ORIGINS)
     situacion-detectada situacion_detectada      webhook del bot de Ventas hacia Servicio (X-Api-Secret = SITUACION_API_SECRET)
+    jobs-run            jobs_run                 los jobs programados: `?job=<nombre>` (X-Cron-Secret); ver jobs/runner.py
 
 user-actions-execute atiende también `broadcast.send` y `broadcast.retry`, que mandan una campaña completa y tardan minutos:
 desplegarla con `--timeout=900` (el valor por defecto, 60 s, la cortaría a medias).
+
+jobs-run corre los jobs programados (un tick puede mandar recordatorios a cientos de conversaciones): `--timeout=540`, `--max-instances=1`
+para que dos ticks no se pisen, y un Cloud Scheduler por job con su cadencia (inactivity-followup, scheduled-contact, close-inactive
+y verify-lead-templates cada pocos minutos; appointment-reminders y no-show según el horario de las citas).
 """
 import json
 import logging
@@ -29,7 +34,7 @@ from channels import (check_campaign_ready, delivery_statuses, send_campaign_tem
 from core import actions, outbound, situacion, user_actions
 from core import account_actions, admin_actions, broadcast_actions, conversation_actions  # noqa: F401  declaran las acciones de usuario
 from core.db import get_executor
-from jobs import inactivity
+from jobs import inactivity, runner
 from jobs.auth import cron_authorized
 
 
@@ -132,3 +137,22 @@ def situacion_detectada(request):
         logging.getLogger(__name__).exception("situacion_detectada")
         body, status = {"error": "Internal server error"}, 500
     return json.dumps(body), status, headers
+
+
+@functions_framework.http
+def jobs_run(request):
+    """POST /jobs/run?job=<nombre>: el cron avisa la hora y la función decide qué toca (jobs/runner.py)."""
+    headers = {"Content-Type": "application/json"}
+    if request.method != "POST":
+        return json.dumps({"error": "Method not allowed"}), 405, headers
+    if not cron_authorized(request.headers):
+        return json.dumps({"error": "Unauthorized"}), 401, headers
+    job = request.args.get("job") or (request.get_json(silent=True) or {}).get("job")
+    if job not in runner.JOBS:
+        return json.dumps({"error": f"Unknown job {job!r}", "jobs": sorted(runner.JOBS)}), 400, headers
+    try:
+        body, status = runner.run(job), 200
+    except Exception as e:
+        logging.getLogger(__name__).exception("jobs_run %s", job)
+        body, status = {"success": False, "error": str(e)}, 500
+    return json.dumps(body, default=str), status, headers

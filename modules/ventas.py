@@ -525,6 +525,59 @@ def _inactivity_closed(conv: dict, p: dict) -> None:
         assign_by_schedule(p["bot"], sf, lead_id, p["conv_id"])
 
 
+def _lead_sf(conv: dict, p: dict) -> dict | None:
+    """Config de Salesforce de la organización si hay credenciales y la conversación tiene Lead (eventos `escalation_*`)."""
+    sf = p.get("sf_config")
+    return sf if sf and salesforce.has_credentials(sf) and conv.get("leadId") else None
+
+
+@tool("escalation_never_responded", vertical=V)
+def _escalation_never_responded(conv: dict, p: dict) -> None:
+    """Escalación por inactividad de un cliente que nunca contestó: el Lead vuelve a "Sin validar" (como el cierre)."""
+    sf = _lead_sf(conv, p)
+    if sf:
+        reset_lead_sin_respuesta(sf, conv["leadId"])
+
+
+@tool("escalation_out_of_hours_owner", vertical=V)
+def _escalation_out_of_hours_owner(conv: dict, p: dict) -> None:
+    """Escalación fuera de horario con equipo en modo "salesforce": el Lead pasa ya al owner de BDC y Salesforce asigna al abrir.
+
+    `p["handled"]` indica que se hizo (había Lead, bot y owner de BDC); si no, el cron lo reintenta.
+    """
+    sf = _lead_sf(conv, p)
+    if sf and p.get("bot") and sf.get("bdcFallbackOwnerId"):
+        patch_lead_owner_id(sf, conv["leadId"], sf["bdcFallbackOwnerId"], validacion_prospecto=None)
+        p["handled"] = True
+
+
+@tool("escalation_assigned", vertical=V)
+def _escalation_assigned(conv: dict, p: dict) -> None:
+    """Escalación dentro de horario con equipo en modo "salesforce": se pide la asignación al Flow de round robin."""
+    sf = _lead_sf(conv, p)
+    if sf and sf.get("marcaRR"):
+        call_rr_agente_flow(sf, conv["leadId"], sf["marcaRR"])
+
+
+@tool("template_failed", vertical=V)
+def _template_failed(conv: dict, p: dict) -> None:
+    """La plantilla del Lead no llegó al cliente (ValueText la rechazó): el Lead queda "Error plantilla" y se pide asesor.
+
+    Mismo comportamiento que un handoff normal: dentro de horario el Flow de round robin reasigna el owner; fuera de horario el
+    Lead pasa de inmediato al owner de BDC.
+    """
+    sf = _lead_sf(conv, p)
+    if not sf:
+        return
+    fields = {"Validacion_Prospecto__c": "Error plantilla", "Status": "Nuevo", "Fecha_Deal__c": None}
+    within_hours = p.get("within_hours", True)
+    if not within_hours and sf.get("bdcFallbackOwnerId"):
+        fields["OwnerId"] = sf["bdcFallbackOwnerId"]
+    salesforce.patch_lead(sf, conv["leadId"], fields)
+    if within_hours and sf.get("marcaRR"):
+        call_rr_agente_flow(sf, conv["leadId"], sf["marcaRR"])
+
+
 @tool("situacion_destino_lead", vertical=V)
 def _situacion_destino_lead(conv: dict, p: dict) -> None:
     p["result"] = handoff_lead_seminuevo(p["bot"], conv, p["conv_id"], p["route"], p.get("tool_input"), p.get("db"))

@@ -113,6 +113,9 @@ class FakeQuery:
                 return False
             if op == "array_contains" and value not in (actual or []):
                 return False
+            if op in ("<", "<=", ">", ">="):   # Firestore excluye los documentos sin el campo
+                if actual is None or not (actual < value if op == "<" else actual <= value if op == "<=" else actual > value if op == ">" else actual >= value):
+                    return False
         return True
 
     def _paths(self):

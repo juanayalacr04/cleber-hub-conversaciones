@@ -4,6 +4,7 @@
     retry          Reintenta los `failed` y `skipped`
     send_test      Manda un destinatario de la campaña a un teléfono de prueba
     refresh        Recalcula los destinatarios de una campaña de recordatorio o no-show desde las citas de Salesforce
+                   (a mano desde la pantalla, o en `scheduled=True` por el job nocturno de `jobs/reminders.py`)
     check_status   Consulta al proveedor si lo enviado ya se entregó
 
 Por cada destinatario: se busca su conversación abierta (o se crea una saliente con la etiqueta `broadcast`), se
@@ -37,6 +38,7 @@ STALE_SENDING = timedelta(minutes=10)   # una campaña "sending" más tiempo que
 RATE_LIMIT_DELAY = 0.05                 # ~20 mensajes por segundo por grupo
 PARALLEL_GROUPS = 4
 BATCH = 500
+SENT_RETENTION = timedelta(days=90)   # el job programado olvida lo enviado hace más de esto: la misma cita puede volver a avisarse
 TZ = ZoneInfo("America/Mexico_City")
 
 _sleep = time.sleep
@@ -290,8 +292,13 @@ def send_test(db, broadcast_id: str, broadcast: dict, test_phone: str, recipient
             "conversationId": next((r["conversationId"] for r in results if r.get("conversationId")), None), "results": results}
 
 
-def refresh(db, broadcast_id: str, broadcast: dict) -> dict:
-    """Recalcula los destinatarios desde las citas de Salesforce: conserva los ya enviados y reemplaza el resto."""
+def refresh(db, broadcast_id: str, broadcast: dict, scheduled: bool = False) -> dict:
+    """Recalcula los destinatarios desde las citas de Salesforce: conserva los ya enviados y reemplaza el resto.
+
+    A mano (`scheduled=False`) se conservan todos los enviados y los contadores se reinician. El job programado
+    (`scheduled=True`) solo conserva lo enviado en los últimos 90 días, no toca los contadores y usa las credenciales
+    de Servicio si la campaña no declara módulo.
+    """
     if broadcast.get("type") not in campaign_events.REMINDER_TYPES:
         raise UserActionError(DATOS_INVALIDOS, "Solo broadcasts de tipo appointment_reminder o no_show pueden refrescarse")
     ref = db.collection("broadcasts").document(broadcast_id)
@@ -307,7 +314,7 @@ def refresh(db, broadcast_id: str, broadcast: dict) -> dict:
         raise UserActionError(DATOS_INVALIDOS, "Missing reminderConfig.daysBefore")
 
     org = db.collection("organizations").document(broadcast["organizationId"]).get().to_dict() or {}
-    sf_config = salesforce.resolve_config(org.get("salesforceConfig"), broadcast.get("vertical"))
+    sf_config = salesforce.resolve_config(org.get("salesforceConfig"), broadcast.get("vertical") or ("servicio" if scheduled else None))
     if not salesforce.has_credentials(sf_config):
         raise UserActionError(PRECONDICION_FALLIDA, "Salesforce no configurado (variables SF_*)")
     events = salesforce.query_all(sf_config, campaign_events.build_query(broadcast, org))
@@ -318,9 +325,11 @@ def refresh(db, broadcast_id: str, broadcast: dict) -> dict:
 
     recipients_ref = ref.collection("recipients")
     sent_ids, stale_refs = set(), []
+    keep_since = datetime.now(timezone.utc) - SENT_RETENTION
     for snap in recipients_ref.stream():
         data = snap.to_dict() or {}
-        if data.get("status") in ("sent", "delivered", "read"):
+        sent_at = as_utc(data.get("sentAt"))
+        if data.get("status") in ("sent", "delivered", "read") and (not scheduled or (sent_at and sent_at > keep_since)):
             if data.get("salesforceRecordId"):
                 sent_ids.add(data["salesforceRecordId"])
         else:
@@ -341,6 +350,10 @@ def refresh(db, broadcast_id: str, broadcast: dict) -> dict:
         batch.commit()
 
     preserved = len(sent_ids)
+    if scheduled:
+        ref.update({"status": "draft" if new else broadcast.get("status"), "totalRecipients": preserved + len(new),
+                    "completedAt": None if new else broadcast.get("completedAt"), "lastRefreshedAt": firestore.SERVER_TIMESTAMP})
+        return {"recipients": len(recipients), "skipped": len(skipped)}
     ref.update({"status": "draft" if new else broadcast.get("status"), "totalRecipients": len(new) + preserved, "sentCount": preserved,
                 "deliveredCount": 0, "failedCount": 0, "skippedCount": 0, "completedAt": None,
                 "lastRefreshedAt": firestore.SERVER_TIMESTAMP})
