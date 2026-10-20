@@ -30,7 +30,7 @@ from typing import Callable
 from google.cloud import firestore
 
 from contracts.actions import DATOS_INVALIDOS, NO_AUTORIZADO, PRECONDICION_FALLIDA
-from core import authz, http
+from core import authz, credentials, http
 from core.conversations import resolve_vertical
 from core.schema import BOT_TYPES, VERTICALS, assert_unique_brand_code
 from core.user_actions import UserActionError, UserContext, declare
@@ -58,6 +58,7 @@ class Entity:
     create_only: frozenset = frozenset()  # campos que no se editan después de crear
     defaults: dict = field(default_factory=dict)
     ops: tuple = ("create", "update", "delete")
+    secrets_kind: str | None = None       # "numbers" o "bots": sus credenciales van a `secrets`, no al documento (core/credentials.py)
     check: Callable | None = None         # check(ctx, fields, org_id, old) → valida y puede normalizar `fields`
     after_update: Callable | None = None  # after_update(ctx, fields, old)
     before_delete: Callable | None = None
@@ -223,7 +224,7 @@ ENTITIES = [
                    "metaPhoneNumberId": str, "metaAccessToken": str, "metaWebhookVerifyToken": str,
                    "serviceHandoffTemplateName": str, "serviceHandoffTemplateLanguage": str},
            required=("phoneNumber", "provider"), super_only=frozenset({"organizationId"}),
-           defaults={"status": "active"}, check=_check_number, after_update=_after_number_update),
+           defaults={"status": "active"}, check=_check_number, after_update=_after_number_update, secrets_kind="numbers"),
     Entity("bot", "bots",
            fields={"name": str, "description": str, "type": BOT_TYPES, "vertical": VERTICALS, "category": str,
                    "status": ("active", "paused"), "organizationId": str, "twilioConfig": dict, "abacusConfig": dict,
@@ -231,7 +232,7 @@ ENTITIES = [
                    "scheduleConfig": dict, "situationRouting": dict, "optOutAction": ("close", "handoff"),
                    "tools": list, "outcomeActions": list, "broadcastResponseCounters": dict, "injectPhoneContext": bool},
            required=("name", "type", "vertical"), super_only=frozenset({"organizationId"}),
-           defaults={"description": "", "status": "active"}, ops=("create", "update")),
+           defaults={"description": "", "status": "active"}, ops=("create", "update"), secrets_kind="bots"),
     Entity("template", "templates",
            fields={"name": str, "content": str, "category": str, "vertical": VERTICALS},
            required=("name", "content")),
@@ -250,13 +251,20 @@ def _create(entity: Entity):
         missing = [k for k in entity.required if fields.get(k) in (None, "") or (isinstance(fields[k], str) and not fields[k].strip())]
         if missing:
             raise UserActionError(DATOS_INVALIDOS, f"Faltan campos: {', '.join(missing)}")
+        new_secrets = {}
+        if entity.secrets_kind:
+            fields, new_secrets = credentials.split(entity.secrets_kind, fields)
         if entity.check:
             entity.check(ctx, fields, ctx.org_id, None)
         doc = {**entity.defaults, **fields, "organizationId": ctx.org_id, "createdAt": firestore.SERVER_TIMESTAMP}
         if entity.name == "number":
             doc.setdefault("displayName", doc["phoneNumber"])
+        if entity.secrets_kind:
+            doc["secretsSet"] = sorted(new_secrets)
         ref = ctx.db.collection(entity.collection).document()
         ref.set(doc)
+        if new_secrets:   # después del documento: sin él, la credencial quedaría huérfana si el alta falla
+            credentials.store(ctx.db, entity.secrets_kind, ref.id, new_secrets)
         return {"id": ref.id}
     return handler
 
@@ -272,6 +280,11 @@ def _update(entity: Entity):
         for key in entity.required:
             if key in sets and (sets[key] is None or (isinstance(sets[key], str) and not sets[key].strip())):
                 raise UserActionError(DATOS_INVALIDOS, f"{key} no puede quedar vacío")
+        new_secrets, cleared = {}, []
+        if entity.secrets_kind:
+            sets, new_secrets = credentials.split(entity.secrets_kind, sets)
+            cleared = [k for k in unset if k in credentials.paths(entity.secrets_kind)]
+            unset = [k for k in unset if k not in cleared]
         org_id = ctx.org_id
         if sets.get("organizationId"):
             org_id = sets["organizationId"]
@@ -279,7 +292,13 @@ def _update(entity: Entity):
                 raise UserActionError(DATOS_INVALIDOS, "La organización destino no existe")
         if entity.check:
             entity.check(ctx, sets, org_id, ctx.doc)
-        ctx.db.collection(entity.collection).document(ctx.doc_id).update({**sets, **{k: firestore.DELETE_FIELD for k in unset}})
+        updates = {**sets, **{k: firestore.DELETE_FIELD for k in unset}}
+        if new_secrets or cleared:
+            credentials.clear(ctx.db, entity.secrets_kind, ctx.doc_id, cleared)
+            credentials.store(ctx.db, entity.secrets_kind, ctx.doc_id, new_secrets)
+            updates["secretsSet"] = sorted(credentials.load(ctx.db, entity.secrets_kind, ctx.doc_id, use_cache=False))
+        if updates:   # puede quedar vacío si solo llegaron credenciales vacías: nada que cambiar
+            ctx.db.collection(entity.collection).document(ctx.doc_id).update(updates)
         if entity.after_update:
             entity.after_update(ctx, sets, ctx.doc)
         return {"id": ctx.doc_id}
@@ -291,6 +310,8 @@ def _delete(entity: Entity):
         if entity.before_delete:
             entity.before_delete(ctx)
         ctx.db.collection(entity.collection).document(ctx.doc_id).delete()
+        if entity.secrets_kind:
+            credentials.delete(ctx.db, entity.secrets_kind, ctx.doc_id)
         return {"id": ctx.doc_id}
     return handler
 

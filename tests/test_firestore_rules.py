@@ -49,3 +49,9 @@ def test_el_usuario_ya_no_se_busca_por_correo_ni_se_crea_a_si_mismo():
     assert "request.auth.token.email" not in BODY    # el reclamo de la invitación lo hace la función (me.claim_invite)
     users = re.search(r"match /users/\{userId\} \{(.*?)\n    \}\n", BODY, re.S).group(1)
     assert set(op.strip() for ops, _ in ALLOW.findall(users) for op in ops.split(",")) == {"get", "list"}
+
+
+def test_las_credenciales_no_tienen_regla_y_por_eso_el_navegador_no_las_lee():
+    """`secrets` (tokens de números y bots, tarea 1.41) solo la lee la función. Sin regla, Firestore niega todo acceso del cliente."""
+    assert not re.search(r"match /secrets", BODY)
+    assert not re.search(r"match /\{[a-z]+=\*\*\}", BODY), "una regla comodín abriría también `secrets`"

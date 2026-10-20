@@ -70,12 +70,16 @@ const SITUACIONES = [
   { value: "finalizado_por_cliente", label: "Cliente pide no ser contactado" },
 ];
 
+const SECRET_SET_HINT = "•••••••• configurado: escribe para reemplazar";
+
 interface BotData {
   id: string;
   name: string;
   description: string;
   type: "chatllm" | "workflow" | "vertex_ai" | "external";
   category?: string;
+  /** Credenciales ya configuradas (el valor nunca llega al navegador), p. ej. "abacusConfig.apiKey". */
+  secretsSet?: string[];
   vertical?: "servicio" | "ventas";
   optOutAction?: "close" | "handoff";
   tools?: BotTool[];
@@ -149,6 +153,7 @@ export default function EditBotPage() {
   const router = useRouter();
   const { userData, user, organizations: authOrgs } = useAuth();
   const [bot, setBot] = useState<BotData | null>(null);
+  const isSecretSet = (path: string) => !!bot?.secretsSet?.includes(path);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showTwilioToken, setShowTwilioToken] = useState(false);
@@ -639,7 +644,7 @@ export default function EditBotPage() {
                     type={showTwilioToken ? "text" : "password"}
                     value={twilioAuthToken}
                     onChange={(e) => setTwilioAuthToken(e.target.value)}
-                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    placeholder={isSecretSet("twilioConfig.authToken") ? SECRET_SET_HINT : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
                   />
                   <Button
                     type="button"
@@ -705,7 +710,7 @@ export default function EditBotPage() {
                         type={showAbacusToken ? "text" : "password"}
                         value={abacusDeploymentToken}
                         onChange={(e) => setAbacusDeploymentToken(e.target.value)}
-                        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        placeholder={isSecretSet("abacusConfig.deploymentToken") ? SECRET_SET_HINT : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
                       />
                       <Button
                         type="button"
@@ -746,7 +751,7 @@ export default function EditBotPage() {
                         type={showAbacusApiKey ? "text" : "password"}
                         value={abacusApiKey}
                         onChange={(e) => setAbacusApiKey(e.target.value)}
-                        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        placeholder={isSecretSet("abacusConfig.apiKey") ? SECRET_SET_HINT : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
                       />
                       <Button
                         type="button"
@@ -824,7 +829,7 @@ export default function EditBotPage() {
                         type={showExternalApiKey ? "text" : "password"}
                         value={externalApiKey}
                         onChange={(e) => setExternalApiKey(e.target.value)}
-                        placeholder="Se envía como Authorization: Bearer ..."
+                        placeholder={isSecretSet("externalConfig.apiKey") ? SECRET_SET_HINT : "Se envía como Authorization: Bearer ..."}
                       />
                       <Button
                         type="button"

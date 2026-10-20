@@ -27,7 +27,7 @@ import os
 from google.cloud import firestore
 
 from ai import engine  # transitorio, como en core/pipeline.py: pasa a la función 3 (1.35)
-from core import conversations as cv, outbound
+from core import conversations as cv, credentials, outbound
 from core.db import get_db
 from core.numbers import get_bot_by_id
 from core.utils import to_e164
@@ -77,7 +77,8 @@ def handle(headers, args, body, db=None, env=None) -> tuple[dict, int]:
     if not numbers:
         log.error("situacion-detectada: no hay número activo para targetPhone=%s", target)
         return {"error": "targetPhone not configured"}, 404
-    number, number_id = numbers[0].to_dict(), numbers[0].id
+    number_id = numbers[0].id
+    number = credentials.reveal(db, "numbers", number_id, numbers[0].to_dict() or {})
     bot_id, org_id, team_id = number.get("defaultBotId"), number.get("organizationId"), number.get("teamId")
     vertical = cv.resolve_vertical(db, team_id, None)  # el número no guarda la vertical: la tiene su equipo
 

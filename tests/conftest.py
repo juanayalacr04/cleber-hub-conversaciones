@@ -10,10 +10,12 @@ def _transacciones_sin_cliente_real(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _caches_limpias():
-    from core import broadcasts
+    from core import broadcasts, credentials
     broadcasts.clear_instructions_cache()
+    credentials.clear_cache()
     yield
     broadcasts.clear_instructions_cache()
+    credentials.clear_cache()
 
 
 @pytest.fixture(autouse=True)

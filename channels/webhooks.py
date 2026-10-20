@@ -13,6 +13,7 @@ from channels.twilio_wa import process_twilio_status
 from channels.valuetext_wa import parse_salesforce_outbound_message
 from core import idempotency
 from core.conversations import save_agent_outbound, save_template_outbound
+from core import credentials
 from core.db import get_db
 from core.utils import normalize_mx_phone
 
@@ -106,6 +107,12 @@ def handle_meta_verification(args, db=None) -> tuple:
     if mode != "subscribe" or not token:
         return "Bad Request", 400
     db = db or get_db()
+    number_id = credentials.find_number_by_verify_token(db, token)
+    if number_id:
+        number = db.collection("whatsappNumbers").document(number_id).get().to_dict() or {}
+        if number.get("provider") == "meta" and number.get("status") == "active":
+            return challenge, 200
+    # datos anteriores a la migración de credenciales: el token todavía puede estar en el documento del número
     found = list(
         db.collection("whatsappNumbers").where("provider", "==", "meta")
         .where("metaWebhookVerifyToken", "==", token).where("status", "==", "active").limit(1).stream()

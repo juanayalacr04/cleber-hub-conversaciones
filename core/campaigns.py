@@ -24,7 +24,7 @@ from google.cloud import firestore
 
 from ai import engine  # transitorio, como en core/pipeline.py: pasa a la función 3 (1.35)
 from contracts.actions import DATOS_INVALIDOS, ERROR_EXTERNO, PRECONDICION_FALLIDA, RECURSO_NO_ENCONTRADO
-from core import conversations as cv, outbound
+from core import conversations as cv, credentials, outbound
 from core.db import get_executor
 from core.numbers import get_bot_by_id
 from core.user_actions import UserActionError
@@ -109,7 +109,7 @@ class Campaign:
         snap = db.collection("whatsappNumbers").document(broadcast["whatsappNumberId"]).get()
         if not snap.exists:
             raise UserActionError(RECURSO_NO_ENCONTRADO, "WhatsApp number not found")
-        self.number = snap.to_dict() or {}
+        self.number = credentials.reveal(db, "numbers", snap.id, snap.to_dict() or {})
         org = db.collection("organizations").document(self.org_id).get().to_dict() or {}
         self.sf_config = salesforce.resolve_config(org.get("salesforceConfig"), broadcast.get("vertical"))
         self.bot = get_bot_by_id(broadcast["botId"], db) if broadcast.get("botId") else None

@@ -67,6 +67,8 @@ interface WhatsAppNumber {
   metaPhoneNumberId: string;
   metaAccessToken: string;
   metaWebhookVerifyToken: string;
+  /** Credenciales ya configuradas (el valor nunca llega al navegador): twilioAuthToken, metaAccessToken, metaWebhookVerifyToken. */
+  secretsSet: string[];
   teamId: string | null;
   defaultBotId: string | null;
   status: "active" | "inactive";
@@ -197,11 +199,12 @@ export default function WhatsAppNumbersPage() {
           displayName: data.displayName || "",
           provider: data.provider || (data.twilioAccountSid ? "twilio" : "twilio"),
           twilioAccountSid: data.twilioAccountSid || "",
-          twilioAuthToken: data.twilioAuthToken || "",
+          twilioAuthToken: "",
           valuetextSenderId: data.valuetextSenderId || "",
           metaPhoneNumberId: data.metaPhoneNumberId || "",
-          metaAccessToken: data.metaAccessToken || "",
-          metaWebhookVerifyToken: data.metaWebhookVerifyToken || "",
+          metaAccessToken: "",
+          metaWebhookVerifyToken: "",
+          secretsSet: data.secretsSet || [],
           teamId: data.teamId || null,
           defaultBotId: data.defaultBotId || null,
           status: data.status || "active",
@@ -428,7 +431,9 @@ export default function WhatsAppNumbersPage() {
         if (formMetaAccessToken && formMetaAccessToken !== "********") {
           updateData.metaAccessToken = formMetaAccessToken.trim();
         }
-        updateData.metaWebhookVerifyToken = formMetaWebhookVerifyToken.trim();
+        if (formMetaWebhookVerifyToken && formMetaWebhookVerifyToken !== "********") {
+          updateData.metaWebhookVerifyToken = formMetaWebhookVerifyToken.trim();
+        }
         updateData.serviceHandoffTemplateName = formServiceHandoffTemplateName.trim();
         updateData.serviceHandoffTemplateLanguage = formServiceHandoffTemplateLanguage.trim() || "es";
       }
@@ -475,11 +480,11 @@ export default function WhatsAppNumbersPage() {
     setFormDisplayName(number.displayName);
     setFormProvider(number.provider);
     setFormAccountSid(number.twilioAccountSid);
-    setFormAuthToken("********"); // Masked
+    setFormAuthToken(number.secretsSet.includes("twilioAuthToken") ? "********" : ""); // enmascarado: el valor no está en el navegador
     setFormValuetextSenderId(number.valuetextSenderId);
     setFormMetaPhoneNumberId(number.metaPhoneNumberId);
-    setFormMetaAccessToken("********"); // Masked
-    setFormMetaWebhookVerifyToken(number.metaWebhookVerifyToken);
+    setFormMetaAccessToken(number.secretsSet.includes("metaAccessToken") ? "********" : "");
+    setFormMetaWebhookVerifyToken(number.secretsSet.includes("metaWebhookVerifyToken") ? "********" : "");
     setFormServiceHandoffContentSid(number.serviceHandoffContentSid);
     setFormServiceHandoffTemplateName(number.serviceHandoffTemplateName);
     setFormServiceHandoffTemplateLanguage(number.serviceHandoffTemplateLanguage || "es");
@@ -853,7 +858,7 @@ export default function WhatsAppNumbersPage() {
               value={formMetaWebhookVerifyToken}
               onChange={(e) => setFormMetaWebhookVerifyToken(e.target.value)}
             />
-            <p className="text-xs text-gray-500">Token que defines tu, se usa para verificar el webhook en Meta</p>
+            <p className="text-xs text-gray-500">Token que defines tu, se usa para verificar el webhook en Meta. Se guarda en el servidor y no se puede volver a ver: para cambiarlo, escribe uno nuevo.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor={`${idPrefix}-serviceHandoffTemplateName`}>Plantilla de Handoff a Servicio</Label>

@@ -5,6 +5,7 @@ Portado de Comercial (idéntico a Servicio salvo `get_whatsapp_number_by_brand`,
 import logging
 import time
 
+from core import credentials
 from core.db import get_db
 from core.schema import VERTICALS
 from crm import salesforce
@@ -34,7 +35,7 @@ def get_bot_by_id(bot_id: str, db=None) -> dict | None:
     db = db or get_db()
     doc = db.collection("bots").document(bot_id).get()
     if doc.exists:
-        data = doc.to_dict()
+        data = credentials.reveal(db, "bots", doc.id, doc.to_dict())
         data["id"] = doc.id
         return data
     return None
@@ -58,7 +59,7 @@ def get_bot_by_meta_phone_number_id(meta_phone_number_id: str, db=None) -> dict 
     if not docs:
         log.info("No hay número de WhatsApp para el Meta Phone Number ID %s", meta_phone_number_id)
         return None
-    wa_number = docs[0].to_dict()
+    wa_number = credentials.reveal(db, "numbers", docs[0].id, docs[0].to_dict())
     wa_number["id"] = docs[0].id
     if not wa_number.get("defaultBotId"):
         log.warning("El número de Meta %s no tiene defaultBotId", meta_phone_number_id)
@@ -80,6 +81,7 @@ def clear_bot_cache() -> None:
 def apply_channel_config(bot: dict, wa_number: dict, db=None) -> dict:
     """Mezcla en el bot la configuración de su canal (número, proveedor, equipo, credenciales)."""
     db = db or get_db()
+    wa_number = credentials.reveal(db, "numbers", wa_number.get("id"), wa_number)   # el token no viaja en el documento
     provider = wa_number.get("provider", "twilio")
     bot["provider"] = provider
     bot["whatsappNumberId"] = wa_number.get("id")
@@ -149,7 +151,7 @@ def _get_bot_by_phone_uncached(phone_number: str, db=None) -> dict | None:
         db.collection("bots").where("twilioConfig.phoneNumber", "==", phone_number).where("status", "==", "active").limit(1).stream()
     )
     if docs:
-        return docs[0].to_dict()
+        return credentials.reveal(db, "bots", docs[0].id, docs[0].to_dict())
     log.info("No bot found for phone: %s", phone_number)
     return None
 
