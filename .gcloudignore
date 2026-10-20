@@ -1,0 +1,19 @@
+# Lo que NO se sube a Cloud Functions (`gcloud functions deploy --source=.`).
+# Es una lista de permitidos: se excluye todo lo de la raíz y se vuelve a incluir solo lo que la función necesita.
+# Si agregas un paquete Python nuevo en la raíz y `main.py` lo importa, agrégalo aquí o la función fallará al arrancar.
+# Para ver qué se subiría:  gcloud meta list-files-for-upload
+/*
+
+!/main.py
+!/requirements.txt
+!/ai/
+!/channels/
+!/contracts/
+!/core/
+!/crm/
+!/integrations/
+!/jobs/
+!/modules/
+
+__pycache__/
+*.pyc

@@ -23,14 +23,20 @@ Despliegue (las funciones comparten el paquete; cambia solo el entry point):
     jobs-run            jobs_run                 los jobs programados: `?job=<nombre>` (X-Cron-Secret); ver jobs/runner.py
 
 router sin cola (primera versión, hasta que exista Pub/Sub, 1.34): sin INCOMING_TOPIC el router procesa en proceso y en segundo plano, así
-que esa misma función hace de reglas. Sin orden por conversación ni reintentos; `--no-cpu-throttling` evita que la instancia se congele
-al responder 200 y mate el hilo. PUBLIC_BASE_URL es la URL de la función (se conoce hasta el primer despliegue: desplegar, leerla con
-`gcloud functions describe` y volver a desplegar con ella). Desarrollo:
+que esa misma función hace de reglas. Sin orden por conversación ni reintentos. Como el hilo sigue después de responder 200, la instancia
+no debe quedarse sin CPU: `--no-cpu-throttling` no es un flag de `gcloud functions deploy`, se aplica al servicio de Cloud Run con un
+segundo comando. `--concurrency` mayor a 1 exige `--cpu=1` o más (y `--memory` de 512Mi o más); sin eso el despliegue falla. Cualquier
+función de este archivo desplegada con `--concurrency=40` necesita lo mismo. PUBLIC_BASE_URL es la URL de la función (se conoce hasta el
+primer despliegue: desplegar, leerla con `gcloud functions describe` y volver a desplegar con ella). Desarrollo:
 
-    gcloud functions deploy hub-router --gen2 --runtime=python311 --region=us-central1 --source=. \\
-        --entry-point=router --trigger-http --allow-unauthenticated --project=ambiente-desarrollo-ti \\
-        --timeout=540 --max-instances=300 --concurrency=40 --no-cpu-throttling \\
+    gcloud functions deploy hub-router --gen2 --runtime=python311 --region=us-central1 --source=. \
+        --entry-point=router --trigger-http --allow-unauthenticated --project=ambiente-desarrollo-ti \
+        --timeout=540 --max-instances=300 --concurrency=40 --cpu=1 --memory=1Gi \
         --set-env-vars=FIRESTORE_DATABASE=dev-hub-conversaciones,GOOGLE_CLOUD_PROJECT=ambiente-desarrollo-ti,PUBLIC_BASE_URL=<url de la función>,META_APP_SECRET=<secreto de la app de Meta>,VALUETEXT_WEBHOOK_SECRET=<secreto compartido>
+
+    gcloud run services update hub-router --region=us-central1 --project=ambiente-desarrollo-ti --no-cpu-throttling
+
+(conviene repetir el segundo comando tras cada despliegue de la función, por si el redeploy restablece la configuración de CPU)
 
 Los webhooks de los proveedores apuntan a `<url>/webhook/twilio`, `<url>/webhook/meta` y `<url>/webhook/valuetext?secret=<VALUETEXT_WEBHOOK_SECRET>`.
 
