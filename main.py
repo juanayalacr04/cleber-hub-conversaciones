@@ -14,6 +14,7 @@ Despliegue (las funciones comparten el paquete; cambia solo el entry point):
     actions-execute     actions_execute      endpoint de acciones: los bots piden, el hub ejecuta (X-Bot-Id + Bearer)
     user-actions-execute user_actions_execute endpoint de los usuarios del dashboard (token de Firebase; FIREBASE_PROJECT_ID, ALLOWED_ORIGINS)
     situacion-detectada situacion_detectada      webhook del bot de Ventas hacia Servicio (X-Api-Secret = SITUACION_API_SECRET)
+    close-by-phone      close_by_phone           Outbound Message de Salesforce que cierra conversaciones por teléfono (?secret= = EXTERNAL_API_SECRET)
     jobs-run            jobs_run                 los jobs programados: `?job=<nombre>` (X-Cron-Secret); ver jobs/runner.py
 
 user-actions-execute atiende también `broadcast.send` y `broadcast.retry`, que mandan una campaña completa y tardan minutos:
@@ -31,7 +32,7 @@ import functions_framework
 import modules  # noqa: F401  registra los handlers de cada módulo contra el núcleo
 from channels import (check_campaign_ready, delivery_statuses, send_campaign_template, send_handoff_template,
                       send_whatsapp_message, webhooks)
-from core import actions, outbound, situacion, user_actions
+from core import actions, close_by_phone as close_by_phone_mod, outbound, situacion, user_actions
 from core import account_actions, admin_actions, broadcast_actions, conversation_actions  # noqa: F401  declaran las acciones de usuario
 from core.db import get_executor
 from jobs import inactivity, runner
@@ -156,3 +157,16 @@ def jobs_run(request):
         logging.getLogger(__name__).exception("jobs_run %s", job)
         body, status = {"success": False, "error": str(e)}, 500
     return json.dumps(body, default=str), status, headers
+
+
+@functions_framework.http
+def close_by_phone(request):
+    """POST /integrations/close-by-phone: Salesforce pide cerrar las conversaciones de un teléfono (core/close_by_phone.py)."""
+    if request.method != "POST":
+        return json.dumps({"error": "Method not allowed"}), 405, {"Content-Type": "application/json"}
+    try:
+        body, status, content_type = close_by_phone_mod.handle(request.headers, request.args, request.get_data(as_text=True))
+    except Exception:
+        logging.getLogger(__name__).exception("close_by_phone")
+        body, status, content_type = json.dumps({"error": "Internal server error"}), 500, "application/json"
+    return body, status, {"Content-Type": content_type}
