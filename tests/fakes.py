@@ -142,6 +142,9 @@ class FakeBatch:
     def update(self, ref, data):
         self._ops.append(lambda: ref.update(data))
 
+    def delete(self, ref):
+        self._ops.append(ref.delete)
+
     def commit(self):
         for op in self._ops:
             op()

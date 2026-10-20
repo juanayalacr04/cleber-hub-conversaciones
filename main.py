@@ -22,7 +22,7 @@ import functions_framework
 import modules  # noqa: F401  registra los handlers de cada módulo contra el núcleo
 from channels import webhooks
 from core import actions, user_actions
-from core import admin_actions, conversation_actions  # noqa: F401  declaran las acciones de usuario
+from core import account_actions, admin_actions, conversation_actions  # noqa: F401  declaran las acciones de usuario
 from core.db import get_executor
 from jobs import inactivity
 from jobs.auth import cron_authorized

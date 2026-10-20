@@ -15,7 +15,9 @@ Reglas:
   - Cada acción declara su `scope` y su `level`; el permiso se comprueba antes de llamar al handler:
       scope `org`           `data.organizationId`; `conversation` `data.conversationId`;
             `doc`           `data.id` de un documento de `collection` (su organización sale del documento);
-            `global`        sin recurso (alta de organizaciones, etc.).
+            `global`        sin recurso (alta de organizaciones, etc.);
+            `identity`      solo el token, sin exigir usuario registrado ni nivel (`level=None`): el reclamo
+                            de la invitación en el primer inicio de sesión y la presencia del propio usuario.
       level `write` (admin o agente), `admin` (admin de esa organización), `super` (solo superadmin). Falla cerrado: sin token válido o sin usuario registrado, no hay acción.
   - Es la puerta de usuarios; la de los bots es `core/actions.py` (autenticación de servicio aparte).
 
@@ -34,7 +36,7 @@ from core.db import get_db
 
 log = logging.getLogger(__name__)
 
-SCOPES = ("org", "conversation", "doc", "global")
+SCOPES = ("org", "conversation", "doc", "global", "identity")
 LEVELS = ("write", "admin", "super")
 
 _STATUS = {NO_AUTORIZADO: 403, CONVERSACION_NO_ENCONTRADA: 404, RECURSO_NO_ENCONTRADO: 404, ACCION_DESCONOCIDA: 404,
@@ -53,12 +55,13 @@ class UserActionError(Exception):
 class UserContext:
     """Lo que recibe un handler: el usuario ya autenticado y autorizado, y el recurso ya ubicado."""
     db: object
-    requester: authz.Requester
+    requester: authz.Requester | None   # None solo en scope `identity` con un usuario aún sin registrar
     org_id: str
     conv_id: str | None = None
     conv: dict | None = None   # con `id`, para scope `conversation`
     doc_id: str | None = None
     doc: dict | None = None    # para scope `doc`
+    claims: dict | None = None  # token verificado: uid, email, email_verified, name, picture
 
 
 @dataclass
@@ -75,7 +78,7 @@ _REGISTRY: dict[str, UserAction] = {}
 
 def declare(name: str, *, scope: str, level: str = "write", collection: str | None = None):
     """Decorador que registra el handler `handler(ctx, data) -> dict | None` de una acción de usuario."""
-    if scope not in SCOPES or level not in LEVELS or (scope == "doc") != bool(collection):
+    if scope not in SCOPES or (scope == "identity") != (level is None) or (level is not None and level not in LEVELS)             or (scope == "doc") != bool(collection):
         raise ValueError(f"{name}: scope {scope!r}, level {level!r} o collection {collection!r} inválido")
 
     def wrap(fn):
@@ -111,8 +114,8 @@ def _firebase_verifier(token: str) -> dict | None:
         return None
 
 
-def authenticate(headers, verifier=None) -> str | None:
-    """`uid` del usuario que hace la petición, o None. Falla cerrado.
+def verify_claims(headers, verifier=None) -> dict | None:
+    """Claims del token de la petición (con `uid`), o None. Falla cerrado.
 
     `verifier(token) -> claims | None` es inyectable para las pruebas.
     """
@@ -121,7 +124,13 @@ def authenticate(headers, verifier=None) -> str | None:
     if not token:
         return None
     claims = (verifier or _firebase_verifier)(token)
-    return (claims or {}).get("uid") or (claims or {}).get("sub") or None
+    uid = (claims or {}).get("uid") or (claims or {}).get("sub")
+    return {**claims, "uid": uid} if uid else None
+
+
+def authenticate(headers, verifier=None) -> str | None:
+    """`uid` del usuario que hace la petición, o None."""
+    return (verify_claims(headers, verifier) or {}).get("uid")
 
 
 def cors_headers(origin: str | None, env=None) -> dict:
@@ -190,16 +199,19 @@ def _locate(spec: UserAction, requester: authz.Requester, data: dict, db) -> Use
     return UserContext(db, requester, org_id, conv_id, conv)
 
 
-def execute_user_action(uid: str, action: str, data: dict, db=None) -> ActionResponse:
+def execute_user_action(uid: str, action: str, data: dict, db=None, claims: dict | None = None) -> ActionResponse:
     """Ejecuta `action` en nombre del usuario `uid` (ya autenticado). Nunca lanza."""
     db = db or get_db()
     spec = _REGISTRY.get(action)
     if spec is None:
         return ActionResponse.failure(ACCION_DESCONOCIDA, f"La acción {action!r} no existe")
     requester = authz.load_requester(db, uid)
-    if requester is None:
+    if spec.scope == "identity":
+        located = UserContext(db, requester, "", claims=claims or {"uid": uid})
+    elif requester is None:
         return _denied("Usuario no registrado")
-    located = _locate(spec, requester, data, db)
+    else:
+        located = _locate(spec, requester, data, db)
     if isinstance(located, ActionResponse):
         return located
     try:
@@ -213,12 +225,12 @@ def execute_user_action(uid: str, action: str, data: dict, db=None) -> ActionRes
 
 def handle(headers, body, db=None, verifier=None) -> tuple[dict, int]:
     """Entrada HTTP: autentica, valida el cuerpo y ejecuta. Devuelve (cuerpo, estado)."""
-    uid = authenticate(headers, verifier)
-    if uid is None:
+    claims = verify_claims(headers, verifier)
+    if claims is None:
         return {"error": "Unauthorized"}, 401
     action = body.get("action") if isinstance(body, dict) else None
     data = body.get("data", {}) if isinstance(body, dict) else None
     if not isinstance(action, str) or not action or not isinstance(data, dict):
         return {"error": "Se esperaba {action: str, data: objeto}"}, 400
-    response = execute_user_action(uid, action, data, db)
+    response = execute_user_action(claims["uid"], action, data, db, claims)
     return response.to_dict(), 200 if response.ok else _STATUS.get(response.error.code, 200)

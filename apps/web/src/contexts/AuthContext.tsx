@@ -7,8 +7,9 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from "firebase/auth";
-import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc, orderBy } from "firebase/firestore";
+import { doc, getDoc, collection, query, getDocs, orderBy } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
+import { callHubAction, HubActionError } from "@/lib/hub-actions";
 
 export interface UserData {
   id: string;
@@ -140,62 +141,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const userRef = doc(db, "users", firebaseUser.uid);
-        const userSnap = await getDoc(userRef);
+        let userSnap = await getDoc(userRef);
+        let justClaimed = false;
+
+        if (!userSnap.exists()) {
+          // Primer inicio de sesión de alguien invitado: la función 2 convierte el documento pre-registrado
+          // por email en users/{uid} (rol, organizaciones y equipo salen de la invitación, no del cliente)
+          try {
+            await callHubAction(firebaseUser, "me.claim_invite");
+            userSnap = await getDoc(userRef);
+            justClaimed = true;
+          } catch (claimError) {
+            if (!(claimError instanceof HubActionError && claimError.code === "no_autorizado")) throw claimError;
+          }
+        }
 
         if (userSnap.exists()) {
-          // Existing user — update lastLoginAt and status
-          await setDoc(userRef, { lastLoginAt: new Date(), status: "online" }, { merge: true });
+          // La última conexión y el estado los escribe la función 2; si falla no se bloquea el acceso
+          if (!justClaimed) {
+            await callHubAction(firebaseUser, "me.sign_in").catch((e) => console.error("No se pudo registrar el inicio de sesión:", e));
+          }
           const data = userSnap.data();
 
-          // Sin migración lazy de organizationIds/orgTeams: las reglas de Firestore no dejan que un
-          // usuario se edite esos campos. En el hub nacen completos (alta o migración de datos).
+          // Sin migración lazy de organizationIds/orgTeams: en el hub nacen completos (alta o migración de datos)
           const updated = { ...data, teamId: data.teamId || null, lastLoginAt: new Date(), status: "online" } as UserData;
           setRawUserData(updated);
         } else {
-          // No doc by uid — check if pre-registered by email (invite flow)
-          const emailQuery = query(
-            collection(db, "users"),
-            where("email", "==", firebaseUser.email)
-          );
-          const emailSnap = await getDocs(emailQuery);
-
-          if (!emailSnap.empty) {
-            // Found a pre-registered doc — migrate it to the uid-keyed doc
-            const oldDoc = emailSnap.docs[0];
-            const oldData = oldDoc.data();
-
-            const migratedData: Record<string, unknown> = {
-              ...oldData,
-              id: firebaseUser.uid,
-              name: firebaseUser.displayName || oldData.name || "",
-              photoURL: firebaseUser.photoURL ?? oldData.photoURL,
-              status: "online",
-              lastLoginAt: new Date(),
-            };
-
-            // Asegurar campos multi-org en el doc migrado
-            if (!migratedData.organizationIds) {
-              const orgId = migratedData.organizationId as string | null;
-              const teamId = migratedData.teamId as string | null;
-              migratedData.organizationIds = orgId ? [orgId] : [];
-              migratedData.orgTeams = orgId && teamId ? { [orgId]: teamId } : {};
-            }
-
-            await setDoc(userRef, migratedData);
-            setRawUserData(migratedData as unknown as UserData);
-            // Borrar el doc pre-registrado es limpieza: si falla, el login ya es válido
-            try {
-              await deleteDoc(doc(db, "users", oldDoc.id));
-            } catch (deleteError) {
-              console.error("No se pudo borrar el doc pre-registrado:", deleteError);
-            }
-          } else {
-            // Not invited — deny access and sign out
-            setAccessDenied(true);
-            await firebaseSignOut(auth);
-            setUser(null);
-            setRawUserData(null);
-          }
+          // Not invited — deny access and sign out
+          setAccessDenied(true);
+          await firebaseSignOut(auth);
+          setUser(null);
+          setRawUserData(null);
         }
       } catch (error) {
         // Sin este catch un fallo (típicamente permisos de Firestore en el primer login
@@ -280,10 +256,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     try {
-      // Update user status to offline before signing out
+      // Estado offline antes de cerrar sesión (la función 2 lo escribe); si falla, la sesión se cierra igual
       if (user) {
-        const userRef = doc(db, "users", user.uid);
-        await setDoc(userRef, { status: "offline" }, { merge: true });
+        await callHubAction(user, "me.sign_out").catch((e) => console.error("No se pudo marcar offline:", e));
       }
       await firebaseSignOut(auth);
     } catch (error) {
