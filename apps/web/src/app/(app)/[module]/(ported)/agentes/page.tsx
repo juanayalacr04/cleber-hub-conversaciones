@@ -242,8 +242,12 @@ export default function TeamPage() {
         ...(inviteTeamId ? { teamId: inviteTeamId } : {}),
       });
 
-      if (!emailSent) toast.warning("La invitación se creó, pero no se pudo enviar el correo. Avísale que ya puede entrar con su cuenta de Google.");
-      toast.success(`Invitación enviada a ${inviteEmail}`);
+      if (emailSent) {
+        toast.success(`Invitación enviada a ${inviteEmail}`);
+      } else {
+        // La invitación existe aunque el correo no haya salido: basta con que entre con su cuenta de Google
+        toast.warning(`La invitación de ${inviteEmail} se creó, pero el correo no salió. Avísale que ya puede entrar con su cuenta de Google.`, { duration: 10000 });
+      }
       setInviteDialogOpen(false);
       setInviteEmail("");
       setInviteTeamId("");
