@@ -156,7 +156,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [x] 1.22c ✅ **No portar `bot-engine.ts` (D7).** El Web Chat no está en uso, así que la duplicación Python ↔ TypeScript **desaparece del alcance**. Si el canal vuelve, llama a la Cloud Function en vez de reimplementar el motor
 - [x] 1.23 🔒 **Decidir qué versión gana en cada archivo con drift antes de portar** (`conversations/page.tsx`: 409 líneas distintas; `bot-engine.ts`: 64)
 - [x] 1.24 **Inventario del dashboard TypeScript** — el de `main.py` no lo cubre
-- [ ] 1.25 Flags de capacidad **explícitos** en los comandos de deploy (`--max-instances=300 --concurrency=40`); un redeploy sin ellos resetea a los defaults
+- [x] 1.25 Flags de capacidad **explícitos** en los comandos de deploy (`--max-instances=300 --concurrency=40`); un redeploy sin ellos resetea a los defaults — Hecho en `dev/deploy.ps1`: tabla por función (timeout, instancias, concurrencia, CPU, memoria), `--project` obligatorio, `--no-cpu-throttling` del router tras cada deploy y lectura de la revisión al final. Valores por función propuestos, a confirmar. **Falta correrlo contra GCP dev** (hasta hoy solo se probó con `-DryRun`)
   - 🔁 Se fijan **por función**: el router con alta concurrencia, y el bot con timeout largo por la llamada a Abacus
 - [x] 1.26 ✅ `voice_llm_endpoint` y `assign_agent_by_lead` **no se usan** (confirmado 16 oct 2026): no se portan a las tres funciones. Queda por borrar la ruta `api/conversations/assign-agent-by-lead` ya portada
 

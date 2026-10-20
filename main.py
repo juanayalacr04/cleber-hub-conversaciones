@@ -2,9 +2,10 @@
 
 Despliegue (las funciones comparten el paquete; cambia solo el entry point):
 
-    gcloud functions deploy <nombre> --gen2 --runtime=python311 --region=us-central1 --source=. \\
-        --entry-point=<entry point> --trigger-http --project=<proyecto explícito> \\
-        --max-instances=300 --concurrency=40
+    .\\dev\\deploy.ps1 -Function <nombre> -Project <proyecto explícito>      (-All para todas; -DryRun muestra los comandos)
+
+El script es la ÚNICA fuente de timeout, instancias, concurrencia, CPU y memoria de cada función (1.25): un `gcloud functions deploy`
+a mano que omita un flag lo devuelve al default de GCP (concurrencia 1, 60 s). Los valores que se citan abajo viven en su tabla.
 
     router              router               función 1, las tres rutas de webhook (channels/router.py):
                                                /webhook/twilio     firma X-Twilio-Signature; PUBLIC_BASE_URL = URL pública de la función
