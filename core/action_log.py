@@ -23,8 +23,11 @@ def new_turn_id() -> str:
 
 
 def mark_turn(conv_id: str, turn_id: str, db=None) -> None:
-    """Deja el id del turno en curso en la conversación, para que el endpoint lo copie al registro."""
-    (db or get_db()).collection("conversations").document(conv_id).update({"turnId": turn_id})
+    """Deja el id del turno en curso en la conversación, para que el endpoint lo copie al registro. Nunca lanza: sin el id el turno sigue y lee sus acciones por el camino viejo."""
+    try:
+        (db or get_db()).collection("conversations").document(conv_id).update({"turnId": turn_id})
+    except Exception as e:
+        log.error("action_log_mark_error conv_id=%s error=%s", conv_id, e)
 
 
 def record(conv_id: str, idempotency_key: str, event: str, tool: str, response: dict, turn_id: str | None, db=None) -> None:

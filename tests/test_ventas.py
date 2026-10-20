@@ -277,6 +277,17 @@ def test_otra_invocacion_ya_creo_el_lead_no_se_crea_un_segundo(env):
     assert not env.sf.find("POST", "/sobjects/Lead/")
 
 
+def test_crear_lead_por_el_endpoint_con_la_creacion_en_curso_pide_reintentar_y_no_dice_que_ya_existe(env):
+    from core.actions import ActionContext
+    env.run("hola")
+    conv = env.conv()
+    env.db.data["conversations"][conv["id"]]["leadCreationClaimedAt"] = datetime.now(timezone.utc)  # otra invocación lo está creando
+    ctx = ActionContext(env.bot, conv["id"], dict(conv), env.db)
+    r = ventas._crear_lead(ctx.conv_data, {"turn": ctx, "bot": env.bot, "input": {"nombre": "Ana"}})
+    assert not r.ok and (r.error.code, r.error.retryable) == (ventas.ERROR_EXTERNO, True)
+    assert not env.sf.find("POST", "/sobjects/Lead/")
+
+
 def test_crear_lead_y_transferir_en_el_mismo_turno_escala_con_el_lead_recien_creado(env):
     env.state["default"] = {"success": True, "result": {"response": "Te conecto", "toolResults": [
         {"toolName": "Transferir_a_Asesor", "input": {"motivo": "cotización"}}, {"toolName": "Crear_Lead", "input": {"nombre": "Ana"}}]}}

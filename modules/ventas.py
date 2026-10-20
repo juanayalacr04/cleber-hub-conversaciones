@@ -406,7 +406,10 @@ def _crear_lead(conv: dict, p: dict) -> ActionResponse | None:
     turn.flags["lead_attempted"] = True
     claimed, concurrent = claim(turn.conv_id, "leadId", "leadCreationClaimedAt", db=turn.db)
     if not claimed:
-        conv["leadId"] = concurrent  # otra invocación ya creó (o está creando) el Lead: se sigue con ese
+        if not concurrent:
+            # Otra invocación lo está creando y aún no hay `leadId`: no se puede decir que ya existe
+            return ActionResponse.failure(ERROR_EXTERNO, "El Lead se está creando en otra solicitud; reintenta en unos segundos", retryable=True)
+        conv["leadId"] = concurrent  # otra invocación ya creó el Lead: se sigue con ese
         return ActionResponse.success({"leadId": concurrent}, status="duplicate")
     lead_id = create_salesforce_lead(sf, conv, p["input"], _brand_code(turn.db, conv.get("organizationId") or turn.org_id))
     if lead_id:
