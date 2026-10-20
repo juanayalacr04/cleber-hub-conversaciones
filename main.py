@@ -12,6 +12,7 @@ Despliegue (las funciones comparten el paquete; cambia solo el entry point):
     inactivity-followup inactivity_followup  cron del dashboard (X-Cron-Secret)
     lead-webhook        lead_webhook         Fase 2, sobre el contrato de entrada único
     actions-execute     actions_execute      endpoint de acciones: los bots piden, el hub ejecuta (X-Bot-Id + Bearer)
+    user-actions-execute user_actions_execute endpoint de los usuarios del dashboard (token de Firebase; FIREBASE_PROJECT_ID, ALLOWED_ORIGINS)
 """
 import json
 import logging
@@ -20,7 +21,7 @@ import functions_framework
 
 import modules  # noqa: F401  registra los handlers de cada módulo contra el núcleo
 from channels import webhooks
-from core import actions
+from core import actions, user_actions
 from core.db import get_executor
 from jobs import inactivity
 from jobs.auth import cron_authorized
@@ -85,3 +86,20 @@ def actions_execute(request):
         logging.getLogger(__name__).exception("actions_execute")
         body, status = {"error": "Internal error"}, 500
     return json.dumps(body), status, {"Content-Type": "application/json"}
+
+
+@functions_framework.http
+def user_actions_execute(request):
+    """POST /user-actions/execute: un usuario del dashboard pide una escritura (core/user_actions.py)."""
+    cors = user_actions.cors_headers(request.headers.get("Origin"))
+    headers = {"Content-Type": "application/json", **cors}
+    if request.method == "OPTIONS":
+        return "", 204, cors
+    if request.method != "POST":
+        return json.dumps({"error": "Method not allowed"}), 405, headers
+    try:
+        body, status = user_actions.handle(request.headers, request.get_json(silent=True))
+    except Exception:
+        logging.getLogger(__name__).exception("user_actions_execute")
+        body, status = {"error": "Internal error"}, 500
+    return json.dumps(body), status, headers
