@@ -1,0 +1,4 @@
+functions-framework==3.*
+google-cloud-firestore
+tzdata; sys_platform == "win32"
+google-cloud-pubsub
