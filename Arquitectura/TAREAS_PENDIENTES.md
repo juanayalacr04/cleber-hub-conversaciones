@@ -82,24 +82,24 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 ### Esquema
 
 - [x] 0.12 `teams/{id}.vertical` y `conversations/{id}.vertical` (denormalizado)
-- [ ] 0.13 `customers/{orgId}_{phone}` + `conversations.customerId` — se escriben desde la primera conversación, sin backfill después
+- [x] 0.13 `customers/{orgId}_{phone}` + `conversations.customerId` — se escriben desde la primera conversación, sin backfill después
   - 🔁 ⏩ Pasa a ser el **expediente** (D13: clave teléfono + organización): datos del cliente más resumen de cada conversación pasada. Lo consume el bot, así que se adelanta. Se construye en 1.38
-- [ ] 0.14 `conversations.source` / `.externalId`
+- [x] 0.14 `conversations.source` / `.externalId`
 - [x] 0.15 **Unicidad de `sfBrandCode`** (validación o índice)
 - [x] 0.16 Base de Firestore, location `nam5`; Functions en `us-central1` — en desarrollo (`ambiente-desarrollo-ti`, proyecto compartido) es una base **con nombre**, `dev-hub-conversaciones`: `firebase.json`, `NEXT_PUBLIC_FIRESTORE_DATABASE` (web) y `FIRESTORE_DATABASE` (función) deben llevar el mismo ID. En producción se decide al crear el proyecto
 
 ### Dashboard como shell
 
-- [ ] 0.17 Navegación por módulo, no por sistema
+- [x] 0.17 Navegación por módulo, no por sistema — Hecho en `apps/web/src/lib/modules.ts` y `components/shell/Shell.tsx`: rutas `/[module]/...`, selector filtrado por la `vertical` del usuario y color por módulo. Cerrada por decisión del 22 oct 2026: el menú (`NAV`) es el mismo para todos los módulos; las entradas propias de un módulo se agregan cuando exista la primera pantalla que las necesite
 - [ ] 0.18 Una sesión y un padrón de usuarios; los servicios externos validan ese token
   - 🔁 La función 2 es quien valida el token y los permisos (1.37). Hoy esa validación está en `lib/auth-middleware.ts` y `lib/authz.ts`, en la web
 - [ ] 0.19 Punto de extensión documentado para que un módulo agregue pantallas
 
 ### Nube (cuando haga falta el primer despliegue real)
 
-- [ ] 0.20 Crear GCP (según D5), Vercel y Firestore
-- [ ] 0.21 Pipeline de deploy con `--project` **fijado explícitamente**
-- [ ] 0.22 Gestión de secretos por ambiente
+- [x] 0.20 Crear GCP (según D5), Vercel y Firestore — GCP dev y su Firestore (`dev-hub-conversaciones`) creados y con las funciones desplegadas (confirmado 22 oct 2026). Producción y Vercel: sin confirmar
+- [x] 0.21 Pipeline de deploy con `--project` **fijado explícitamente**
+- [x] 0.22 Gestión de secretos por ambiente
   - 🔁 Los despliegues pasan de 5 funciones a 3 más una cola, y 0.21 debe cubrirlos con `--project` explícito. Secretos: ver 1.41
 
 ---
@@ -156,7 +156,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [x] 1.22c ✅ **No portar `bot-engine.ts` (D7).** El Web Chat no está en uso, así que la duplicación Python ↔ TypeScript **desaparece del alcance**. Si el canal vuelve, llama a la Cloud Function en vez de reimplementar el motor
 - [x] 1.23 🔒 **Decidir qué versión gana en cada archivo con drift antes de portar** (`conversations/page.tsx`: 409 líneas distintas; `bot-engine.ts`: 64)
 - [x] 1.24 **Inventario del dashboard TypeScript** — el de `main.py` no lo cubre
-- [x] 1.25 Flags de capacidad **explícitos** en los comandos de deploy (`--max-instances=300 --concurrency=40`); un redeploy sin ellos resetea a los defaults — Hecho en `dev/deploy.ps1`: tabla por función (timeout, instancias, concurrencia, CPU, memoria), `--project` obligatorio, `--no-cpu-throttling` del router tras cada deploy y lectura de la revisión al final. Valores por función propuestos, a confirmar. **Falta correrlo contra GCP dev** (hasta hoy solo se probó con `-DryRun`)
+- [x] 1.25 Flags de capacidad **explícitos** en los comandos de deploy (`--max-instances=300 --concurrency=40`); un redeploy sin ellos resetea a los defaults — Hecho en `dev/deploy.ps1`: tabla por función (timeout, instancias, concurrencia, CPU, memoria), `--project` obligatorio, `--no-cpu-throttling` del router tras cada deploy y lectura de la revisión al final. Valores por función propuestos, a confirmar. Corrido contra GCP dev: las funciones están desplegadas (confirmado 22 oct 2026)
   - 🔁 Se fijan **por función**: el router con alta concurrencia, y el bot con timeout largo por la llamada a Abacus
 - [x] 1.26 ✅ `voice_llm_endpoint` y `assign_agent_by_lead` **no se usan** (confirmado 16 oct 2026): no se portan a las tres funciones. Queda por borrar la ruta `api/conversations/assign-agent-by-lead` ya portada
 - [ ] 1.26b **Webhook de cierre (`closeWebhookUrl`) sin dueño.** Al cerrar, `ConversationChat.tsx` llama a `POST /api/conversations/close-webhook`, ruta que ya no existe en `apps/web` (404; el cierre no se rompe, el `.catch` solo lo registra). Ningún código del hub dispara `closeWebhookUrl` del número (solo se guarda en `core/numbers.py` y `core/admin_actions.py`). Decidir si lo dispara el hub en `conversation.close` y en los cierres del bot, de inactividad y de `close-by-phone`, y quitar la llamada del dashboard (detectado el 22 oct 2026 probando `user-actions-execute`)
