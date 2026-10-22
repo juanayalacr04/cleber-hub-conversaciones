@@ -321,9 +321,9 @@ class Endpoint:
         env.db.seed("bots", "bot1", dict(env.bot, **(bot_overrides or {})))
         env.db.seed("whatsappNumbers", "n1", {"phoneNumber": BOT_NUMBER})
 
-    def pide(self, action, data=None, key=None):
+    def pide(self, action, data=None, key=None, bot_id="bot1"):
         def durante(conv_id):
-            r = actions.execute_action(ActionRequest(action, conv_id, key or f"k-{action}", data or {}), "bot1", self.env.db)
+            r = actions.execute_action(ActionRequest(action, conv_id, key or f"k-{action}", data or {}), bot_id, self.env.db)
             self.responses[action] = r
         previous = self.env.state.get("durante")
         self.env.state["durante"] = (lambda c: (previous(c), durante(c))) if previous else durante
@@ -338,6 +338,33 @@ def test_el_pipeline_no_vuelve_a_ejecutar_el_tool_que_el_bot_ya_pidio_al_endpoin
     env.state["result"] = ok("Listo, Ana", [{"toolName": "Guardar_Nombre_Cliente", "input": {"nombre": "Ana"}}])
     env.run("soy Ana")
     assert ran == [True]
+
+
+def test_con_la_clave_de_servicio_el_bot_sale_de_la_conversacion(env):
+    ran = []
+    tools.tool("guardar_nombre")(lambda conv, p: ran.append(p["bot"]["id"]))
+    Endpoint(env).pide("guardar_nombre", {"nombre": "Ana"}, bot_id=None)  # None = clave de servicio: no dice qué bot es
+    env.state["result"] = ok("Listo", [])
+    env.run("soy Ana")
+    assert ran == ["bot1"]
+
+
+def test_con_la_clave_de_servicio_manda_el_bot_activo_sobre_el_asignado(env):
+    env.db.seed("conversations", "c1", {"botId": "bot1", "assignedBotId": "bot1", "activeBotId": "bot2"})
+    assert actions._conversation_bot(env.db.data["conversations"]["c1"]) == "bot2"
+    assert actions._conversation_bot({"botId": "b", "assignedBotId": "a"}) == "a"
+    assert actions._conversation_bot({"botId": "b"}) == "b"
+    assert actions._conversation_bot({}) is None
+
+
+def test_clave_de_servicio_y_claves_por_bot_fallan_cerrado():
+    env = {"ACTIONS_SERVICE_KEY": "svc", "BOT_ACTION_KEYS": '{"b1": "k1"}'}
+    bearer = lambda t, bot=None: {"Authorization": f"Bearer {t}", **({"X-Bot-Id": bot} if bot else {})}
+    assert actions.is_service_caller(bearer("svc"), env) and not actions.is_service_caller(bearer("otra"), env)
+    assert not actions.is_service_caller(bearer("svc"), {}) and not actions.is_service_caller({}, env)
+    assert not actions.is_service_caller(bearer(""), {"ACTIONS_SERVICE_KEY": ""})   # sin clave configurada nadie entra con un Bearer vacío
+    assert actions.authenticate(bearer("k1", "b1"), env) == "b1" and actions.authenticate(bearer("svc", "b1"), env) is None
+    assert actions.handle(bearer("otra"), {}, env=env)[1] == 401 and actions.handle({}, {}, env=env)[1] == 401
 
 
 def test_el_endpoint_registra_la_accion_con_el_id_del_turno(env):

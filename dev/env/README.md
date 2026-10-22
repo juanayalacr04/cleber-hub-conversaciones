@@ -20,7 +20,7 @@ redeploy no toca las que ya tiene.
 | `QUEUE_PUSH_SECRET` | | ✔ | | | | | | | |
 | `BOT_FUNCTION_SECRET` | | | ✔ | | | | | | ✔ |
 | `BOT_FUNCTION_URL` | | | | | | | | | ✔ |
-| `BOT_ACTION_KEYS` | | | | ✔ | | | | | |
+| `ACTIONS_SERVICE_KEY` (y opcional `BOT_ACTION_KEYS`) | | | | ✔ | | | | | |
 | `ALLOWED_ORIGINS`, `APP_URL`, `INVITE_EMAIL_*` | | | | | ✔ | | | | |
 | `SITUACION_API_SECRET` | | | | | | ✔ | | | |
 | `EXTERNAL_API_SECRET` | | | | | | | ✔ | | |
@@ -39,7 +39,7 @@ El **router sin cola** (hasta que exista Pub/Sub, 1.34) procesa el mensaje en pr
 | `EXTERNAL_API_SECRET` | `close-by-phone` y `?secret=` en la URL del Outbound Message que cierra por teléfono |
 | `SITUACION_API_SECRET` | `situacion-detectada` y el `X-Api-Secret` que manda el bot de Ventas |
 | `CRON_SECRET` | `jobs-run` / `inactivity-followup` y el `X-Cron-Secret` de cada Cloud Scheduler o del cron del dashboard |
-| `BOT_ACTION_KEYS` | JSON `{botId: clave}`; la clave de cada bot es el `Bearer` que manda su tool de Abacus (con `X-Bot-Id`) |
+| `ACTIONS_SERVICE_KEY` | `actions-execute` y el secreto `HUB_ACTIONS_SERVICE_KEY` de Abacus (un solo tool para todos los bots; el hub saca el bot de la conversación). Opcional: `BOT_ACTION_KEYS`, JSON `{botId: clave}`, para un workflow con su propia clave (`Bearer` + `X-Bot-Id`) |
 
 Para generar un secreto: `python -c "import secrets; print(secrets.token_hex(32))"`
 

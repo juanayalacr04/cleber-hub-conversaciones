@@ -1,7 +1,8 @@
 """Endpoint de acciones (tarea 1.44, §7.8): los bots piden cada acción al hub y reciben el resultado.
 
     POST /actions/execute
-    Headers: X-Bot-Id: <bot>, Authorization: Bearer <clave del bot>
+    Headers: Authorization: Bearer <clave de servicio>            (un solo tool de Abacus para todos los bots)
+             o bien X-Bot-Id: <bot> + Authorization: Bearer <clave del bot>   (un workflow con su propia clave)
     Cuerpo:  contracts.ActionRequest   Respuesta: contracts.ActionResponse
 
 Reglas:
@@ -9,6 +10,7 @@ Reglas:
     nunca de `data`. El bot solo manda lo que conoce (fecha, hora, modelo...).
   - Un bot solo pide las acciones de su `tools[]` y que el registro (`core.tools`) expone a bots.
   - Un bot solo actúa sobre conversaciones suyas (bot de la conversación, asignado o activo).
+  - Con la clave de servicio no se dice qué bot es: sale de la conversación (`_conversation_bot`) y desde ahí rige igual su `tools[]`.
   - Un mismo `idempotencyKey` no repite el efecto: devuelve el resultado ya calculado.
   - Los handlers corren con un `ActionContext`: igual que el `Turn` del pipeline, pero cada operación
     en segundo plano (`fire`) se ejecuta en el momento, para devolverle al bot el resultado real
@@ -84,8 +86,23 @@ class ActionContext:
 
 # --------------------------------------------------------------------------- autenticación
 
+def _bearer(headers) -> str:
+    return (headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+
+
+def is_service_caller(headers, env=None) -> bool:
+    """La petición trae la clave de servicio (`ACTIONS_SERVICE_KEY`): un tool compartido por todos los bots. Falla cerrado.
+
+    La clave no identifica a un bot: quien la usa puede pedir acciones sobre cualquier conversación, y el bot se resuelve
+    desde la conversación (su `tools[]` sigue limitando qué acciones puede pedir). Se rota cambiando la variable y el secreto del tool.
+    """
+    env = os.environ if env is None else env
+    expected, token = (env.get("ACTIONS_SERVICE_KEY") or "").strip(), _bearer(headers)
+    return bool(expected and token) and hmac.compare_digest(token.encode(), expected.encode())
+
+
 def authenticate(headers, env=None) -> str | None:
-    """Id del bot que hace la petición, o None. Falla cerrado.
+    """Id del bot que hace la petición con una clave PROPIA, o None. Falla cerrado.
 
     Las claves viven en `BOT_ACTION_KEYS` (JSON `{botId: clave}`, montado desde Secret Manager), no en
     Firestore: los usuarios de la organización pueden leer los documentos de `bots`.
@@ -97,11 +114,16 @@ def authenticate(headers, env=None) -> str | None:
         log.error("BOT_ACTION_KEYS no es un JSON válido")
         return None
     bot_id = (headers.get("X-Bot-Id") or "").strip()
-    token = (headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+    token = _bearer(headers)
     expected = keys.get(bot_id) if isinstance(keys, dict) else None
     if not bot_id or not token or not isinstance(expected, str) or not expected:
         return None
     return bot_id if hmac.compare_digest(token.encode(), expected.encode()) else None
+
+
+def _conversation_bot(conv: dict) -> str | None:
+    """El bot que atiende ahora la conversación: el activo (lo pone el ruteo al cambiar de bot), si no el asignado, si no el del canal."""
+    return conv.get("activeBotId") or conv.get("assignedBotId") or conv.get("botId") or None
 
 
 # --------------------------------------------------------------------------- ejecución
@@ -124,8 +146,10 @@ def _confirmed(response: ActionResponse, ctx: ActionContext) -> ActionResponse:
     return response
 
 
-def execute_action(request: ActionRequest, bot_id: str, db=None) -> ActionResponse:
-    """Ejecuta la acción pedida por el bot `bot_id` (ya autenticado). Nunca lanza."""
+def execute_action(request: ActionRequest, bot_id: str | None, db=None) -> ActionResponse:
+    """Ejecuta la acción pedida por el bot `bot_id` (ya autenticado). Nunca lanza.
+
+    Con `bot_id=None` (clave de servicio) el bot es el que atiende la conversación."""
     register_defaults()  # los contratos y handlers del núcleo; el pipeline hace lo mismo en cada mensaje
     db = db or get_db()
     snap = db.collection("conversations").document(request.conversation_id).get()
@@ -133,6 +157,10 @@ def execute_action(request: ActionRequest, bot_id: str, db=None) -> ActionRespon
         return ActionResponse.failure(CONVERSACION_NO_ENCONTRADA, "La conversación no existe")
     conv = snap.to_dict() or {}
     conv["id"] = request.conversation_id
+    if bot_id is None:
+        bot_id = _conversation_bot(conv)
+        if bot_id is None:
+            return ActionResponse.failure(NO_AUTORIZADO, "La conversación no tiene bot")
     owners = {conv.get("botId"), conv.get("assignedBotId"), conv.get("activeBotId")} - {None}
     if bot_id not in owners:
         return ActionResponse.failure(NO_AUTORIZADO, "Esta conversación no pertenece al bot")
@@ -166,8 +194,9 @@ def execute_action(request: ActionRequest, bot_id: str, db=None) -> ActionRespon
 
 def handle(headers, body, db=None, env=None) -> tuple[dict, int]:
     """Entrada HTTP: autentica, valida el contrato y ejecuta. Devuelve (cuerpo, estado)."""
-    bot_id = authenticate(headers, env)
-    if bot_id is None:
+    service = is_service_caller(headers, env)
+    bot_id = None if service else authenticate(headers, env)
+    if bot_id is None and not service:
         return {"error": "Unauthorized"}, 401
     try:
         request = ActionRequest.from_dict(body)
