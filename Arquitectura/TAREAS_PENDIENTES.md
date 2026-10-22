@@ -159,6 +159,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [x] 1.25 Flags de capacidad **explícitos** en los comandos de deploy (`--max-instances=300 --concurrency=40`); un redeploy sin ellos resetea a los defaults — Hecho en `dev/deploy.ps1`: tabla por función (timeout, instancias, concurrencia, CPU, memoria), `--project` obligatorio, `--no-cpu-throttling` del router tras cada deploy y lectura de la revisión al final. Valores por función propuestos, a confirmar. **Falta correrlo contra GCP dev** (hasta hoy solo se probó con `-DryRun`)
   - 🔁 Se fijan **por función**: el router con alta concurrencia, y el bot con timeout largo por la llamada a Abacus
 - [x] 1.26 ✅ `voice_llm_endpoint` y `assign_agent_by_lead` **no se usan** (confirmado 16 oct 2026): no se portan a las tres funciones. Queda por borrar la ruta `api/conversations/assign-agent-by-lead` ya portada
+- [ ] 1.26b **Webhook de cierre (`closeWebhookUrl`) sin dueño.** Al cerrar, `ConversationChat.tsx` llama a `POST /api/conversations/close-webhook`, ruta que ya no existe en `apps/web` (404; el cierre no se rompe, el `.catch` solo lo registra). Ningún código del hub dispara `closeWebhookUrl` del número (solo se guarda en `core/numbers.py` y `core/admin_actions.py`). Decidir si lo dispara el hub en `conversation.close` y en los cierres del bot, de inactividad y de `close-by-phone`, y quitar la llamada del dashboard (detectado el 22 oct 2026 probando `user-actions-execute`)
 
 ### Jobs
 
