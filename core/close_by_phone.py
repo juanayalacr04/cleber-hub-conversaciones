@@ -30,7 +30,7 @@ BATCH = 400
 SOAP_ACK = ('<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
             '<soapenv:Body><notificationsResponse xmlns="http://soap.sforce.com/2005/09/outbound"><Ack>true</Ack>'
             '</notificationsResponse></soapenv:Body></soapenv:Envelope>')
-PHONE_TAG = re.compile(r"<(?:\w+:)?rsplus__Phone_Number__c>([^<]+)</(?:\w+:)?rsplus__Phone_Number__c>")
+PHONE_TAG = re.compile(r"<(?:\w+:)?rsplus__Phone_Number__c(?:\s[^>]*)?>([^<]+)</(?:\w+:)?rsplus__Phone_Number__c>")
 
 
 def authorized(headers, args, env=None) -> bool:
