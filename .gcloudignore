@@ -1,0 +1,25 @@
+# Lo que NO se sube a Cloud Functions (`gcloud functions deploy --source=.`): todo lo que no es código de la función.
+# Los patrones van SIN barras a propósito: en Windows gcloud evalúa las rutas con "\" al armar el zip, y un patrón con "/" o una
+# negación ("!") no coincide, con lo que el zip sale sin ningún archivo (falla con "missing main.py"). Probado con una lista de
+# permitidos y fallaba así. Un nombre sin barra coincide en cualquier nivel: no pongas aquí nombres que también use el código.
+# Para verificar lo que realmente se sube, ver el zip que arma gcloud (no basta `gcloud meta list-files-for-upload`).
+.git
+.gitignore
+.gcloudignore
+.venv
+.claude
+node_modules
+__pycache__
+*.pyc
+apps
+Arquitectura
+dev
+tests
+.pytest_cache
+pytest.ini
+requirements-dev.txt
+firebase.json
+firestore.rules
+firestore.indexes.json
+README.md
+.env*

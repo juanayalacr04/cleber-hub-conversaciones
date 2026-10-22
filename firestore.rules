@@ -1,0 +1,147 @@
+rules_version = '2';
+
+// Solo lectura (tarea 1.40, §7.7): las pantallas leen Firestore en vivo y piden toda escritura a la función de reglas de
+// negocio (core/user_actions.py), que valida el token, los permisos y el estado antes de escribir. La función escribe con el
+// Admin SDK, que no pasa por estas reglas. Aquí no debe volver a aparecer `create`, `update`, `delete` ni `write`:
+// tests/test_firestore_rules.py lo verifica.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == "admin";
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && getUserData().isSuperAdmin == true;
+    }
+
+    function belongsToOrg(orgId) {
+      let user = getUserData();
+      // Formato nuevo: array organizationIds; formato viejo: campo organizationId
+      return isAuthenticated() && (
+        (user.get('organizationIds', null) != null && user.organizationIds.hasAny([orgId])) ||
+        user.get('organizationId', null) == orgId
+      );
+    }
+
+    function orgIdsOf(data) {
+      return data.get('organizationIds', null) != null
+        ? data.organizationIds
+        : (data.get('organizationId', null) != null ? [data.organizationId] : []);
+    }
+
+    // A diferencia de belongsToOrg (que compara al viewer contra UN orgId), esta
+    // compara el conjunto completo de organizaciones del viewer contra el del doc
+    // de usuario objetivo. Necesaria en /users porque ambos lados pueden ser
+    // multi-org: el campo legado organizationId de uno puede no coincidir con el
+    // del otro aunque compartan una org solo vía organizationIds (ver bug de
+    // agente "desconocido" en conversaciones multi-org).
+    function sharesOrgWithUser(data) {
+      return isAuthenticated() && orgIdsOf(getUserData()).hasAny(orgIdsOf(data));
+    }
+
+    // ── Acceso por equipo (Fase 0, tarea 0.10) ──
+    // Equipo del usuario dentro de una organización: orgTeams[orgId] (multi-org) o teamId (legado).
+    function userTeamIn(orgId) {
+      let u = getUserData();
+      return u.get('orgTeams', {}).get(orgId, u.get('teamId', null));
+    }
+
+    // Superadmin y admin ven toda su organización. El agente solo ve los documentos de su equipo;
+    // un documento sin equipo (teamId null) solo lo ven admins.
+    function canAccessTeam(orgId, teamId) {
+      return isSuperAdmin() || (belongsToOrg(orgId) && (
+        isAdmin() || (teamId != null && userTeamIn(orgId) == teamId)
+      ));
+    }
+
+    function convOrg(convId) {
+      return get(/databases/$(database)/documents/conversations/$(convId)).data.organizationId;
+    }
+
+    function convTeam(convId) {
+      return get(/databases/$(database)/documents/conversations/$(convId)).data.get("teamId", null);
+    }
+
+    // ── Users ──
+    match /users/{userId} {
+      // El propio doc siempre se puede leer, incluso si aún no existe. Sin esta condición el primer
+      // login de un invitado falla: `resource` es null y `resource.data.organizationId` rompe la regla
+      // (deniega en vez de exists=false). El reclamo de la invitación (me.claim_invite) lo hace la función.
+      allow get: if isAuthenticated() && (
+        request.auth.uid == userId
+        || (resource != null && (isSuperAdmin() || sharesOrgWithUser(resource.data)))
+      );
+      allow list: if isAuthenticated() && (isSuperAdmin() || sharesOrgWithUser(resource.data));
+    }
+
+    // ── Bots ──
+    match /bots/{botId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
+    }
+
+    // ── Teams ──
+    match /teams/{teamId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
+    }
+
+    // ── WhatsApp Numbers ──
+    match /whatsappNumbers/{numberId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
+    }
+
+    // ── Conversations ──
+    match /conversations/{convId} {
+      allow read: if isAuthenticated()
+        && canAccessTeam(resource.data.organizationId, resource.data.get("teamId", null));
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && canAccessTeam(convOrg(convId), convTeam(convId));
+      }
+
+      match /notes/{noteId} {
+        allow read: if isAuthenticated() && canAccessTeam(convOrg(convId), convTeam(convId));
+      }
+    }
+
+    // ── Templates ──
+    match /templates/{templateId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
+    }
+
+    // ── Organizations ──
+    match /organizations/{orgId} {
+      allow read: if isSuperAdmin() || belongsToOrg(orgId);
+    }
+
+    // ── Labels ──
+    match /labels/{labelId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
+    }
+
+    // ── Web Channels ──
+    match /webChannels/{channelId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
+    }
+
+    // ── Broadcasts ──
+    match /broadcasts/{broadcastId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(resource.data.organizationId));
+
+      match /recipients/{recipientId} {
+        allow read: if isAuthenticated() && (isSuperAdmin() || belongsToOrg(
+          get(/databases/$(database)/documents/broadcasts/$(broadcastId)).data.organizationId
+        ));
+      }
+    }
+  }
+}
