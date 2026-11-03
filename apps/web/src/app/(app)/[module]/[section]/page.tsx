@@ -2,13 +2,13 @@
 
 import { useParams } from "next/navigation";
 import { PageHead } from "@/components/shell/Shell";
-import { NAV, getModule } from "@/lib/modules";
+import { getModule, getModuleNav } from "@/lib/modules";
 
 /** Pantalla pendiente de portar: existe la ruta y el shell, falta el contenido. */
 export default function SectionPlaceholder() {
   const { module: moduleId, section } = useParams<{ module: string; section: string }>();
   const mod = getModule(moduleId);
-  const item = NAV.find((n) => n.slug === section);
+  const item = mod && getModuleNav(mod).find((n) => n.slug === section);
   if (!mod || !item) return null;
 
   return (

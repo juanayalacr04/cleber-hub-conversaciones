@@ -63,6 +63,10 @@ function reminderStageLabel(index: number): string {
   return `__ADMIN_FOLLOWUP_${index + 1}_RECORDATORIO__`;
 }
 
+/** Campos del bot que solo cambia un superadmin (espejo de BOT_SUPER_ONLY en core/admin_actions.py). */
+const PLATFORM_FIELDS = ["twilioConfig", "abacusConfig", "vertexAiConfig", "externalConfig", "tools", "outcomeActions",
+  "broadcastResponseCounters", "injectPhoneContext"];
+
 const SITUACIONES = [
   { value: "servicio_postventa", label: "Servicio / Postventa" },
   { value: "seminuevo", label: "Seminuevos" },
@@ -152,6 +156,7 @@ export default function EditBotPage() {
   const moduleId = params.module as string;
   const router = useRouter();
   const { userData, user, organizations: authOrgs } = useAuth();
+  const isSuperAdmin = !!userData?.isSuperAdmin;
   const [bot, setBot] = useState<BotData | null>(null);
   const isSecretSet = (path: string) => !!bot?.secretsSet?.includes(path);
   const [loading, setLoading] = useState(true);
@@ -475,7 +480,11 @@ export default function EditBotPage() {
       if (outcomeActionsList.length === 0) unset.push("outcomeActions");
       if (Object.keys(countersMap).length === 0) unset.push("broadcastResponseCounters");
       if (injectPhoneContext === "default") unset.push("injectPhoneContext");
-      await callHubAction(user, "bot.update", { id: bot.id, set, unset });
+      // La conexión y las herramientas técnicas son de plataforma: el servidor las rechaza si no es superadmin
+      if (!isSuperAdmin) {
+        for (const key of PLATFORM_FIELDS) delete set[key];
+      }
+      await callHubAction(user, "bot.update", { id: bot.id, set, unset: isSuperAdmin ? unset : unset.filter((k) => !PLATFORM_FIELDS.includes(k)) });
       router.push(modulePath(moduleId, "/bots"));
     } catch (error) {
       console.error("Error saving bot:", error);
@@ -529,16 +538,18 @@ export default function EditBotPage() {
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="mb-4">
           <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="twilio">Twilio</TabsTrigger>
-          <TabsTrigger value="abacus">Abacus AI</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="twilio">Twilio</TabsTrigger>}
+          {isSuperAdmin && <TabsTrigger value="abacus">Abacus AI</TabsTrigger>}
           <TabsTrigger value="handoff">Handoff</TabsTrigger>
           <TabsTrigger value="inactividad">Inactividad</TabsTrigger>
           <TabsTrigger value="horarios">Horarios</TabsTrigger>
           <TabsTrigger value="situaciones">Situaciones</TabsTrigger>
-          <TabsTrigger value="avanzado">Avanzado</TabsTrigger>
-          <TabsTrigger value="chatllm" onClick={() => { if (!chatllmConfig && !chatllmLoading) fetchChatLLMConfig(); }}>
-            ChatLLM
-          </TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="avanzado">Avanzado</TabsTrigger>}
+          {isSuperAdmin && (
+            <TabsTrigger value="chatllm" onClick={() => { if (!chatllmConfig && !chatllmLoading) fetchChatLLMConfig(); }}>
+              ChatLLM
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="general">

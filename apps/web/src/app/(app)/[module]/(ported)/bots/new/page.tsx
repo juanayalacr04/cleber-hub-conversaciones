@@ -112,6 +112,17 @@ export default function NewBotPage() {
     }
   };
 
+  if (userData && !userData.isSuperAdmin) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-500">Solo un superadministrador puede crear bots.</p>
+        <Link href={modulePath(moduleId, "/bots")}>
+          <Button variant="link">Volver a Bots</Button>
+        </Link>
+      </div>
+    );
+  }
+
   if (!userData?.organizationId) {
     return (
       <div className="text-center py-12">

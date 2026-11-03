@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { isAdmin, useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { db, auth } from "@/lib/firebase";
 import { callHubAction } from "@/lib/hub-actions";
 import { getModule } from "@/lib/modules";
@@ -45,7 +45,7 @@ export default function ConfiguracionPage() {
   const { userData, user } = useAuth();
   const { module: moduleId } = useParams<{ module: string }>();
   const vertical = getModule(moduleId)?.vertical ?? null;
-  const admin = isAdmin(userData);
+  const superAdmin = !!userData?.isSuperAdmin;
   const orgId = userData?.organizationId ?? null;
 
   const [loaded, setLoaded] = useState(false);
@@ -58,7 +58,7 @@ export default function ConfiguracionPage() {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   useEffect(() => {
-    if (!orgId || !admin) return;
+    if (!orgId || !superAdmin) return;
     getDoc(doc(db, "organizations", orgId)).then((snap) => {
       const d = snap.data();
       if (d) {
@@ -77,7 +77,7 @@ export default function ConfiguracionPage() {
       }
       setLoaded(true);
     });
-  }, [orgId, admin]);
+  }, [orgId, superAdmin]);
 
   const set = <K extends keyof SalesforceBrandForm>(k: K, v: SalesforceBrandForm[K]) => setSf((p) => ({ ...p, [k]: v }));
 
@@ -139,8 +139,8 @@ export default function ConfiguracionPage() {
     }
   }
 
-  if (!admin) {
-    return <p className="text-muted-foreground">Solo un administrador puede ver la configuración de la organización.</p>;
+  if (!superAdmin) {
+    return <p className="text-muted-foreground">Solo un superadministrador puede ver la configuración de la organización.</p>;
   }
   if (!loaded) {
     return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;

@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { LogOut, Moon, Sun } from "lucide-react";
+import { Check, ChevronsUpDown, LogOut, Moon, Sun } from "lucide-react";
 import { isAdmin, useAuth } from "@/contexts/AuthContext";
-import { MODULES, NAV, getModule, type ModuleDef } from "@/lib/modules";
+import { MODULES, getModule, getModuleNav, visibleNav, type ModuleDef } from "@/lib/modules";
 import { Icon } from "./icons";
+import { OrgSwitcher } from "./OrgSwitcher";
+import { useDismiss } from "./useDismiss";
 
 /** Módulos que el usuario puede ver: admin y superadmin todos; el resto, el de su equipo. */
 export function allowedModules(userData: ReturnType<typeof useAuth>["userData"]): ModuleDef[] {
@@ -21,6 +23,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { userData, user, signOut } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
+  const [open, setOpen] = useState(false);
+  const pickRef = useRef<HTMLDivElement>(null);
 
   const mod = getModule(moduleId);
   const allowed = allowedModules(userData);
@@ -38,6 +42,8 @@ export function Shell({ children }: { children: ReactNode }) {
     document.body.dataset.mod = mod?.id ?? "general";
   }, [mod]);
 
+  useDismiss(pickRef, open, () => setOpen(false));
+
   if (!mod || !allowed.some((m) => m.id === mod.id)) return null;
 
   const initials = (userData?.name || user?.displayName || "U").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
@@ -54,22 +60,50 @@ export function Shell({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <div className="modpick" role="group" aria-label="Módulo">
-          <p className="lbl">Módulo</p>
-          {allowed.map((m) => (
-            <Link key={m.id} href={`/${m.id}/${section}`} className="mod-btn" data-m={m.id} aria-current={m.id === mod.id ? "true" : undefined}>
-              <span className="dot"><Icon name={m.icon} /></span>
-              <span><b>{m.label}</b><small>{m.description}</small></span>
-            </Link>
-          ))}
+        <OrgSwitcher />
+
+        <div className="modpick" ref={pickRef}>
+          <p className="lbl">Módulo activo</p>
+          <button
+            type="button"
+            className="mod-btn mod-trigger"
+            data-m={mod.id}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+          >
+            <span className="dot"><Icon name={mod.icon} /></span>
+            <span className="grow"><b>{mod.label}</b><small>{mod.description}</small></span>
+            <ChevronsUpDown size={16} aria-hidden="true" />
+          </button>
+          {open && (
+            <ul className="mod-menu" role="listbox" aria-label="Módulo">
+              {allowed.map((m) => {
+                const target = getModuleNav(m).some((n) => n.slug === section) ? section : getModuleNav(m)[0].slug;
+                return (
+                  <li key={m.id} role="option" aria-selected={m.id === mod.id}>
+                    <Link href={`/${m.id}/${target}`} className="mod-btn" data-m={m.id} onClick={() => setOpen(false)}>
+                      <span className="dot"><Icon name={m.icon} /></span>
+                      <span className="grow"><b>{m.label}</b><small>{m.description}</small></span>
+                      {m.id === mod.id && <Check size={16} aria-hidden="true" />}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
 
-        <nav className="nav-wrap" aria-label="General">
-          <p className="lbl" style={{ marginBottom: 6 }}>General</p>
-          {NAV.filter((n) => (!n.adminOnly || admin) && (!n.superAdminOnly || userData?.isSuperAdmin)).map((n) => (
-            <Link key={n.slug} href={`/${mod.id}/${n.slug}`} className="nav" aria-current={section === n.slug ? "page" : undefined}>
-              <span className="l"><Icon name={n.icon} />{n.label}</span>
-            </Link>
+        <nav className="nav-wrap" aria-label="Navegación del módulo">
+          {visibleNav(mod, { admin, superAdmin: !!userData?.isSuperAdmin }).map((g) => (
+            <div key={g.id} className="nav-group" data-g={g.id}>
+              <p className="lbl">{g.label}</p>
+              {g.items.map((n) => (
+                <Link key={n.slug} href={`/${mod.id}/${n.slug}`} className="nav" aria-current={section === n.slug ? "page" : undefined}>
+                  <span className="l"><Icon name={n.icon} />{n.label}</span>
+                </Link>
+              ))}
+            </div>
           ))}
         </nav>
 
