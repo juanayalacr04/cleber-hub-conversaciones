@@ -212,8 +212,14 @@ def test_bot_crear_editar_y_sin_borrado(db):
     body, status = run(db, "t-admin", "bot.create", organizationId="honda", fields={"name": "B", "type": "workflow", "vertical": "servicio"})
     assert status == 200 and doc(db, "bots", body["result"]["id"])["status"] == "active"
     assert run(db, "t-admin", "bot.create", organizationId="honda", fields={"name": "B", "type": "otro", "vertical": "servicio"})[1] == 400
-    assert run(db, "t-admin", "bot.update", id="bot1", set={"status": "paused", "handoffConfig": {"enabled": True}}, unset=["tools"])[1] == 200
+    assert run(db, "t-admin", "bot.update", id="bot1", set={"status": "paused", "handoffConfig": {"enabled": True}})[1] == 200
     assert doc(db, "bots", "bot1")["status"] == "paused"
+    # La conexión y las herramientas técnicas son de plataforma
+    for field in ("twilioConfig", "abacusConfig", "vertexAiConfig", "externalConfig", "tools", "outcomeActions",
+                  "broadcastResponseCounters", "injectPhoneContext"):
+        assert run(db, "t-admin", "bot.update", id="bot1", set={field: None})[1] == 403, field
+    assert run(db, "t-admin", "bot.update", id="bot1", unset=["tools"])[1] == 403
+    assert run(db, "t-root", "bot.update", id="bot1", set={"abacusConfig": {"deploymentId": "D"}}, unset=["tools"])[1] == 200
     assert run(db, "t-admin", "bot.update", id="bot1", set={"status": "roto"})[1] == 400
     assert run(db, "t-admin", "bot.delete", id="bot1")[1] == 404 and "bot1" in db.data["bots"]  # no hay acción de borrado
 
@@ -238,14 +244,18 @@ def test_etiqueta_equipo_solo_al_crear_y_de_la_organizacion(db):
 
 # --------------------------------------------------------------------------- organizaciones
 
-def test_admin_edita_nombre_zona_y_salesforce_pero_no_los_campos_de_plataforma(db):
-    assert run(db, "t-admin", "organization.update", id="honda", set={"name": "Honda MX", "settings.timezone": "America/Monterrey",
-                                                                     "salesforceConfig": {"ownerId": "x"}})[1] == 200
+def test_admin_no_edita_nada_de_la_organizacion(db):
+    antes = dict(doc(db, "organizations", "honda"))
+    for field in ("name", "settings.timezone", "salesforceConfig", "sfBrandCode", "sfCalendario", "plan", "salesforceConfig.vehicleType", "settings"):
+        assert run(db, "t-admin", "organization.update", id="honda", set={field: "x" if field != "settings" else {}})[1] == 403, field
+    assert doc(db, "organizations", "honda") == antes
+
+
+def test_superadmin_edita_nombre_zona_y_salesforce(db):
+    assert run(db, "t-root", "organization.update", id="honda", set={"name": "Honda MX", "settings.timezone": "America/Monterrey",
+                                                                    "salesforceConfig": {"ownerId": "x"}})[1] == 200
     o = doc(db, "organizations", "honda")
     assert o["name"] == "Honda MX" and o["settings"]["timezone"] == "America/Monterrey" and o["salesforceConfig"] == {"ownerId": "x"}
-    for field in ("sfBrandCode", "sfCalendario", "plan", "salesforceConfig.vehicleType", "settings"):
-        assert run(db, "t-admin", "organization.update", id="honda", set={field: "x" if field != "settings" else {}})[1] == 403, field
-    assert doc(db, "organizations", "honda")["sfBrandCode"] == "HO"
 
 
 def test_admin_de_otra_marca_no_edita_la_organizacion(db):

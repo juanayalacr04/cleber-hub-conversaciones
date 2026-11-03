@@ -207,6 +207,11 @@ def _check_label(ctx, fields, org_id, old):
     _ref_in_org(ctx, "teams", fields.get("teamId"), "El equipo", org_id)
 
 
+# Del bot, el administrador de la organización edita lo operativo (nombre, estado, traspaso, inactividad, horarios y situaciones);
+# la conexión con Twilio y Abacus y las herramientas técnicas son de plataforma.
+BOT_SUPER_ONLY = frozenset({"organizationId", "twilioConfig", "abacusConfig", "vertexAiConfig", "externalConfig", "tools",
+                            "outcomeActions", "broadcastResponseCounters", "injectPhoneContext"})
+
 ENTITIES = [
     Entity("team", "teams",
            fields={"name": str, "description": str, "assignmentMode": ("round_robin", "least_busy", "manual", "salesforce"),
@@ -231,7 +236,7 @@ ENTITIES = [
                    "vertexAiConfig": dict, "externalConfig": dict, "handoffConfig": dict, "inactivityConfig": dict,
                    "scheduleConfig": dict, "situationRouting": dict, "optOutAction": ("close", "handoff"),
                    "tools": list, "outcomeActions": list, "broadcastResponseCounters": dict, "injectPhoneContext": bool},
-           required=("name", "type", "vertical"), super_only=frozenset({"organizationId"}),
+           required=("name", "type", "vertical"), super_only=BOT_SUPER_ONLY,
            defaults={"description": "", "status": "active"}, ops=("create", "update"), secrets_kind="bots"),
     Entity("template", "templates",
            fields={"name": str, "content": str, "category": str, "vertical": VERTICALS},
@@ -330,7 +335,7 @@ def register_entities() -> None:
 
 ORG_FIELDS = {"name": str, "settings.timezone": str, "salesforceConfig": dict, "salesforceConfig.vehicleType": str,
               "sfBrandCode": str, "sfCalendario": str, "plan": str, "settings": dict}
-ORG_SUPER_ONLY = frozenset({"salesforceConfig.vehicleType", "sfBrandCode", "sfCalendario", "plan", "settings"})
+ORG_SUPER_ONLY = frozenset(ORG_FIELDS)   # la configuración de la organización es de plataforma: el admin solo la lee
 ORGANIZATION = Entity("organization", "organizations", fields=ORG_FIELDS, required=("name",), super_only=ORG_SUPER_ONLY)
 
 
