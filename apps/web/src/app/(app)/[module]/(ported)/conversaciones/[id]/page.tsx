@@ -2,13 +2,16 @@
 
 import { use } from "react";
 import ConversationChat from "@/components/conversations/ConversationChat";
+import { ConversacionDetalle } from "@/components/valuacion/ConversacionesView";
 
-export default function ConversationDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ConversationDetailPage({ params }: { params: Promise<{ module: string; id: string }> }) {
+  const { module: moduleId, id } = use(params);
 
   return (
     <div className="h-[calc(100vh-80px)] md:h-[calc(100vh-120px)]">
-      <ConversationChat conversationId={id} showBackButton={true} />
+      {moduleId === "valuacion"
+        ? <ConversacionDetalle id={id} />
+        : <ConversationChat conversationId={id} showBackButton={true} />}
     </div>
   );
 }

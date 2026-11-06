@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { db, auth } from "@/lib/firebase";
 import { callHubAction } from "@/lib/hub-actions";
 import { getModule } from "@/lib/modules";
+import { ConfiguracionView } from "@/components/valuacion/ConfiguracionView";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -41,7 +42,15 @@ const TIMEZONES = [
   "America/Bogota", "America/Lima", "America/Santiago", "America/Argentina/Buenos_Aires",
 ];
 
+/** Valuación tiene su propia configuración por agencia (prototipo). */
 export default function ConfiguracionPage() {
+  const { module: moduleId } = useParams<{ module: string }>();
+  const mod = getModule(moduleId);
+  if (mod?.id === "valuacion") return <ConfiguracionView mod={mod} />;
+  return <HubConfiguracionPage />;
+}
+
+function HubConfiguracionPage() {
   const { userData, user } = useAuth();
   const { module: moduleId } = useParams<{ module: string }>();
   const vertical = getModule(moduleId)?.vertical ?? null;

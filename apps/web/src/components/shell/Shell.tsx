@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Check, ChevronsUpDown, LogOut, Moon, Sun } from "lucide-react";
+import { Check, ChevronsUpDown, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
 import { isAdmin, useAuth } from "@/contexts/AuthContext";
 import { MODULES, getModule, getModuleNav, visibleNav, type ModuleDef } from "@/lib/modules";
 import { Icon } from "./icons";
@@ -17,6 +17,8 @@ export function allowedModules(userData: ReturnType<typeof useAuth>["userData"])
   return MODULES.filter((m) => m.vertical && m.vertical === userData?.vertical);
 }
 
+const SIDEBAR_KEY = "hub_sidebar_collapsed";
+
 export function Shell({ children }: { children: ReactNode }) {
   const { module: moduleId } = useParams<{ module: string }>();
   const pathname = usePathname();
@@ -25,6 +27,18 @@ export function Shell({ children }: { children: ReactNode }) {
   const { resolvedTheme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const pickRef = useRef<HTMLDivElement>(null);
+  // Barra lateral colapsada a solo íconos; se recuerda por navegador
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try { setCollapsed(localStorage.getItem(SIDEBAR_KEY) === "1"); } catch { /* sin storage */ }
+  }, []);
+  const toggleSidebar = () => {
+    setOpen(false);
+    setCollapsed((c) => {
+      try { localStorage.setItem(SIDEBAR_KEY, c ? "0" : "1"); } catch { /* sin storage */ }
+      return !c;
+    });
+  };
 
   const mod = getModule(moduleId);
   const allowed = allowedModules(userData);
@@ -49,14 +63,20 @@ export function Shell({ children }: { children: ReactNode }) {
   const initials = (userData?.name || user?.displayName || "U").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
   return (
-    <div className="app">
+    <div className={`app${collapsed ? " collapsed" : ""}`}>
       <aside className="side" aria-label="Menú principal">
         <div className="side-h">
           <div className="brand-mark">C</div>
           <div className="brand"><b>Cleber Hub</b></div>
           <span className="env">DEV</span>
-          <button type="button" className="icon-btn" aria-label="Cambiar tema" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
+          <button type="button" className="icon-btn theme-btn" aria-label="Cambiar tema" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
             {resolvedTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+          <button
+            type="button" className="icon-btn side-toggle" onClick={toggleSidebar}
+            aria-label={collapsed ? "Mostrar menú" : "Ocultar menú"} aria-expanded={!collapsed} title={collapsed ? "Mostrar menú" : "Ocultar menú"}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
           </button>
         </div>
 
@@ -71,6 +91,7 @@ export function Shell({ children }: { children: ReactNode }) {
             aria-haspopup="listbox"
             aria-expanded={open}
             onClick={() => setOpen((o) => !o)}
+            title={collapsed ? `Módulo: ${mod.label}` : undefined}
           >
             <span className="dot"><Icon name={mod.icon} /></span>
             <span className="grow"><b>{mod.label}</b><small>{mod.description}</small></span>
@@ -99,8 +120,8 @@ export function Shell({ children }: { children: ReactNode }) {
             <div key={g.id} className="nav-group" data-g={g.id}>
               <p className="lbl">{g.label}</p>
               {g.items.map((n) => (
-                <Link key={n.slug} href={`/${mod.id}/${n.slug}`} className="nav" aria-current={section === n.slug ? "page" : undefined}>
-                  <span className="l"><Icon name={n.icon} />{n.label}</span>
+                <Link key={n.slug} href={`/${mod.id}/${n.slug}`} className="nav" aria-current={section === n.slug ? "page" : undefined} title={collapsed ? n.label : undefined} aria-label={collapsed ? n.label : undefined}>
+                  <span className="l"><Icon name={n.icon} /><span className="nl">{n.label}</span></span>
                 </Link>
               ))}
             </div>

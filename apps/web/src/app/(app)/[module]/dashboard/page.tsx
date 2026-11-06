@@ -12,6 +12,7 @@ import {
   type HistoricalStats, type LiveStats, type Scope, type WaitingItem,
 } from "@/lib/dashboard-data";
 import { MODULES, getModule } from "@/lib/modules";
+import { ValuacionDashboard } from "@/components/valuacion/ValuacionDashboard";
 import { conversationPath, modulePath } from "@/lib/routes";
 
 function Stat({ label, value, note, icon, hot, href }: { label: string; value: string; note: string; icon: string; hot?: boolean; href?: string }) {
@@ -179,6 +180,7 @@ export default function DashboardPage() {
     if (!userData?.organizationId || !mod) return null;
     return { orgId: userData.organizationId, vertical: mod.vertical, teamId: isAdmin(userData) ? null : userData.teamId };
   }, [userData, mod]);
+  if (mod?.id === "valuacion") return <ValuacionDashboard mod={mod} />;
   if (!mod || !scope) return null;
 
   const first = (userData?.name || "").split(" ")[0] || "Usuario";

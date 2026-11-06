@@ -34,14 +34,12 @@ export const MODULES: ModuleDef[] = [
   { id: "ventas", label: "Ventas", description: "Prospectos y citas", vertical: "ventas", icon: "tag" },
   {
     id: "valuacion", label: "Valuación", description: "Avalúo de autos usados", vertical: null, icon: "gauge",
-    // Opciones de ejemplo mientras se define el módulo
+    // Prototipo con datos inventados (src/lib/valuacion/store.ts). El valuador también configura.
     nav: [
-      { slug: "dashboard", label: "Resumen", icon: "dash", ready: true },
-      { slug: "solicitudes", label: "Solicitudes de avalúo", icon: "clipboard", ready: false },
-      { slug: "inspecciones", label: "Inspecciones", icon: "search", ready: false },
-      { slug: "cotizador", label: "Cotizador de toma", icon: "calc", ready: false },
-      { slug: "historial", label: "Historial de valuaciones", icon: "clock", ready: false },
-      { slug: "reportes", label: "Reportes", icon: "chart", ready: false },
+      { slug: "dashboard", label: "Dashboard", icon: "dash", ready: true },
+      { slug: "ofertas", label: "Ofertas", icon: "offer", ready: true },
+      { slug: "conversaciones", label: "Conversaciones", icon: "msg", ready: true },
+      { slug: "configuracion", label: "Configuración", icon: "gear", ready: true },
     ],
   },
   { id: "general", label: "General", description: "Resumen de los módulos", vertical: null, icon: "grid" },
