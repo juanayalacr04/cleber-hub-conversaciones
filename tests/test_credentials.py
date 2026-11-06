@@ -6,7 +6,7 @@ from channels import webhooks
 from core import admin_actions, campaigns, credentials, numbers, user_actions as ua
 from tests.fakes import FakeDB
 
-TOKENS = {"t-admin": "admin1", "t-ana": "ana"}
+TOKENS = {"t-admin": "admin1", "t-ana": "ana", "t-root": "root"}
 
 
 def verifier(token):
@@ -26,6 +26,7 @@ def acciones():
 def db():
     d = FakeDB()
     d.seed("users", "admin1", {"role": "admin", "organizationIds": ["honda"]})
+    d.seed("users", "root", {"role": "admin", "isSuperAdmin": True, "organizationIds": ["honda"]})
     d.seed("users", "ana", {"role": "agent", "organizationIds": ["honda"], "orgTeams": {"honda": "ventas"}})
     d.seed("organizations", "honda", {"name": "Honda"})
     d.seed("teams", "ventas", {"organizationId": "honda", "vertical": "ventas"})
@@ -213,7 +214,7 @@ BOT = {"name": "Bot", "type": "workflow", "vertical": "servicio", "twilioConfig"
 
 
 def test_crear_un_bot_deja_los_tokens_fuera_del_documento(db):
-    body, _ = run(db, "bot.create", organizationId="honda", fields=BOT)
+    body, _ = run(db, "bot.create", "t-root", organizationId="honda", fields=BOT)
     bid = body["result"]["id"]
     doc = db.data["bots"][bid]
     assert doc["abacusConfig"] == {"deploymentId": "D1"} and doc["twilioConfig"] == {"phoneNumber": "", "accountSid": "AC1"}
@@ -225,20 +226,27 @@ def test_crear_un_bot_deja_los_tokens_fuera_del_documento(db):
 
 
 def test_guardar_el_bot_sin_reescribir_los_tokens_los_conserva(db):
-    bid = run(db, "bot.create", organizationId="honda", fields=BOT)[0]["result"]["id"]
+    bid = run(db, "bot.create", "t-root", organizationId="honda", fields=BOT)[0]["result"]["id"]
     # la pantalla manda el mapa completo, con los tokens en blanco si no se tocaron
-    assert run(db, "bot.update", id=bid, set={"abacusConfig": {"deploymentId": "D2", "deploymentToken": "", "apiKey": ""},
+    assert run(db, "bot.update", "t-root", id=bid, set={"abacusConfig": {"deploymentId": "D2", "deploymentToken": "", "apiKey": ""},
                                               "twilioConfig": {"phoneNumber": "+52", "accountSid": "AC1", "authToken": ""}})[1] == 200
     bot = numbers.get_bot_by_id(bid, db)
     assert bot["abacusConfig"] == {"deploymentId": "D2", "deploymentToken": "dep-tok", "apiKey": "abacus-key"} and bot["twilioConfig"]["authToken"] == "bot-tok"
-    assert run(db, "bot.update", id=bid, set={"abacusConfig": {"deploymentId": "D2", "deploymentToken": "rotado"}})[1] == 200
+    assert run(db, "bot.update", "t-root", id=bid, set={"abacusConfig": {"deploymentId": "D2", "deploymentToken": "rotado"}})[1] == 200
     assert numbers.get_bot_by_id(bid, db)["abacusConfig"]["deploymentToken"] == "rotado"
     assert db.data["bots"][bid]["secretsSet"] == ["abacusConfig.apiKey", "abacusConfig.deploymentToken", "twilioConfig.authToken"]
 
 
+def test_el_admin_no_escribe_las_credenciales_del_bot(db):
+    bid = run(db, "bot.create", "t-root", organizationId="honda", fields=BOT)[0]["result"]["id"]
+    assert run(db, "bot.update", id=bid, set={"abacusConfig": {"deploymentId": "D2", "deploymentToken": "x"}})[1] == 403
+    assert run(db, "bot.create", organizationId="honda", fields=BOT)[1] == 403
+    assert numbers.get_bot_by_id(bid, db)["abacusConfig"]["deploymentToken"] == "dep-tok"
+
+
 def test_el_bot_externo_y_su_clave(db):
     fields = {"name": "Ext", "type": "external", "vertical": "ventas", "externalConfig": {"endpoint": "https://bot.example", "apiKey": "ext-key"}}
-    bid = run(db, "bot.create", organizationId="honda", fields=fields)[0]["result"]["id"]
+    bid = run(db, "bot.create", "t-root", organizationId="honda", fields=fields)[0]["result"]["id"]
     assert db.data["bots"][bid]["externalConfig"] == {"endpoint": "https://bot.example"}
     assert numbers.get_bot_by_id(bid, db)["externalConfig"] == {"endpoint": "https://bot.example", "apiKey": "ext-key"}
 

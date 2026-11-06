@@ -32,6 +32,7 @@ import {
 } from "firebase/firestore";
 import { useAuth, isAdmin } from "@/contexts/AuthContext";
 import { getModule } from "@/lib/modules";
+import { ConversacionesView } from "@/components/valuacion/ConversacionesView";
 import { conversationPath } from "@/lib/routes";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -153,7 +154,15 @@ function parseListParam<T extends string>(value: string | null, valid: readonly 
   return value.split(",").filter((v): v is T => (valid as readonly string[]).includes(v));
 }
 
+/** Valuación tiene su propio panel de conversaciones (prototipo). */
 export default function ConversationsPage() {
+  const { module: moduleId } = useParams<{ module: string }>();
+  const mod = getModule(moduleId);
+  if (mod?.id === "valuacion") return <ConversacionesView />;
+  return <HubConversationsPage />;
+}
+
+function HubConversationsPage() {
   const { userData, user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();

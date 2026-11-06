@@ -154,12 +154,14 @@ export default function BotsPage() {
           <h1 className="text-2xl font-bold">Bots</h1>
           <p className="text-gray-500">Gestiona tus chatbots de WhatsApp</p>
         </div>
-        <Link href={modulePath(moduleId, "/bots/new")}>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Crear Bot
-          </Button>
-        </Link>
+        {userData?.isSuperAdmin && (
+          <Link href={modulePath(moduleId, "/bots/new")}>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Crear Bot
+            </Button>
+          </Link>
+        )}
       </div>
 
       {visibleBots.length === 0 ? (
@@ -170,15 +172,18 @@ export default function BotsPage() {
             </div>
             <h3 className="text-lg font-medium mb-2">No tienes bots</h3>
             <p className="text-gray-500 text-center mb-4">
-              Crea tu primer bot para empezar a responder mensajes de WhatsApp
-              automaticamente.
+              {userData?.isSuperAdmin
+                ? "Crea tu primer bot para empezar a responder mensajes de WhatsApp automaticamente."
+                : "Un superadministrador debe crear el bot de tu organizacion."}
             </p>
-            <Link href={modulePath(moduleId, "/bots/new")}>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Crear Bot
-              </Button>
-            </Link>
+            {userData?.isSuperAdmin && (
+              <Link href={modulePath(moduleId, "/bots/new")}>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Crear Bot
+                </Button>
+              </Link>
+            )}
           </CardContent>
         </Card>
       ) : (
