@@ -11,6 +11,9 @@ Plan de ejecución derivado de:
 Documentos hermanos:
 - [`INVENTARIO_FUNCIONES_CLASIFICADAS.md`](INVENTARIO_FUNCIONES_CLASIFICADAS.md) — las 59 funciones exclusivas, con su destino
 - [`TAREAS_PENDIENTES.md`](TAREAS_PENDIENTES.md) — el checklist de trabajo por fase
+- [`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md) — **el hub sobre PostgreSQL** (12 nov 2026)
+
+> **Actualización 12 de noviembre de 2026.** Los datos del hub pasan a **PostgreSQL** (schemas `hub` y `clientes`, vía PostgREST y el API Gateway de Cleber), y el login a **NextAuth + Google** según las convenciones de `template-para-desarrollo`. Firestore queda solo como **canal de aviso** en tiempo real (un documento ligero por conversación) y para la copia de permisos `accesos/{email}`. Donde este plan dice que algo vive o se escribe en Firestore, manda [`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md); las secciones afectadas llevan una nota.
 
 ---
 
@@ -287,7 +290,7 @@ flowchart LR
 |---|---|
 | **Repo** | Uno solo, dueño `jayalacr04` (decisión 2 de la Fase D) |
 | **GCP** | ✅ **Dos proyectos**: prod y dev (decisión 3 de la Fase D) |
-| **Firestore** | Una base. Elegir **ahora** nombrada vs. default y documentarlo: hoy Comercial usa `database="chatbots-ventas"` y Servicio la default, y esa diferencia es parte de lo que complica migrar |
+| **Firestore** | Una base. Elegir **ahora** nombrada vs. default y documentarlo: hoy Comercial usa `database="chatbots-ventas"` y Servicio la default, y esa diferencia es parte de lo que complica migrar. **Actualización (12 nov 2026):** queda solo para los documentos de aviso y `accesos`; los datos van a PostgreSQL ([`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md)) |
 | **Vercel** | Un proyecto. Los crons (`inactivity-followup`, `verify-lead-templates`, `close-inactive`, `scheduled-contact`) **solo corren en Production** |
 | **Salesforce** | Sin sandbox. Dev escribe al CRM de producción, aceptado — ver §14.1 |
 | **Secretos y CI/CD** | Credenciales por ambiente y pipeline con el proyecto fijado explícitamente (5 deploys = 5 oportunidades de equivocarse de `--project`) |
@@ -309,6 +312,8 @@ La plataforma de Servicio ya tiene esto resuelto: ~200 líneas granulares por or
 > Con el emulador, el criterio "un usuario de la organización A no puede leer documentos de la B" es una **prueba automatizada** con `@firebase/rules-unit-testing`, no una verificación manual. Para ~200 líneas de reglas es la diferencia entre confiar y saber.
 
 ### 7.3 El esquema, con los ganchos ya puestos
+
+> **Actualización (12 nov 2026):** este esquema se traslada a tablas del schema `hub` de PostgreSQL y `customers` a `clientes.clientes`. Los ganchos (`vertical`, `customerId`, `source` / `externalId`, `sfBrandCode` único) se conservan como columnas y restricciones. Ver [`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md) §5.
 
 ```
 organizations/{id}              → la marca. Una sola salesforceConfig, un solo sfBrandCode (ÚNICO)
@@ -374,7 +379,7 @@ Los repos actuales implementan **el mismo motor dos veces**: `main.py` en Python
 El dashboard se construye desde el principio como **el shell único de la operación** (§2):
 
 - **Navegación por módulo**, no por sistema.
-- **Una sesión y un padrón de usuarios.** El dashboard emite el token; los servicios externos lo validan y aplican los permisos por marca y equipo que ya administra la plataforma.
+- **Una sesión y un padrón de usuarios.** El login es con Google (NextAuth); el `id_token` lo valida el authorizer del API Gateway de Cleber, y cada módulo aplica en plpgsql los permisos por marca, equipo y agencia que administra la plataforma en el schema `hub` (actualizado 12 nov 2026, [`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md) §4).
 - **Un punto de extensión documentado** para que un módulo agregue sus pantallas consumiendo su propia API, y para que aporte su panel dentro de las pantallas compartidas (§2).
 - ✅ **Opción A** (decisión 4 de la Fase D): las vistas de cada módulo viven en el repo unificado y llaman a la API del módulo.
 
@@ -394,7 +399,7 @@ El dashboard se construye desde el principio como **el shell único de la operac
 - Reglas → bot: **HTTP síncrono**, con mensaje y expediente.
 - Bot → reglas: el resultado. El resumen al cerrar corre fuera del camino de respuesta.
 
-**La plataforma web lee y pide; no decide.** Las pantallas leen Firestore en vivo (el tiempo real no cambia). Toda escritura la piden a la función 2, que valida permisos y reglas de cambio de estado antes de escribir. `firestore.rules` queda solo para lectura. Los crons del dashboard solo avisan la hora (cada 15 minutos) y la función 2 decide qué toca.
+**La plataforma web lee y pide; no decide.** Las pantallas leen Firestore en vivo (el tiempo real no cambia). *Actualización (12 nov 2026): la configuración se lee y se escribe en PostgreSQL vía API; en vivo solo se escuchan los documentos de aviso de las conversaciones, y la función 2 sigue siendo la única que escribe en ellos ([`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md) §6 y §8).* Toda escritura la piden a la función 2, que valida permisos y reglas de cambio de estado antes de escribir. `firestore.rules` queda solo para lectura. Los crons del dashboard solo avisan la hora (cada 15 minutos) y la función 2 decide qué toca.
 
 **Por qué:** los permisos y las reglas de cambio de estado hoy están repetidos en `firestore.rules`, en la web y en las funciones, y pueden contradecirse. Con una sola puerta hay un solo lugar donde se decide quién puede hacer qué.
 
@@ -498,7 +503,7 @@ Las **52 funciones exclusivas de Comercial** y las **7 de Servicio** no se porta
 1. **`ai/parsing.py` primero** — las dos estrategias de motor; desbloquea todo lo demás
 2. **Las 24 de núcleo y routing** — no dependen de ninguna decisión de negocio
 3. **Las 5 de CRM**
-4. **Extraer la configuración a Firestore** (tools, flows, mapeos, RecordTypes, UTC-6, vocabularios)
+4. **Extraer la configuración a Firestore** (tools, flows, mapeos, RecordTypes, UTC-6, vocabularios). *Actualización (12 nov 2026): su destino final es el schema `hub` de PostgreSQL ([`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md)).*
 5. **Las 19 handlers de Ventas al final** — se escriben mucho más limpias cuando los valores ya salieron
 
 ### Capacidad: fijarla explícitamente
@@ -614,9 +619,11 @@ Hay que mudar **conversaciones en curso**, con WhatsApp abierto, ventanas de 24h
 
 ### Trabajo
 
+> **Actualización (12 nov 2026):** la capa de datos del hub sobre PostgreSQL debe estar terminada antes del primer corte. Solo se migran la configuración y las **conversaciones activas** (no cerradas, o cerradas dentro de su ventana de reapertura) con todos sus mensajes; lo histórico queda en la plataforma vieja. Orden del corte: importar configuración → reapuntar webhook → importar conversaciones → reimportar (idempotente). Detalle en [`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md) §9.
+
 1. ✅ **Migración en corte** (decisión 5 de la Fase D) — sin doble escritura. Definir ventana, duración máxima tolerable y punto de no retorno.
 2. Migrar organizaciones, equipos, números, bots, usuarios y configuración.
-3. Migrar conversaciones y mensajes, poblando `vertical` y `customerId` al escribir. **El expediente arranca vacío**: no se generan resúmenes de conversaciones históricas.
+3. Migrar las conversaciones **activas** y sus mensajes, poblando `vertical` y `customerId` al escribir. **El expediente arranca vacío**: no se generan resúmenes de conversaciones históricas.
 4. Reapuntar los webhooks de los proveedores al GCP nuevo (las rutas de la función 1). **Los números no cambian.** La validación de firma y las credenciales en Secret Manager deben estar listas antes del corte.
 5. **Marca por marca, empezando por la de menor volumen** — esa primera marca es el rodaje de la plataforma (§5).
 6. Plan de rollback explícito: la plataforma vieja se mantiene encendida y capaz de recibir hasta cerrar cada corte.
@@ -672,7 +679,7 @@ Queda listo para que Valuación lo use tal cual cuando entre.
 
 ### 12.2 La ficha única de cliente
 
-`customers/{orgId}_{phone}` existe y se puebla **desde la Fase 0**. Cuando se llega aquí, **los datos ya están**: no hay backfill. Lo que falta es la vista.
+`customers/{orgId}_{phone}` existe y se puebla **desde la Fase 0** (en PostgreSQL: `clientes.clientes` y `clientes.resumenes`, actualizado 12 nov 2026). Cuando se llega aquí, **los datos ya están**: no hay backfill. Lo que falta es la vista.
 
 ```mermaid
 flowchart TB
