@@ -15,8 +15,8 @@ DB/Hub/
 ├── Alta_db.sql                 Script maestro (una transacción; re-ejecutable)
 ├── Tables/                     log_errores, organizaciones, usuarios, usuarios_organizaciones, roles_modulo, usuarios_roles_modulo
 ├── Functions/
-│   ├── Helpers/                errores, peticion, seguridad (identidad y permisos), usuario_json
-│   └── Acciones/               consulta_usuario_actual, importa_usuarios
+│   ├── Helpers/                errores, peticion, seguridad (identidad y permisos), usuario_json, editor_usuarios
+│   └── Acciones/               consulta_usuario_actual, importa_usuarios y las del editor de usuarios
 ├── Datos_maestros/             roles_modulo (catálogo), usuarios_sistema (emails de servicio)
 ├── Migraciones/                cambios de estructura sobre una base ya dada de alta
 └── Pruebas/                    pruebas_flujo.sql (en una transacción con ROLLBACK)
@@ -68,10 +68,12 @@ Catálogo (`Datos_maestros/roles_modulo.sql`):
 | `servicio` | `ADMINISTRADOR`, `AGENTE`, `CONSULTA` |
 | `valuacion` | `ADMINISTRADOR`, `GERENTE`, `VALUADOR`, `CONSULTA` |
 
-Quién edita a quién (Q39; lo aplicarán las acciones del editor de usuarios):
+Quién edita a quién (Q39; lo aplican las acciones del editor de usuarios):
 - **Super admin**: todo.
 - **Administrador de un módulo en una marca** (rol con `es_administrador`): asigna y quita los roles de ese módulo en esa marca, incluido el equipo.
 - **Agencias** del usuario en una marca: cualquier administrador de algún módulo de esa marca.
+- **Sacar a alguien de una marca**: hay que administrar todos los módulos donde tiene rol en ella.
+- Solo un super admin modifica a un super admin. Nadie (salvo el super admin) se quita a sí mismo la administración de un módulo ni se saca de una marca.
 
 ## Helpers
 
@@ -94,8 +96,24 @@ Quién edita a quién (Q39; lo aplicarán las acciones del editor de usuarios):
 |--------|---------|-------|------|
 | `Hub.consultaUsuarioActual` | `consulta_usuario_actual` | Cualquier usuario activo | `{ usuario, organizacionesVisibles }` |
 | `Hub.importaUsuarios` | `importa_usuarios` | Sistema | `{ organizaciones, usuarios: { creados, actualizados } }`. Idempotente, todo o nada. Lo que viene reemplaza lo guardado (marcas del usuario y, en cada marca, los roles de los módulos que maneja la carga: param `modulos`); lo que no viene no se toca |
+| `Hub.registraInicioSesion` | `registra_inicio_sesion` | El propio usuario, al entrar | `{ usuario }`. Último acceso, `online`, y nombre y foto de Google si vienen. Entrar por primera vez es "aceptar la invitación" |
+
+**Editor de usuarios** (decisión Q39). Las que escriben las llama el **backend** con el token del usuario, porque después actualiza `accesos/{email}` en Firestore con el `usuario` de la respuesta (diseño §6.2):
+
+| Acción | Función | Quién | Params → Info |
+|--------|---------|-------|---------------|
+| `Hub.consultaRolesModulo` | `consulta_roles_modulo` | Cualquier usuario activo | `modulo?` → `{ roles: [{ modulo, rol, nombre, descripcion, esAdministrador }] }` |
+| `Hub.consultaUsuarios` | `consulta_usuarios` | Administrador de algún módulo de la marca | `idOrganizacion`, `modulo?`, `incluyeInactivos?` → `{ usuarios: [UsuarioEnOrganizacion], permisos: { modulos, agencias } }` |
+| `Hub.invitaUsuario` | `invita_usuario` | Administrador del módulo en la marca | `email`, `idOrganizacion`, `modulo`, `rol`, `idEquipo?`, `agencias?`, `nombre?` → `{ usuario, creado }`. Crea al usuario como invitado si no existe; el correo lo manda el backend. `ESTADO_INVALIDO`: `YA_TIENE_ROL`, `USUARIO_INACTIVO` |
+| `Hub.guardaUsuario` | `guarda_usuario` | Administrador del módulo (roles) / de algún módulo (agencias) | `idUsuario`, `idOrganizacion`, `agencias?`, `modulos?: { modulo: { rol, idEquipo? } \| null }` → `{ usuario }`. Solo toca lo que viene; `null` quita el rol. `ESTADO_INVALIDO`: `PROPIO_ADMINISTRADOR` |
+| `Hub.quitaUsuarioDeOrganizacion` | `quita_usuario_de_organizacion` | Administrador de todos los módulos donde el usuario tiene rol en la marca | `idUsuario`, `idOrganizacion` → `{ usuario }`. `ESTADO_INVALIDO`: `PROPIA_MEMBRESIA` |
+| `Hub.cambiaDisponibilidad` | `cambia_disponibilidad` | El propio usuario, o un administrador de una marca que compartan | `esDisponible`, `idUsuario?` → `{ idUsuario, esDisponible }` |
+
+Las agencias se guardan por valor: **el backend las valida contra el API de agencias** antes de llamar (plpgsql no tiene el catálogo). Dar de baja a un usuario en todo el hub (`es_activo`) queda para el super admin, sin acción todavía.
 
 Objeto `Usuario`: `idUsuario`, `email`, `nombre`, `fotoUrl`, `esSuperAdmin`, `esSistema`, `esActivo`, `esDisponible`, `estado`, `ultimoAccesoEn`, `creadoEn`, `organizaciones` (`[{ idOrganizacion, nombre, agencias, modulos: { modulo: { rol, idEquipo } } }]`).
+
+Objeto `UsuarioEnOrganizacion` (una marca): `idUsuario`, `email`, `nombre`, `fotoUrl`, `esSuperAdmin`, `esActivo`, `esDisponible`, `estado`, `ultimoAccesoEn`, `esInvitado`, `agencias`, `modulos`.
 
 ## Diferencias con el diseño
 
@@ -108,5 +126,6 @@ Objeto `Usuario`: `idUsuario`, `email`, `nombre`, `fotoUrl`, `esSuperAdmin`, `es
 
 - **Valuación** (`toma-unidades-en-taller`): adaptar `valuacion.contexto_usuario` y los permisos al nuevo `usuarios_contexto` (rol por marca: el permiso se evalúa con la marca de la oferta), y definir en `valuacion.roles_permisos` los permisos de `GERENTE`.
 - Definir el API del catálogo de agencias y qué id expone (debe coincidir con `valuacion.configuraciones_agencias.id_agencia`).
-- El editor de usuarios (`consultaUsuarios`, `consultaRolesModulo`, `invitaUsuario`, `guardaUsuario`, …) y la copia `accesos/{email}` en Firestore.
+- Editor de usuarios: falta el backend (llamar las acciones con el token del usuario, validar agencias contra su API, mandar el correo de invitación y escribir `accesos/{email}`) y la pantalla. Depende de la ruta `/hub` en API Gateway.
+- Bitácora de cambios de usuarios (`hub_cleber.bitacora`, Fase 4).
 - Que un email de servicio solo valga por `/internal` depende de API Gateway; plpgsql no ve la ruta (diseño §4.3).

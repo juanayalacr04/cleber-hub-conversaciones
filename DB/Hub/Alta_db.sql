@@ -72,6 +72,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Helpers/seguridad.sql
 \echo 'Functions/Helpers/usuario_json.sql'
 \i Functions/Helpers/usuario_json.sql
+\echo 'Functions/Helpers/editor_usuarios.sql'
+\i Functions/Helpers/editor_usuarios.sql
 
 -- 4. Funciones de acciones
 \echo '================================================================================'
@@ -80,6 +82,20 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/consulta_usuario_actual.sql
 \echo 'Functions/Acciones/importa_usuarios.sql'
 \i Functions/Acciones/importa_usuarios.sql
+\echo 'Functions/Acciones/consulta_roles_modulo.sql'
+\i Functions/Acciones/consulta_roles_modulo.sql
+\echo 'Functions/Acciones/consulta_usuarios.sql'
+\i Functions/Acciones/consulta_usuarios.sql
+\echo 'Functions/Acciones/invita_usuario.sql'
+\i Functions/Acciones/invita_usuario.sql
+\echo 'Functions/Acciones/guarda_usuario.sql'
+\i Functions/Acciones/guarda_usuario.sql
+\echo 'Functions/Acciones/quita_usuario_de_organizacion.sql'
+\i Functions/Acciones/quita_usuario_de_organizacion.sql
+\echo 'Functions/Acciones/cambia_disponibilidad.sql'
+\i Functions/Acciones/cambia_disponibilidad.sql
+\echo 'Functions/Acciones/registra_inicio_sesion.sql'
+\i Functions/Acciones/registra_inicio_sesion.sql
 
 -- 5. Datos maestros
 \echo '================================================================================'

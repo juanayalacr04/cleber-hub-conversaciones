@@ -209,9 +209,10 @@ Envelope y errores de la convención. Las llama PostgREST por `POST rpc/<funcion
 
 | Grupo | Acciones | Quién llama |
 |-------|----------|-------------|
-| Identidad | `usuarioActual`, `usuariosContexto` (para valuación) | Dashboard, `valuacion` |
+| Identidad | `consultaUsuarioActual`, `registraInicioSesion`, `usuarios_contexto` (función, para valuación) | Dashboard, `valuacion` |
 | Configuración | `consulta*` / `guarda*` / `elimina*` de organizaciones, equipos, números, bots, plantillas, etiquetas | Dashboard (directo) |
-| Usuarios | `consultaUsuarios`, `consultaRolesModulo`, `invitaUsuario`, `guardaUsuario`, `quitaUsuarioDeOrganizacion`, `cambiaDisponibilidad` | **Backend** (también escribe `accesos`) |
+| Usuarios | `consultaRolesModulo`, `consultaUsuarios` | Dashboard (directo) |
+| Usuarios (escritura) | `invitaUsuario`, `guardaUsuario`, `quitaUsuarioDeOrganizacion`, `cambiaDisponibilidad` (reglas de Q39) | **Backend** (también escribe `accesos`, valida agencias contra su API y manda el correo de invitación) |
 | Conversaciones (pipeline) | `resuelveNumero` (número + equipo + bot + org, para la caché), `obtieneOAbreConversacion` (incluye reapertura por ventana), `guardaMensaje` (idempotente por `id_mensaje_proveedor`), `consultaHistorial` (para el bot) | Backend (`/internal`) |
 | Conversaciones (operación) | `asignaConversacion`, `reclamaConversacion`, `transfiereConversacion`, `cierraConversacion`, `registraResultado`, `agregaNota`, `agregaEtiqueta` | Backend (por usuario o sistema) |
 | Consultas del dashboard | `consultaConversaciones` (bandeja/kanban), `consultaMensajes` (`desde` para incremental), `consultaNotas`, `consultaBitacora`, `consultaEstadisticas` | Dashboard (directo) |

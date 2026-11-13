@@ -39,8 +39,15 @@ END $$;
 CREATE FUNCTION pg_temp.llama(p_accion text, p_params jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE
   v_funcion text := CASE p_accion
-    WHEN 'Hub.consultaUsuarioActual' THEN 'consulta_usuario_actual'
-    WHEN 'Hub.importaUsuarios'       THEN 'importa_usuarios'
+    WHEN 'Hub.consultaUsuarioActual'          THEN 'consulta_usuario_actual'
+    WHEN 'Hub.importaUsuarios'                THEN 'importa_usuarios'
+    WHEN 'Hub.consultaRolesModulo'            THEN 'consulta_roles_modulo'
+    WHEN 'Hub.consultaUsuarios'               THEN 'consulta_usuarios'
+    WHEN 'Hub.invitaUsuario'                  THEN 'invita_usuario'
+    WHEN 'Hub.guardaUsuario'                  THEN 'guarda_usuario'
+    WHEN 'Hub.quitaUsuarioDeOrganizacion'     THEN 'quita_usuario_de_organizacion'
+    WHEN 'Hub.cambiaDisponibilidad'           THEN 'cambia_disponibilidad'
+    WHEN 'Hub.registraInicioSesion'           THEN 'registra_inicio_sesion'
   END;
   v_resultado jsonb;
 BEGIN
@@ -91,6 +98,11 @@ DECLARE
   v_carga    jsonb;
   v_usuarios jsonb;
   v_valuador jsonb;
+  v_id_admin    bigint;
+  v_id_valuador bigint;
+  v_id_super    bigint;
+  v_id_nuevo    bigint;
+  v_invita      jsonb;
   i          jsonb;
 BEGIN
   v_usuarios := jsonb_build_array(
@@ -289,6 +301,115 @@ BEGIN
   RAISE NOTICE '--- 7. Envelope ---------------------------------------------------------';
   PERFORM pg_temp.error(hub_cleber.consulta_usuario_actual('{"action": "Otra.accion"}'), 'ACCION_INVALIDA', '7.1 action ajena');
   PERFORM pg_temp.error(hub_cleber.consulta_usuario_actual('[]'), 'PETICION_INVALIDA', '7.2 El body debe ser un objeto');
+
+  -- Estado en este punto: admin = ADMINISTRADOR de ventas en A; valuador = CONSULTA en servicio y VALUADOR en
+  -- valuación en A; baja = inactivo en A; super = sin marcas. Nadie en B.
+  SELECT id_usuario INTO v_id_admin    FROM hub_cleber.usuarios WHERE email = c_admin;
+  SELECT id_usuario INTO v_id_valuador FROM hub_cleber.usuarios WHERE email = c_valuador;
+  SELECT id_usuario INTO v_id_super    FROM hub_cleber.usuarios WHERE email = c_super;
+
+  RAISE NOTICE '--- 8. Editor: catálogo y consultaUsuarios -----------------------------';
+  PERFORM pg_temp.como(c_valuador);
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaRolesModulo', '{"modulo": "valuacion"}'), '8.1 Cualquier usuario consulta el catálogo');
+  PERFORM pg_temp.igual(jsonb_path_query_array(i, '$.roles[*].rol')::text, '["ADMINISTRADOR", "GERENTE", "VALUADOR", "CONSULTA"]',
+                        '8.2 Roles de valuación en orden');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.consultaUsuarios', '{"idOrganizacion": "prueba-hub-a"}'), 'SIN_PERMISO',
+                        '8.3 Un valuador no administra usuarios');
+  PERFORM pg_temp.como(c_admin);
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaUsuarios', '{"idOrganizacion": "prueba-hub-a"}'), '8.4 El administrador de ventas consulta la marca');
+  PERFORM pg_temp.igual(jsonb_path_query_array(i, '$.usuarios[*].email')::text, format('["%s", "%s"]', c_admin, c_valuador),
+                        '8.5 ... los activos, por nombre');
+  PERFORM pg_temp.igual(i#>>'{permisos,modulos}', '["ventas"]', '8.6 ... y sabe qué módulos puede editar');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaUsuarios', '{"idOrganizacion": "prueba-hub-a", "modulo": "valuacion", "incluyeInactivos": true}'),
+                  '8.7 Filtro por módulo');
+  PERFORM pg_temp.igual(jsonb_path_query_array(i, '$.usuarios[*].email')::text, format('["%s"]', c_valuador),
+                        '8.8 ... solo quien tiene rol en valuación');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.consultaUsuarios', '{"idOrganizacion": "prueba-hub-b"}'), 'SIN_PERMISO',
+                        '8.9 Marca donde no administra nada');
+
+  RAISE NOTICE '--- 9. Editor: invitaUsuario ------------------------------------------';
+  v_invita := jsonb_build_object('email', 'Nuevo@Prueba-Hub.invalid', 'idOrganizacion', 'prueba-hub-a', 'modulo', 'ventas',
+                                 'rol', 'AGENTE', 'idEquipo', 'equipo-a-ventas', 'agencias', jsonb_build_array('prueba-ag-a1'));
+  PERFORM pg_temp.error(pg_temp.llama('Hub.invitaUsuario', v_invita || '{"modulo": "valuacion", "rol": "VALUADOR"}'), 'SIN_PERMISO',
+                        '9.1 No invita a un módulo que no administra');
+  i := pg_temp.ok(pg_temp.llama('Hub.invitaUsuario', v_invita), '9.2 Invita a ventas');
+  PERFORM pg_temp.igual(i->>'creado', 'true', '9.3 Crea al usuario');
+  v_id_nuevo := (i#>>'{usuario,idUsuario}')::bigint;
+  PERFORM pg_temp.igual(i#>>'{usuario,organizaciones,0,modulos,ventas}', '{"rol": "AGENTE", "idEquipo": "equipo-a-ventas"}',
+                        '9.4 Con rol y equipo');
+  PERFORM pg_temp.igual((SELECT invitado_por::text || '/' || coalesce(ultimo_acceso_en::text, 'invitado') FROM hub_cleber.usuarios
+                          WHERE id_usuario = v_id_nuevo), v_id_admin::text || '/invitado', '9.5 Queda como invitado del admin');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.invitaUsuario', v_invita), 'ESTADO_INVALIDO', '9.6 Ya tiene rol en ese módulo');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.invitaUsuario', v_invita || '{"email": "otro@prueba-hub.invalid", "rol": "VALUADOR"}'),
+                        'CAMPO_INVALIDO', '9.7 Rol que no existe en el módulo');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.invitaUsuario', v_invita || '{"email": "x@algo.internal"}'), 'CAMPO_INVALIDO',
+                        '9.8 No se invitan emails de sistema');
+  PERFORM pg_temp.como(c_super);
+  i := pg_temp.ok(pg_temp.llama('Hub.invitaUsuario', jsonb_build_object('email', 'nuevo@prueba-hub.invalid',
+         'idOrganizacion', 'prueba-hub-b', 'modulo', 'valuacion', 'rol', 'GERENTE')), '9.9 El super admin lo invita a otra marca');
+  PERFORM pg_temp.igual(i->>'creado', 'false', '9.10 ... sin duplicarlo');
+  PERFORM pg_temp.igual(jsonb_path_query_array(i, '$.usuario.organizaciones[*].idOrganizacion')::text, '["prueba-hub-a", "prueba-hub-b"]',
+                        '9.11 Queda en las dos marcas');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.invitaUsuario', v_invita || '{"idOrganizacion": "no-existe"}'), 'CAMPO_INVALIDO',
+                        '9.12 Organización inexistente');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.invitaUsuario', v_invita || '{"email": "baja@prueba-hub.invalid", "modulo": "servicio"}'),
+                        'ESTADO_INVALIDO', '9.13 Un usuario dado de baja no se invita');
+
+  RAISE NOTICE '--- 10. Editor: guardaUsuario -----------------------------------------';
+  PERFORM pg_temp.como(c_admin);
+  i := pg_temp.ok(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_nuevo, 'idOrganizacion', 'prueba-hub-a',
+         'modulos', jsonb_build_object('ventas', jsonb_build_object('rol', 'CONSULTA')), 'agencias', jsonb_build_array('prueba-ag-a2'))),
+       '10.1 Cambia rol y agencias');
+  PERFORM pg_temp.igual(i#>>'{usuario,organizaciones,0,modulos,ventas,rol}', 'CONSULTA', '10.2 Rol nuevo');
+  PERFORM pg_temp.igual(i#>>'{usuario,organizaciones,0,agencias}', '["prueba-ag-a2"]', '10.3 Agencias nuevas');
+  PERFORM pg_temp.igual(i#>>'{usuario,organizaciones,1,modulos,valuacion,rol}', 'GERENTE', '10.4 Lo de la otra marca no cambia');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_nuevo, 'idOrganizacion', 'prueba-hub-a',
+         'modulos', jsonb_build_object('valuacion', jsonb_build_object('rol', 'VALUADOR')))), 'SIN_PERMISO',
+       '10.5 No asigna roles de un módulo que no administra');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_nuevo, 'idOrganizacion', 'prueba-hub-b',
+         'agencias', '[]'::jsonb)), 'SIN_PERMISO', '10.6 No edita en una marca que no administra');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_admin, 'idOrganizacion', 'prueba-hub-a',
+         'modulos', jsonb_build_object('ventas', jsonb_build_object('rol', 'AGENTE')))), 'ESTADO_INVALIDO',
+       '10.7 No se quita a sí mismo la administración');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_nuevo, 'idOrganizacion', 'prueba-hub-a')),
+       'CAMPO_REQUERIDO', '10.8 Sin nada que cambiar');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_super, 'idOrganizacion', 'prueba-hub-a',
+         'agencias', '[]'::jsonb)), 'SIN_PERMISO', '10.9 Un administrador no modifica a un super admin');
+  i := pg_temp.ok(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_nuevo, 'idOrganizacion', 'prueba-hub-a',
+         'modulos', jsonb_build_object('ventas', NULL))), '10.10 Le quita el rol de ventas');
+  PERFORM pg_temp.igual(i#>>'{usuario,organizaciones,0,modulos}', '{}', '10.11 ... sigue en la marca, sin roles');
+  PERFORM pg_temp.como(c_super);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_valuador, 'idOrganizacion', 'prueba-hub-b',
+         'agencias', '[]'::jsonb)), 'CAMPO_INVALIDO', '10.12 Usuario que no pertenece a la marca');
+
+  RAISE NOTICE '--- 11. Editor: quitaUsuarioDeOrganizacion ----------------------------';
+  PERFORM pg_temp.como(c_admin);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.quitaUsuarioDeOrganizacion', jsonb_build_object('idUsuario', v_id_valuador,
+         'idOrganizacion', 'prueba-hub-a')), 'SIN_PERMISO', '11.1 No quita a quien tiene roles en módulos que no administra');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.quitaUsuarioDeOrganizacion', jsonb_build_object('idUsuario', v_id_admin,
+         'idOrganizacion', 'prueba-hub-a')), 'ESTADO_INVALIDO', '11.2 No se quita a sí mismo');
+  i := pg_temp.ok(pg_temp.llama('Hub.quitaUsuarioDeOrganizacion', jsonb_build_object('idUsuario', v_id_nuevo,
+         'idOrganizacion', 'prueba-hub-a')), '11.3 Quita al usuario sin roles en la marca');
+  PERFORM pg_temp.igual(jsonb_path_query_array(i, '$.usuario.organizaciones[*].idOrganizacion')::text, '["prueba-hub-b"]',
+                        '11.4 ... conserva la otra marca');
+
+  RAISE NOTICE '--- 12. Disponibilidad e inicio de sesión -----------------------------';
+  PERFORM pg_temp.como(c_valuador);
+  PERFORM pg_temp.ok(pg_temp.llama('Hub.cambiaDisponibilidad', '{"esDisponible": false}'), '12.1 El usuario cambia su disponibilidad');
+  PERFORM pg_temp.igual((SELECT es_disponible::text FROM hub_cleber.usuarios WHERE id_usuario = v_id_valuador), 'false', '12.2 ... queda no disponible');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.cambiaDisponibilidad', jsonb_build_object('idUsuario', v_id_admin, 'esDisponible', false)),
+                        'SIN_PERMISO', '12.3 Un valuador no cambia la de otros');
+  PERFORM pg_temp.como(c_admin);
+  PERFORM pg_temp.ok(pg_temp.llama('Hub.cambiaDisponibilidad', jsonb_build_object('idUsuario', v_id_valuador, 'esDisponible', true)),
+                     '12.4 El administrador de su marca sí');
+  PERFORM pg_temp.como('nuevo@prueba-hub.invalid');
+  i := pg_temp.ok(pg_temp.llama('Hub.registraInicioSesion', '{"nombre": "Nuevo Usuario", "fotoUrl": "https://foto.invalid/n.png"}'),
+                  '12.5 Primer inicio de sesión');
+  PERFORM pg_temp.igual(i#>>'{usuario,nombre}', 'Nuevo Usuario', '12.6 Toma el nombre de la cuenta de Google');
+  PERFORM pg_temp.igual((i#>>'{usuario,ultimoAccesoEn}' IS NOT NULL)::text || '/' || (i#>>'{usuario,estado}'), 'true/online',
+                        '12.7 Deja de ser invitado y queda en línea');
+  PERFORM pg_temp.como(c_sistema);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.registraInicioSesion', '{}'), 'SIN_PERMISO', '12.8 El sistema no usa el editor ni inicia sesión');
 
   RAISE NOTICE '========================================================================';
   RAISE NOTICE 'TODAS LAS PRUEBAS PASARON';
