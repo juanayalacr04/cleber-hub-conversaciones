@@ -347,7 +347,7 @@ Aplica a las fases "Migrar Comercial" y "Migrar Servicio" de `PLAN_TRABAJO_CENTR
 ## 12. Pendientes
 
 - **Schema central `autorizaciones`** (repo `api`, rama `autorizaciones`, en desarrollo): permisos, roles y alcances (empresa, agencia de Quiter) por sistema para todo Cleber. Se traslapa con los roles de `hub_cleber` (Q36–Q39). Para las primeras pruebas se queda `hub_cleber` (2026-11-13); después se decide si el hub y valuación pasan a `autorizaciones`. Mientras: no ampliar el editor de roles, usar ids de Quiter para agencias y consultar roles solo desde las funciones de seguridad. El authorizer de Google (`infra/authorizer-google/`) le sirve igual a su ruta `/autorizaciones`.
-- Verificar en dev que el mapeo `X-User-Email ← context.authorizer.email` de REST v1 sobrescribe el header enviado por el cliente.
+- ~~Verificar en dev que el mapeo `X-User-Email ← context.authorizer.email` de REST v1 sobrescribe el header enviado por el cliente.~~ Verificado el 2026-11-13 (`PENDIENTES_INFRA_DEV.md`, V1).
 - Medir la latencia GCP → API Gateway → PostgREST en el pipeline y decidir si se combina en `Hub.recibeMensaje` (§7).
 - Nombres finales de las rutas y de las API keys con el responsable del API Gateway.
 - Ubicación definitiva del DDL de `hub_cleber`, `clientes` y `valuacion` (hoy `DB/Hub/` aquí, `DB/Clientes/` y `DB/Valuacion/` en `toma-unidades-en-taller`).

@@ -36,7 +36,7 @@ En desarrollo, el API Gateway, la Lambda `authorizer-google-dev` y PostgREST est
 
 | # | Pendiente | Cómo |
 |---|-----------|------|
-| V1 | Que el mapeo `X-User-Email ← context.authorizer.email` **sobrescriba** el header que mande el cliente | Paso 7.2 de la guía: llamar con un `X-User-Email` falso y comprobar que la respuesta trae el correo real |
+| V1 | ~~Que el mapeo `X-User-Email ← context.authorizer.email` **sobrescriba** el header que mande el cliente~~ | **Verificado (2026-11-13)** en el gateway de dev: con un `X-User-Email` falso la respuesta trae el correo real. También 401 sin token, 403 sin API key y schema fijo por ruta |
 | V2 | ~~Qué hace PostgREST con el header `Authorization: Bearer <id_token de Google>`~~ | **Resuelto (2026-11-13):** responde `PGRST300` ("Server lacks JWT secret"). El token va en `X-Id-Token` (guía, paso 6) |
 
 ### Para pasar a producción
