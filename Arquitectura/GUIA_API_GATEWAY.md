@@ -14,9 +14,7 @@ Dashboard (Next.js, servidor) ── id_token de Google + x-api-key ──► AP
 
 Diseño: [`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md) §3 y §4 (Q1, Q3, Q26, Q27). Convenciones: `template-para-desarrollo/docs/infraestructura.md` y `autenticacion.md`.
 
-**Diferencias con el template** (se proponen al dueño del template, §12 del diseño):
-- El template habla de "JWT Authorizer", pero ese tipo **solo existe en HTTP API**. `z66x2zyooj` es REST v1, así que el authorizer es una **Lambda** (`infra/authorizer-google/`).
-- El template dice que el vencimiento del `id_token` (1 hora) no afecta al usuario. Sí afecta: el authorizer rechaza tokens vencidos. El login del dashboard refresca el `id_token` con el refresh token de Google antes de que venza.
+Antes de configurar, lee **[Diferencias con el template](#diferencias-con-el-template)** al final: el template pide un "JWT Authorizer" que no existe en este tipo de API Gateway, y aquí se explica qué se tomó del template y qué se decidió aparte.
 
 Rutas que crea esta guía:
 
@@ -146,3 +144,65 @@ Al terminar, **quita la audiencia de gcloud** de `GOOGLE_CLIENT_IDS`.
 | `API_GATEWAY_TOKEN_HEADER` | `Authorization` (default) o `X-Id-Token` (paso 6, opción B) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | paso 0 |
 | `AUTH_SECRET` | `openssl rand -base64 32` |
+
+---
+
+## Diferencias con el template
+
+Para revisar con el responsable del API Gateway y con el dueño de `template-para-desarrollo` (§12 del diseño).
+
+### Qué hace el authorizer
+
+Es una Lambda (`infra/authorizer-google/index.mjs`) que API Gateway ejecuta **antes** de dejar pasar una petición a PostgREST. Recibe el `id_token` de Google que manda el dashboard y revisa, en orden:
+
+1. Que sea un JWT firmado con RS256.
+2. **La firma**, con las llaves públicas de Google (`https://www.googleapis.com/oauth2/v3/certs`, en caché según su `Cache-Control`). Si alguien altera el token, por ejemplo el correo, la firma no cuadra.
+3. El **emisor** (`iss` = `accounts.google.com`) y la **audiencia** (`aud` = un Client ID de `GOOGLE_CLIENT_IDS`): un token de Google emitido para otra aplicación no sirve.
+4. Que **no haya vencido** (`exp`), con 60 s de tolerancia de reloj.
+5. Que traiga **correo verificado** (`email`, `email_verified = true`).
+6. Opcional: que el correo sea de un dominio de `ALLOWED_EMAIL_DOMAINS`.
+
+Si todo pasa, responde una política *Allow* con `context.email`; la integración lo pone en `X-User-Email`. Si algo falla, API Gateway responde **401** y la petición no llega a PostgREST.
+
+### Lo que viene del template
+
+| Qué | Dónde lo dice el template |
+|-----|---------------------------|
+| Login con NextAuth v5 + Google; el `id_token` viaja en cada llamada al API Gateway | `autenticacion.md`, "Flujo objetivo" |
+| API Gateway valida el token antes de llegar a PostgREST | `autenticacion.md`, "Flujo objetivo" |
+| Lo que se valida: `iss` = Google, `aud` = Client ID, `exp`, `email`, `email_verified` | `autenticacion.md`, "Claims JWT que usa el API Gateway" |
+| El correo se inyecta como `X-User-Email` y solo lo pone el gateway; plpgsql no decodifica el token | `autenticacion.md`, "Reglas de seguridad" |
+| Un solo authorizer en `z66x2zyooj`, asignado a cada ruta nueva de sistema | `infraestructura.md`, "Pasos al agregar un sistema nuevo" |
+| API key por sistema **además** del authorizer | `infraestructura.md`, "API Keys" |
+| Restringir a dominio corporativo es opcional | `autenticacion.md`, "Dominios permitidos" |
+| Lambdas en Node.js 22 | `infraestructura.md`, "Lambda functions" |
+
+### Lo que no coincide con el template
+
+| El template dice | Lo que pasa | Qué se hizo |
+|------------------|-------------|-------------|
+| "API Gateway valida el JWT con el **JWT Authorizer** de AWS" (con *Issuer* y *Audience*) | El JWT Authorizer solo existe en **HTTP API**. `z66x2zyooj` es **REST v1** (confirmado). En REST v1 los authorizers son *Lambda* o *Cognito* | El mismo qué (validar el `id_token` de Google e inyectar el correo), hecho como **Lambda authorizer** (diseño, Q26) |
+| El ejemplo de `infraestructura.md` describe un **HTTP API** con JWT Authorizer y, a la vez, **API keys** en todos los endpoints | HTTP API **no tiene API keys ni usage plans**: las dos cosas no pueden convivir en un HTTP API | Se queda REST v1 (tiene API keys) con Lambda authorizer |
+| "La expiración del `id_token` de Google a la hora no afecta al usuario porque NextAuth reutiliza el último `id_token`" | El authorizer (y cualquier JWT Authorizer) **rechaza tokens vencidos** con 401: después de una hora, todas las llamadas fallarían | El login pide refresh token (`access_type=offline`) y renueva el `id_token` 5 min antes de que venza (`apps/web/src/lib/auth.ts`) |
+
+### Decisiones propias (el template no las cubre)
+
+| Decisión | Por qué | Base |
+|----------|---------|------|
+| Lambda authorizer tipo **Token** que devuelve política + `context.email` | Forma estándar de AWS para REST v1 | Documentación de AWS de Lambda authorizers |
+| Verificar la firma con `node:crypto`, **sin librerías** | `API/build/build.sh` del repo `api` empaqueta solo `.mjs` y `.json` de cada Lambda, sin `node_modules` | Pasos de Google para verificar un ID token |
+| No usar `templates/lambda/index.mjs` como base | Ese template es para Lambdas de integración que llaman a PostgREST con secretos; el authorizer no hace nada de eso (sí se tomó Node.js 22) | — |
+| Caché del resultado por token, **300 s** | La Lambda no corre en cada petición: menos costo y latencia | Opción estándar del authorizer |
+| Política *Allow* sobre **todo el stage** (`.../v3/*`), no solo la ruta pedida | Con caché, API Gateway reutiliza la política en otras rutas; si cubriera solo una, las demás darían 403 | Comportamiento documentado de AWS con caché de authorizer |
+| Token inválido → **401** (`Unauthorized`), no *Deny* (403) | El dashboard trata 401 como sesión vencida y 403 como error de configuración (`autenticacion.md`, "Manejo de errores") | Template, tabla de errores HTTP |
+| **Schema fijo por ruta** (`Content-Profile` / `Accept-Profile` en la integración: `/toma-unidades` → `valuacion`, `/hub` → `hub_cleber`) | Que una ruta no sirva para llamar funciones de otro schema | Agregado propio |
+| Plan B para el header del token: `X-Id-Token` en lugar de `Authorization` | Con proxy integration, `Authorization` llega a PostgREST; si tiene `jwt-secret`, lo rechazaría. **Sin verificar**: se confirma en el paso 7 | Agregado propio (paso 6) |
+| Lambda **fuera de la VPC** | Necesita internet para descargar las llaves de Google | Requisito técnico |
+| `GOOGLE_CLIENT_IDS` acepta varios Client IDs | Un solo authorizer para todos los sistemas: cada uno puede tener su propio cliente OAuth | Template ("solo se crea una vez") + diseño (Q27) |
+
+### Pendientes de acordar
+
+- **Dónde vive el código:** hoy en `infra/authorizer-google/` de este repo, provisional. Su lugar es el repo central `api` (`API/authorizer-google/`), con dueño de plataforma (Q27).
+- **Clientes OAuth:** uno por sistema (cada uno agrega su Client ID a `GOOGLE_CLIENT_IDS`) o uno compartido.
+- **Otros sistemas que lo necesitan:** el schema central `autorizaciones` (repo `api`, rama `autorizaciones`) planea su ruta `/autorizaciones/{proxy+}` con "JWT Authorizer"; le aplica este mismo authorizer.
+- **Corregir el template:** `autenticacion.md` (JWT Authorizer y vencimiento del token) e `infraestructura.md` (HTTP API con API keys).
