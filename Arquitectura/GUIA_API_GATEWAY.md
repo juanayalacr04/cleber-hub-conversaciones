@@ -42,17 +42,48 @@ En **Google Cloud Console**, proyecto **`ambiente-desarrollo-ti`** (el mismo del
 
 Código: `infra/authorizer-google/index.mjs` (sin dependencias). Pruebas: `cd infra/authorizer-google && node --test`.
 
-1. *Lambda → Crear función*: nombre `authorizer-google`, runtime **Node.js 22.x**, arquitectura x86_64 o arm64.
-2. Sube `index.mjs` (y `package.json`) en un zip. Handler: `index.handler`.
-3. **Sin VPC.** Necesita salir a internet para descargar las llaves públicas de Google (`https://www.googleapis.com/oauth2/v3/certs`). Si se pone en VPC, requiere NAT.
-4. Variables de entorno:
+La función se crea y se actualiza con **`infra/authorizer-google/deploy.ps1`** (mismo patrón que `toma-unidades-en-taller/deploy.ps1`). El script arma el zip y crea o actualiza la función; las pruebas se corren aparte, antes de desplegar. Características:
 
-   | Variable | Valor |
-   |----------|-------|
-   | `GOOGLE_CLIENT_IDS` | Client ID del paso 0 (si hay varios ambientes, separados por comas) |
-   | `ALLOWED_EMAIL_DOMAINS` | Opcional: `cleber.com,grupocleber.com`. Vacía = cualquier cuenta de Google verificada (plpgsql igual rechaza a quien no esté en `hub_cleber.usuarios`) |
+| Característica | Valor |
+|----------------|-------|
+| Nombre | `authorizer-google-dev` (dev) / `authorizer-google` (prd) |
+| Runtime / arquitectura | **Node.js 24.x / arm64** |
+| Handler | `index.handler` |
+| Timeout / memoria | 5 s / 128 MB |
+| VPC | **Ninguna.** Necesita salir a internet para descargar las llaves públicas de Google (`https://www.googleapis.com/oauth2/v3/certs`). En VPC requeriría NAT |
+| Rol | Uno con la política administrada `AWSLambdaBasicExecutionRole` (solo escribe logs); créalo antes en IAM |
 
-5. Timeout: 5 s. Memoria: 128 MB.
+Variables de entorno. Se configuran en la consola (*Lambda → Configuration → Environment variables*) o, opcionalmente, con los parámetros del script. **Mientras `GOOGLE_CLIENT_IDS` no exista, el authorizer rechaza todo.**
+
+| Variable | Parámetro (opcional) | Valor |
+|----------|----------------------|-------|
+| `GOOGLE_CLIENT_IDS` | `-GoogleClientIds` | Client ID del paso 0 (varios, separados por comas) |
+| `ALLOWED_EMAIL_DOMAINS` | `-DominiosPermitidos` | Opcional: `cleber.com,grupocleber.com`. Vacía = cualquier cuenta de Google verificada (plpgsql igual rechaza a quien no esté en `hub_cleber.usuarios`) |
+
+Desde `infra/authorizer-google`:
+
+```powershell
+# Pruebas (antes de desplegar)
+node --test
+
+# Crear (la primera vez); las variables se ponen después en la consola
+.\deploy.ps1 dev -Perfil AWSPowerUserAccess-386458449724 -RolArn <arn del rol>
+
+# O crear con variables y con permiso para el API Gateway (-ApiId; también se puede dar en el paso 2)
+.\deploy.ps1 dev -Perfil AWSPowerUserAccess-386458449724 -RolArn <arn del rol> `
+    -GoogleClientIds <client id del paso 0> -ApiId z66x2zyooj
+
+# Actualizar el código después de un cambio
+.\deploy.ps1 dev -Perfil AWSPowerUserAccess-386458449724
+
+# Cambiar las variables (reemplaza las dos)
+.\deploy.ps1 dev -Perfil AWSPowerUserAccess-386458449724 -GoogleClientIds "<id 1>,<id 2>" -DominiosPermitidos "cleber.com"
+
+# Solo generar el zip, sin tocar AWS
+.\deploy.ps1 dev -SoloEmpaquetar
+```
+
+Para `prd` el script pide confirmación escribiendo `prd`.
 
 ## Paso 2 — Authorizer en el API
 
@@ -175,7 +206,7 @@ Si todo pasa, responde una política *Allow* con `context.email`; la integració
 | Un solo authorizer en `z66x2zyooj`, asignado a cada ruta nueva de sistema | `infraestructura.md`, "Pasos al agregar un sistema nuevo" |
 | API key por sistema **además** del authorizer | `infraestructura.md`, "API Keys" |
 | Restringir a dominio corporativo es opcional | `autenticacion.md`, "Dominios permitidos" |
-| Lambdas en Node.js 22 | `infraestructura.md`, "Lambda functions" |
+| Lambdas en Node.js (el template dice 22; el authorizer usa **24 y arm64**, como la Lambda de valuación) | `infraestructura.md`, "Lambda functions" |
 
 ### Lo que no coincide con el template
 
@@ -191,7 +222,7 @@ Si todo pasa, responde una política *Allow* con `context.email`; la integració
 |----------|---------|------|
 | Lambda authorizer tipo **Token** que devuelve política + `context.email` | Forma estándar de AWS para REST v1 | Documentación de AWS de Lambda authorizers |
 | Verificar la firma con `node:crypto`, **sin librerías** | `API/build/build.sh` del repo `api` empaqueta solo `.mjs` y `.json` de cada Lambda, sin `node_modules` | Pasos de Google para verificar un ID token |
-| No usar `templates/lambda/index.mjs` como base | Ese template es para Lambdas de integración que llaman a PostgREST con secretos; el authorizer no hace nada de eso (sí se tomó Node.js 22) | — |
+| No usar `templates/lambda/index.mjs` como base | Ese template es para Lambdas de integración que llaman a PostgREST con secretos; el authorizer no hace nada de eso (el empaquetado y despliegue siguen `toma-unidades-en-taller/deploy.ps1`) | — |
 | Caché del resultado por token, **300 s** | La Lambda no corre en cada petición: menos costo y latencia | Opción estándar del authorizer |
 | Política *Allow* sobre **todo el stage** (`.../v3/*`), no solo la ruta pedida | Con caché, API Gateway reutiliza la política en otras rutas; si cubriera solo una, las demás darían 403 | Comportamiento documentado de AWS con caché de authorizer |
 | Token inválido → **401** (`Unauthorized`), no *Deny* (403) | El dashboard trata 401 como sesión vencida y 403 como error de configuración (`autenticacion.md`, "Manejo de errores") | Template, tabla de errores HTTP |

@@ -22,3 +22,6 @@ dev/env/*.yaml
 
 # Cargas generadas por dev/carga_usuarios_hub.py (contienen emails)
 carga_hub*.sql
+
+# Zips generados por los deploy.ps1 de infra/
+infra/**/*.zip
