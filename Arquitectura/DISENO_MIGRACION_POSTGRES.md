@@ -1,6 +1,6 @@
 # Diseño — El hub sobre PostgreSQL
 
-**Fecha:** 12 de noviembre de 2026 · **Estado:** diseño aprobado en sesión (Q1–Q33), pendiente de revisión escrita.
+**Fecha:** 12 de noviembre de 2026 · **Estado:** diseño aprobado en sesión (Q1–Q33; Q34 y Q35 agregadas después), pendiente de revisión escrita.
 
 Corresponde a la **Fase 2** de `toma-unidades-en-taller/docs/plan-de-trabajo.md` ("Diseño de la migración del hub, sin ejecutar"). Reemplaza lo que dicen sobre Firestore [`PLAN_TRABAJO_CENTRALIZACION.md`](PLAN_TRABAJO_CENTRALIZACION.md) §7.3 y §7.7, y `esquema-valuacion.md` §5 (conversaciones en Firestore).
 
@@ -17,7 +17,7 @@ Documentos relacionados:
 2. **Excepción aceptada:** el backend del hub (Python) **se queda en Cloud Functions de GCP**. Entra a la plataforma de Cleber como un **cliente máquina** más. Replataformarlo a Lambdas Node.js no es parte de esta migración.
 3. **El hub no está en producción.** Lo productivo son `cleber-bot-platform` (Servicio) y `cleber-bot-platform-comercial` (Comercial). Por eso esta "migración" no mueve datos vivos del hub: **se reescribe su capa de datos sobre PostgreSQL antes de la primera marca**. No hay doble escritura, corte ni rollback del hub.
 4. **Firestore se queda solo para lo que exige tiempo real**: un documento de aviso por conversación y la copia de permisos que leen sus reglas. Ningún dato vive solo en Firestore.
-5. **Una base PostgreSQL** con tres schemas: `hub`, `clientes` y `valuacion`. Sin FKs entre schemas (§5.1).
+5. **Una base PostgreSQL** con tres schemas: `hub_cleber`, `clientes` y `valuacion`. Sin FKs entre schemas (§5.1).
 
 ---
 
@@ -27,8 +27,10 @@ Documentos relacionados:
 |---|------|----------|
 | Q1 | Conectividad GCP → AWS | Por el **API Gateway de Cleber** (REST v1) → VPC Link → NLB → PostgREST. Sin Cloud SQL ni red privada |
 | Q2 | Login del dashboard | **NextAuth v5 + Google**. El navegador abre además la sesión de Firebase con el mismo `id_token` (`signInWithCredential`), solo para leer Firestore |
-| Q3 | Identidad en plpgsql | Solo `X-User-Email` inyectado por API Gateway. Rol, `moduleRoles` y agencias se leen del schema `hub`. **Se elimina `X-User-Contexto`** |
-| Q4 | Orden | **Usuarios, organizaciones y agencias** en `hub` se adelantan a la Fase 3 (antes de las pantallas de valuación). El resto en la Fase 4 |
+| Q3 | Identidad en plpgsql | Solo `X-User-Email` inyectado por API Gateway. Rol, `moduleRoles` y agencias se leen del schema `hub_cleber`. **Se elimina `X-User-Contexto`** |
+| Q4 | Orden | **Usuarios y organizaciones** en `hub_cleber` (con las agencias de cada usuario por valor) se adelantan a la Fase 3 (antes de las pantallas de valuación). El resto en la Fase 4 |
+| Q34 | Catálogo de agencias | **No vive en el hub**: viene de un API externo (2026-11-12). El hub guarda solo los ids de agencia del usuario, por valor; el editor de usuarios muestra y valida las opciones contra ese API |
+| Q35 | Nombre del schema | **`hub_cleber`** (2026-11-12). Las acciones conservan el prefijo `Hub.*` (`Content-Profile: hub_cleber`) |
 | Q5 | Backend del hub | Se queda en GCP como cliente máquina (excepción, §1) |
 | Q6 | Dónde vive el DDL | **Provisional:** `DB/Hub/` de este repo. Se mueve cuando se decida la ubicación final (candidato: `GitLab/api`, el repo central `api-cleber`) |
 | Q7 | Conversaciones y mensajes | **A PostgreSQL.** Firestore queda como **canal de aviso** (§6.1) |
@@ -36,7 +38,7 @@ Documentos relacionados:
 | Q9 | Configuración en el dashboard | Sin tiempo real: consulta al cargar y tras guardar. Avance de campañas por **polling** |
 | Q10 | Caché del backend | Configuración en memoria por instancia, **TTL 60 s** |
 | Q11 | Backend como máquina | Ruta `/internal` con **`AWS_IAM`**; SigV4 con credenciales temporales por **federación OIDC** (cuenta de servicio de GCP → `AssumeRoleWithWebIdentity`) + API key del hub. Rol `SISTEMA` |
-| Q12 | Colecciones técnicas | `secrets` → **GCP Secret Manager**. `processed_events` → restricción única en `hub.mensajes`. `actionLog` → `hub.bitacora` |
+| Q12 | Colecciones técnicas | `secrets` → **GCP Secret Manager**. `processed_events` → restricción única en `hub_cleber.mensajes`. `actionLog` → `hub_cleber.bitacora` |
 | Q13 | Fase 4 | Se reescribe como **"capa de datos del hub sobre PostgreSQL"**; termina **antes del primer corte de marca** |
 | Q14, Q28, Q29 | Qué se migra de las plataformas productivas | **Configuración + conversaciones activas** (no cerradas, o cerradas dentro de su ventana de reapertura) **con todos sus mensajes**. Lo histórico se queda en las plataformas viejas |
 | Q16 | Orden del corte | Reapuntar webhook → importar → reimportar (idempotente) |
@@ -44,7 +46,7 @@ Documentos relacionados:
 | Q19 | Dónde vive la lógica | **Estado y atomicidad en plpgsql** (`Hub.*`); orquestación externa (WhatsApp, Abacus, Salesforce, Firestore) en Python |
 | Q20 | Quién escribe desde el dashboard | Configuración: **Next.js → API Gateway (JWT) → PostgREST**. Lo que toca Firestore o un externo: por el backend |
 | Q21 | Backend actuando por un usuario | **Reenvía el `id_token` del usuario** a la ruta con authorizer. `/internal` solo sin usuario (webhooks, bot, jobs) |
-| Q22 | Schemas | Un solo schema **`hub`**; `clientes` y `valuacion` aparte |
+| Q22 | Schemas | Un solo schema **`hub_cleber`**; `clientes` y `valuacion` aparte |
 | Q25 | Capa de datos en Python | `core/postgrest.py` (único cliente) + `core/datos/` por entidad + `core/aviso.py` (Firestore), con prueba de arquitectura |
 | Q26 | Authorizer en REST v1 | **Lambda authorizer** que valida el `id_token` de Google e inyecta `X-User-Email`; `/internal` con IAM nativo |
 | Q27 | Dueño del authorizer | Pieza **compartida de la plataforma** en `GitLab/api/API/authorizer-google/`; se acuerda con el responsable del API Gateway (`z66x2zyooj`) |
@@ -80,7 +82,7 @@ Navegador                │  API Gateway REST v1 (z66x2zyooj)                  
 
 | Ruta | Authorizer | Quién la usa | `Content-Profile` |
 |------|-----------|--------------|-------------------|
-| `/hub/{proxy+}` | Lambda authorizer (Google) + API key | Dashboard (Next.js server), backend reenviando el token del usuario | `hub` |
+| `/hub/{proxy+}` | Lambda authorizer (Google) + API key | Dashboard (Next.js server), backend reenviando el token del usuario | `hub_cleber` |
 | `/clientes/{proxy+}` | Lambda authorizer (Google) + API key | Dashboard (ficha), cuando los permisos por usuario estén en plpgsql | `clientes` |
 | `/toma-unidades/{proxy+}` | Lambda authorizer (Google) + API key | Pantallas de valuación | `valuacion` (o Lambda `TomaUnidades.*`) |
 | `/internal/{proxy+}` | `AWS_IAM` + API key | Backend del hub (webhooks, bot, jobs, importación), Lambdas de valuación | según el schema |
@@ -99,7 +101,7 @@ Los nombres finales de las rutas se acuerdan con el responsable del API Gateway.
 3. Server Components / Route Handlers de Next.js llaman a API Gateway con el id_token + x-api-key.
 4. El Lambda authorizer valida el token y devuelve el email en el contexto.
 5. La integración mapea X-User-Email ← context.authorizer.email (sobrescribe lo que mande el cliente).
-6. plpgsql: hub.usuario_actual() lee X-User-Email y busca al usuario en hub.usuarios.
+6. plpgsql: hub_cleber.usuario_actual() lee X-User-Email y busca al usuario en hub_cleber.usuarios.
 ```
 
 - Las plataformas productivas ya entran con Google (`signInWithPopup` + `GoogleAuthProvider`), así que nadie se queda fuera. Los usuarios se identifican **por email**.
@@ -112,18 +114,18 @@ Los nombres finales de las rutas se acuerdan con el responsable del API Gateway.
 
 ### 4.2 Permisos en plpgsql
 
-Helpers del schema `hub` (mismo patrón que `valuacion`):
+Helpers del schema `hub_cleber` (mismo patrón que `valuacion`):
 
 | Helper | Uso |
 |--------|-----|
-| `hub.usuario_actual()` | `X-User-Email` → fila de `hub.usuarios` (activo). Sin header o sin usuario → `SIN_PERMISO` |
-| `hub.exige_rol(...)` | Rol global del hub (`admin` / `agent` / `viewer`) o super admin |
-| `hub.exige_organizacion(id_organizacion)` | La organización está entre las del usuario |
-| `hub.rol_modulo(modulo)` | Rol por módulo (`moduleRoles`), ej. `valuacion` → `VALUADOR` |
-| `hub.agencias_permitidas(id_organizacion)` | Agencias del usuario en esa marca |
+| `hub_cleber.usuario_actual()` | `X-User-Email` → fila de `hub_cleber.usuarios` (activo). Sin header o sin usuario → `SIN_PERMISO` |
+| `hub_cleber.exige_rol(...)` | Rol global del hub (`admin` / `agent` / `viewer`) o super admin |
+| `hub_cleber.exige_organizacion(id_organizacion)` | La organización está entre las del usuario |
+| `hub_cleber.rol_modulo(modulo)` | Rol por módulo (`moduleRoles`), ej. `valuacion` → `VALUADOR` |
+| `hub_cleber.agencias_permitidas(id_organizacion)` | Agencias del usuario en esa marca; `NULL` = sin restricción (super admin y sistema) |
 
 **Valuación** deja de recibir `X-User-Contexto`:
-- `valuacion.usuario_actual()` lee `X-User-Email` y consulta `hub.usuarios_contexto(email)`. Es una función de `hub` que devuelve rol de módulo, super admin y agencias; se llama por valor, sin join a tablas ajenas.
+- `valuacion.usuario_actual()` lee `X-User-Email` y consulta `hub_cleber.usuarios_contexto(email)`. Es una función de `hub_cleber` que devuelve rol de módulo, super admin y agencias; se llama por valor, sin join a tablas ajenas.
 - Es la segunda dependencia permitida entre schemas, junto a `clientes.normaliza_telefono`.
 
 ### 4.3 Máquinas
@@ -144,7 +146,7 @@ Helpers del schema `hub` (mismo patrón que `valuacion`):
 
 **Headers de identidad en `/internal`.** Que la ruta exija IAM no impide que quien llama mande `X-User-Email` con el valor que quiera. Dos condiciones lo mantienen acotado:
 - Solo principales de IAM pueden llamar a `/internal`.
-- plpgsql solo acepta en `/internal` los emails de servicio registrados (`hub.usuarios` con `es_sistema`).
+- plpgsql solo acepta en `/internal` los emails de servicio registrados (`hub_cleber.usuarios` con `es_sistema`).
 
 ### 4.4 Webhooks y crons (sin cambio)
 
@@ -160,7 +162,7 @@ Helpers del schema `hub` (mismo patrón que `valuacion`):
 
 | Schema | Dueño | Contenido |
 |--------|-------|-----------|
-| `hub` | Hub | Organizaciones, agencias, usuarios, equipos, números, bots, plantillas, etiquetas, conversaciones, mensajes, notas, campañas, bitácora |
+| `hub_cleber` | Hub | Organizaciones, usuarios, equipos, números, bots, plantillas, etiquetas, conversaciones, mensajes, notas, campañas, bitácora |
 | `clientes` | Hub | Ficha única (ya creado en `db_dev_01`; `DB/Clientes/` de `toma-unidades-en-taller`) |
 | `valuacion` | Valuación | Ofertas (ya creado en `db_dev_01`) |
 
@@ -169,16 +171,15 @@ Reglas que se mantienen (`esquema-valuacion.md` §1):
 - No hay FKs entre schemas; las relaciones son por valor.
 - Cada schema replica sus helpers (`log_errores`, `registra_error`, `construye_respuesta_de_excepcion`).
 
-### 5.2 Entidades del schema `hub`
+### 5.2 Entidades del schema `hub_cleber`
 
 Ids: los documentos migrados conservan su id de Firestore como `id_origen` (único) para la importación idempotente. Las llaves nuevas son `bigint identity` salvo donde se indica `text`.
 
 | Tabla | Sale de (Firestore) | Columnas clave | Notas |
 |-------|---------------------|----------------|-------|
 | `organizaciones` | `organizations` | `id_organizacion text` PK (= `organizationId`, se conserva), `nombre`, `zona_horaria`, `horario` jsonb, `sf_codigo_marca` **UNIQUE**, `sf_calendario`, `salesforce_config` jsonb (no secretos), `plan` | Los secretos de Salesforce van a Secret Manager (`DECISIONES_UNIFICACION.md`) |
-| `agencias` | nueva | `id_agencia text`, `id_organizacion` FK, `nombre`, `es_activa` | Catálogo por marca que usa valuación (`orgAgencies`). PK (`id_organizacion`, `id_agencia`) |
 | `usuarios` | `users` | `id_usuario`, `email` **UNIQUE** (citext), `nombre`, `foto_url`, `rol` (`admin`/`agent`/`viewer`), `es_super_admin`, `es_sistema`, `es_disponible`, `estado`, `invitado_por`, `ultimo_acceso_en` | El email es la identidad (authorizer) |
-| `usuarios_organizaciones` | `users.organizationIds`, `orgTeams` | (`id_usuario`, `id_organizacion`) PK, `id_equipo` FK nullable, `agencias text[]` | Reemplaza `organizationIds` + `orgTeams` + `orgAgencies` |
+| `usuarios_organizaciones` | `users.organizationIds`, `orgTeams` | (`id_usuario`, `id_organizacion`) PK, `id_equipo` FK nullable, `agencias text[]` | Reemplaza `organizationIds` + `orgTeams` + `orgAgencies`. Agencias por valor: el catálogo viene de un API (Q34) |
 | `usuarios_roles_modulo` | `users.moduleRoles` (nuevo) | (`id_usuario`, `modulo`) PK, `rol` | Ej. (`juan`, `valuacion`, `VALUADOR`) |
 | `equipos` | `teams` | `id_equipo`, `id_organizacion` FK, `nombre`, `vertical` (`ventas`/`servicio`/`valuacion`), `modo_asignacion`, `max_conversaciones_agente`, `accion_opt_out`, `umbrales_semaforo` jsonb, `estado` | `activeConversations` se calcula, no se guarda |
 | `numeros` | `whatsappNumbers` | `id_numero`, `id_organizacion`, `telefono` UNIQUE entre activos, `nombre`, `proveedor` (`twilio`/`meta`/`valuetext`), `id_equipo`, `id_bot_default`, `ventana_reapertura_horas`, `horas_cierre_inactividad`, `webhook_cierre_url`, `plantillas` jsonb, `ids_proveedor` jsonb (no secretos), `estado` | Tokens de Twilio/Meta en Secret Manager |
@@ -198,12 +199,12 @@ Ids: los documentos migrados conservan su id de Firestore como `id_origen` (úni
 
 ### 5.3 Acciones `Hub.*`
 
-Envelope y errores de la convención. Las llama PostgREST por `POST rpc/<funcion>`, con `Content-Profile: hub` y `Prefer: params=single-object`. Agrupadas:
+Envelope y errores de la convención. Las llama PostgREST por `POST rpc/<funcion>`, con `Content-Profile: hub_cleber` y `Prefer: params=single-object`. Agrupadas:
 
 | Grupo | Acciones | Quién llama |
 |-------|----------|-------------|
 | Identidad | `usuarioActual`, `usuariosContexto` (para valuación) | Dashboard, `valuacion` |
-| Configuración | `consulta*` / `guarda*` / `elimina*` de organizaciones, agencias, equipos, números, bots, plantillas, etiquetas | Dashboard (directo) |
+| Configuración | `consulta*` / `guarda*` / `elimina*` de organizaciones, equipos, números, bots, plantillas, etiquetas | Dashboard (directo) |
 | Usuarios | `consultaUsuarios`, `invitaUsuario`, `guardaUsuario`, `quitaUsuarioDeOrganizacion`, `cambiaDisponibilidad` | **Backend** (también escribe `accesos`) |
 | Conversaciones (pipeline) | `resuelveNumero` (número + equipo + bot + org, para la caché), `obtieneOAbreConversacion` (incluye reapertura por ventana), `guardaMensaje` (idempotente por `id_mensaje_proveedor`), `consultaHistorial` (para el bot) | Backend (`/internal`) |
 | Conversaciones (operación) | `asignaConversacion`, `reclamaConversacion`, `transfiereConversacion`, `cierraConversacion`, `registraResultado`, `agregaNota`, `agregaEtiqueta` | Backend (por usuario o sistema) |
@@ -221,7 +222,7 @@ Cada acción que cambia una conversación devuelve el estado necesario para que 
 
 ### 6.1 Documento de aviso — `conversations/{id}`
 
-Mismo id que `hub.conversaciones.id_conversacion`. Lo escribe **solo el backend** (`core/aviso.py`), **después** de que la acción `Hub.*` confirma. Contiene solo lo que la bandeja, el kanban, el semáforo y las notificaciones necesitan mostrar sin abrir la conversación:
+Mismo id que `hub_cleber.conversaciones.id_conversacion`. Lo escribe **solo el backend** (`core/aviso.py`), **después** de que la acción `Hub.*` confirma. Contiene solo lo que la bandeja, el kanban, el semáforo y las notificaciones necesitan mostrar sin abrir la conversación:
 
 `organizationId`, `teamId`, `vertical`, `status`, `assignedAgentId`, `priority`, `tags`, `customerName`, `customerPhone`, `botName`, `lastMessageAt`, `lastMessagePreview`, `lastMessageSender`, `lastCustomerMessageAt`, `conversationOutcome`, `version`, `actualizadoEn`.
 
@@ -233,7 +234,7 @@ Mismo id que `hub.conversaciones.id_conversacion`. Lo escribe **solo el backend*
 
 ### 6.2 Permisos — `accesos/{email}`
 
-Copia mínima derivada de `hub.usuarios*`: `organizationIds`, `orgTeams`, `role`, `isSuperAdmin`.
+Copia mínima derivada de `hub_cleber.usuarios*`: `organizationIds`, `orgTeams`, `role`, `isSuperAdmin`.
 - **Quién la escribe:** el backend, cada vez que cambia un usuario (acciones de Usuarios, §5.3).
 - **Qué la lee:** las reglas de Firestore, con `request.auth.token.email` y `email_verified == true`, para decidir lectura de `conversations/{id}` con la misma lógica que el `canAccessTeam` actual.
 - `firestore.rules` sigue siendo **solo lectura** para el navegador (tarea 1.40).
@@ -242,11 +243,11 @@ Copia mínima derivada de `hub.usuarios*`: `organizationIds`, `orgTeams`, `role`
 
 | Colección | Destino |
 |-----------|---------|
-| `organizations`, `teams`, `whatsappNumbers`, `bots`, `templates`, `labels`, `users`, `broadcasts` (+ `recipients`) | `hub` |
-| `conversations/{id}/messages`, `notes`, `actionLog` | `hub.mensajes`, `hub.notas`, `hub.bitacora` |
+| `organizations`, `teams`, `whatsappNumbers`, `bots`, `templates`, `labels`, `users`, `broadcasts` (+ `recipients`) | `hub_cleber` |
+| `conversations/{id}/messages`, `notes`, `actionLog` | `hub_cleber.mensajes`, `hub_cleber.notas`, `hub_cleber.bitacora` |
 | `customers`, `summaries` | `clientes.clientes`, `clientes.resumenes` |
 | `secrets` | GCP Secret Manager |
-| `processed_events` | `hub.mensajes.id_mensaje_proveedor` UNIQUE |
+| `processed_events` | `hub_cleber.mensajes.id_mensaje_proveedor` UNIQUE |
 | `webChannels` | No se migra |
 
 ---
@@ -276,7 +277,7 @@ Copia mínima derivada de `hub.usuarios*`: `organizationIds`, `orgTeams`, `role`
 
 | Fase | Cambios |
 |------|---------|
-| **Fase 3** (con valuación) | **Login con NextAuth v5 + Google** en todo el dashboard (reemplaza `signInWithPopup`) y puente `signInWithCredential` a Firebase · cliente HTTP de la convención (`lib/api.ts`: `id_token`, API key, 401/403) · **editor de usuarios** sobre `hub` (agencias por marca y rol por módulo; guarda por el backend) · organizaciones y agencias desde `hub` · reglas de Firestore a `accesos/{email}` · pantallas de valuación contra su API (reemplaza `lib/valuacion/store.ts`) |
+| **Fase 3** (con valuación) | **Login con NextAuth v5 + Google** en todo el dashboard (reemplaza `signInWithPopup`) y puente `signInWithCredential` a Firebase · cliente HTTP de la convención (`lib/api.ts`: `id_token`, API key, 401/403) · **editor de usuarios** sobre `hub_cleber` (agencias por marca y rol por módulo; guarda por el backend) · organizaciones y agencias desde `hub_cleber` · reglas de Firestore a `accesos/{email}` · pantallas de valuación contra su API (reemplaza `lib/valuacion/store.ts`) |
 | **Fase 4** | Pantallas de configuración (equipos, bots, números, plantillas, etiquetas) de `onSnapshot` a consultas a la API · campañas con polling del avance · conversaciones (lista, kanban, chat, notificaciones, semáforo) sobre el documento de aviso + `Hub.consultaMensajes` · rutas API de Next.js (`salesforce/*`, `abacus-config`) sin Admin SDK de Firestore |
 | Cortes por marca | Sin cambios |
 
@@ -341,6 +342,6 @@ Aplica a las fases "Migrar Comercial" y "Migrar Servicio" de `PLAN_TRABAJO_CENTR
 - Verificar en dev que el mapeo `X-User-Email ← context.authorizer.email` de REST v1 sobrescribe el header enviado por el cliente.
 - Medir la latencia GCP → API Gateway → PostgREST en el pipeline y decidir si se combina en `Hub.recibeMensaje` (§7).
 - Nombres finales de las rutas y de las API keys con el responsable del API Gateway.
-- Ubicación definitiva del DDL de `hub`, `clientes` y `valuacion` (hoy `DB/Hub/` aquí, `DB/Clientes/` y `DB/Valuacion/` en `toma-unidades-en-taller`).
+- Ubicación definitiva del DDL de `hub_cleber`, `clientes` y `valuacion` (hoy `DB/Hub/` aquí, `DB/Clientes/` y `DB/Valuacion/` en `toma-unidades-en-taller`).
 - `infraestructura.md` del template es inconsistente (REST v1 vs ejemplo de HTTP API con JWT Authorizer): proponer la corrección al dueño del template con lo decidido aquí.
 - Que el hub deje de usar `core/utils.py::normalize_phone` para la llave del cliente y use la regla de `clientes.normaliza_telefono` (`esquema-valuacion.md` §6). `core/schema.py::customer_id` hoy solo deja dígitos y no coincide con `clientes.clave` (`+52…`).

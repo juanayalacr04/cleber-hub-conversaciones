@@ -19,3 +19,6 @@ dev/env/*.yaml
 
 # Carpeta temporal
 /archivos de trabajo
+
+# Cargas generadas por dev/carga_usuarios_hub.py (contienen emails)
+carga_hub*.sql
