@@ -25,6 +25,23 @@ Rutas que crea esta guía:
 
 `/internal/{proxy+}` (IAM, para máquinas) **no** es parte de esta guía.
 
+### Desarrollo (temporal)
+
+Los pasos están escritos para **producción**. En **desarrollo** todo vive en otra cuenta de AWS y la conexión a PostgREST es distinta. Mientras se resuelve [`PENDIENTES_INFRA_DEV.md`](PENDIENTES_INFRA_DEV.md) (I1), en dev se aplica esto:
+
+| Paso | Producción | Desarrollo (temporal) |
+|------|------------|-----------------------|
+| Cuenta / perfil | `386458449724` / `AWSPowerUserAccess-386458449724` | `807746362931` / el perfil de esa cuenta (p. ej. `AdministratorAccess-807746362931`) |
+| 1 — Lambda | `authorizer-google` (`.\deploy.ps1 prd`) | `authorizer-google-dev` (`.\deploy.ps1 dev -Perfil <perfil de dev>`) |
+| 2 — Authorizer | En `z66x2zyooj` | En el **API Gateway de dev** de la cuenta `807746362931`, con los mismos valores |
+| 3 y 4 — Integración | *VPC Link* `g55dvn` → `http://Svcs-Privados-API-CLEBER-NLB-…:3000/{proxy}` | Integración tipo **HTTP** (sin VPC Link), **Use HTTP Proxy Integration** activado, hacia `http://ec2-3-89-235-189.compute-1.amazonaws.com:3000/{proxy}`. El resto (method request, path `proxy`, headers `X-User-Email`, `Content-Profile`, `Accept-Profile`) igual |
+| 5 — API key y despliegue | Usage plan del stage `v3` de `z66x2zyooj` | Usage plan y stage del API Gateway de dev |
+| Variables del dashboard | `API_GATEWAY_URL` = `https://z66x2zyooj…/v3` | `API_GATEWAY_URL` = URL del stage del API Gateway de dev |
+
+**Advertencia:** con la integración directa, el portero solo protege a quien entra por el gateway. El PostgREST de dev sigue abierto a internet (S1 de los pendientes) y alguien que conozca su URL puede saltarse el portero. Úsalo solo para pruebas.
+
+Para las pruebas del paso 7 en dev usa el `id_token` de tu sesión del dashboard, en lugar del de `gcloud`: en la consola del navegador, con la sesión iniciada, `(await (await fetch("/api/auth/session")).json()).idToken`.
+
 ---
 
 ## Paso 0 — Cliente OAuth de Google
