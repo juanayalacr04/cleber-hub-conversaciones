@@ -19,8 +19,10 @@ export type ApiResponse<T> =
 
 export type RutaApi = "toma-unidades" | "hub";
 
-// El authorizer lee el token de este header (paso 6 de la guía: Authorization o X-Id-Token)
-const HEADER_TOKEN = process.env.API_GATEWAY_TOKEN_HEADER || "Authorization";
+// El authorizer lee el token de este header. X-Id-Token y no Authorization: con proxy integration el gateway reenvía
+// Authorization a PostgREST, que lo intenta validar como JWT propio y responde PGRST300 ("Server lacks JWT secret").
+// Verificado en dev el 2026-11-13 (guía, paso 6; PENDIENTES_INFRA_DEV.md, V2).
+const HEADER_TOKEN = process.env.API_GATEWAY_TOKEN_HEADER || "X-Id-Token";
 
 async function call<T>(ruta: RutaApi, funcion: string, action: string, params: Record<string, unknown> = {}): Promise<ApiResponse<T>> {
   const base = process.env.API_GATEWAY_URL;

@@ -112,8 +112,8 @@ Para `prd` el script pide confirmación escribiendo `prd`.
 | Type | **Lambda** |
 | Lambda Function | `authorizer-google` |
 | Lambda Event Payload | **Token** |
-| Token Source | `Authorization` |
-| Token Validation | `^Bearer [-0-9A-Za-z\._]+$` |
+| Token Source | **`X-Id-Token`** (no `Authorization`: ver paso 6) |
+| Token Validation | `^[-0-9A-Za-z\._]+$` |
 | Authorization Caching | Activado, TTL **300** s |
 
 Acepta el permiso para que API Gateway invoque la Lambda.
@@ -153,35 +153,34 @@ Igual que el paso 3, con el recurso `hub` y `Content-Profile` / `Accept-Profile`
 ## Paso 6 — PostgREST
 
 - Que exponga los schemas `valuacion` y `hub_cleber` (`db-schemas`) y que su rol tenga los grants (los das tú).
-- **Verificar el header `Authorization`.** Con proxy integration, API Gateway reenvía a PostgREST el `Authorization: Bearer <id_token de Google>`. Si PostgREST tiene `jwt-secret` configurado, intentará validarlo y responderá 401. Si no lo tiene, puede responder `PGRST300`. La prueba del paso 7 lo muestra. Si pasa:
-  - **Opción A:** en *Integration Request → HTTP Headers* mapea `Authorization` a un valor fijo que PostgREST acepte (por ejemplo, un JWT de servicio del rol anónimo).
-  - **Opción B:** cambia el *Token Source* del authorizer a `X-Id-Token` y en el dashboard `API_GATEWAY_TOKEN_HEADER=X-Id-Token`. `lib/api.ts` lo soporta: así `Authorization` no viaja.
+- **Por qué el token va en `X-Id-Token` y no en `Authorization`** (verificado en dev el 2026-11-13). Con proxy integration, API Gateway reenvía a PostgREST todos los headers. Si el token viaja en `Authorization: Bearer …`, PostgREST lo intenta validar como JWT propio y, sin `jwt-secret`, responde `PGRST300` ("Server lacks JWT secret"); con `jwt-secret`, respondería 401. En `X-Id-Token`, PostgREST lo ignora. `lib/api.ts` lo manda así por omisión (`API_GATEWAY_TOKEN_HEADER`).
+  - Alternativa descartada: mapear `Authorization` a un valor fijo que PostgREST acepte (un JWT de servicio): agrega un secreto más que administrar.
 
 ## Paso 7 — Verificación
 
-Un `id_token` de prueba, mientras el login del dashboard no esté listo: en **solo dev**, agrega temporalmente a `GOOGLE_CLIENT_IDS` la audiencia de gcloud (`32555940559.apps.googleusercontent.com`) y usa:
+El `id_token` de prueba es el de tu sesión del dashboard: en la consola del navegador, con la sesión iniciada, `(await (await fetch("/api/auth/session")).json()).idToken`. Dura una hora.
 
 ```powershell
-$TOKEN = gcloud auth print-identity-token
+$TOKEN = "<id_token>"
 $KEY   = "<API key>"
-$URL   = "https://z66x2zyooj.execute-api.us-east-1.amazonaws.com/v3"
+$URL   = "https://z66x2zyooj.execute-api.us-east-1.amazonaws.com/v3"   # dev: URL del stage del gateway de dev
 ```
 
 1. **Identidad** (debe responder `successful: true` con tu email):
    ```powershell
-   curl.exe -s -X POST "$URL/hub/rpc/consulta_usuario_actual" -H "Authorization: Bearer $TOKEN" -H "x-api-key: $KEY" `
+   curl.exe -s -X POST "$URL/hub/rpc/consulta_usuario_actual" -H "X-Id-Token: $TOKEN" -H "x-api-key: $KEY" `
      -H "Content-Type: application/json" -H "Prefer: params=single-object" -d '{\"action\":\"Hub.consultaUsuarioActual\",\"params\":{}}'
    ```
 2. **El email no se puede suplantar** (pendiente §12 del diseño): repite el 1 agregando `-H "X-User-Email: otra@cleber.com"`. La respuesta debe traer **tu** email.
 3. **Sin token → 401** y **sin API key → 403**.
 4. **Valuación**:
    ```powershell
-   curl.exe -s -X POST "$URL/toma-unidades/rpc/consulta_ofertas" -H "Authorization: Bearer $TOKEN" -H "x-api-key: $KEY" `
+   curl.exe -s -X POST "$URL/toma-unidades/rpc/consulta_ofertas" -H "X-Id-Token: $TOKEN" -H "x-api-key: $KEY" `
      -H "Content-Type: application/json" -H "Prefer: params=single-object" -d '{\"action\":\"Valuacion.consultaOfertas\",\"params\":{}}'
    ```
 5. **El schema de la ruta es fijo**: `POST $URL/toma-unidades/rpc/consulta_usuario_actual` debe fallar (la función no existe en `valuacion`).
 
-Al terminar, **quita la audiencia de gcloud** de `GOOGLE_CLIENT_IDS`.
+En Postman: *Authorization* = **No Auth** y un header `X-Id-Token` con el token (sin `Bearer`), más `x-api-key` y `Prefer: params=single-object`.
 
 ## Variables del dashboard
 
@@ -189,7 +188,7 @@ Al terminar, **quita la audiencia de gcloud** de `GOOGLE_CLIENT_IDS`.
 |----------|-------|
 | `API_GATEWAY_URL` | `https://z66x2zyooj.execute-api.us-east-1.amazonaws.com/v3` |
 | `API_GATEWAY_KEY` | key del paso 5 |
-| `API_GATEWAY_TOKEN_HEADER` | `Authorization` (default) o `X-Id-Token` (paso 6, opción B) |
+| `API_GATEWAY_TOKEN_HEADER` | Opcional; por omisión `X-Id-Token` (paso 6). Debe coincidir con el *Token Source* del authorizer |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | paso 0 |
 | `AUTH_SECRET` | `openssl rand -base64 32` |
 
@@ -231,6 +230,7 @@ Si todo pasa, responde una política *Allow* con `context.email`; la integració
 |------------------|-------------|-------------|
 | "API Gateway valida el JWT con el **JWT Authorizer** de AWS" (con *Issuer* y *Audience*) | El JWT Authorizer solo existe en **HTTP API**. `z66x2zyooj` es **REST v1** (confirmado). En REST v1 los authorizers son *Lambda* o *Cognito* | El mismo qué (validar el `id_token` de Google e inyectar el correo), hecho como **Lambda authorizer** (diseño, Q26) |
 | El ejemplo de `infraestructura.md` describe un **HTTP API** con JWT Authorizer y, a la vez, **API keys** en todos los endpoints | HTTP API **no tiene API keys ni usage plans**: las dos cosas no pueden convivir en un HTTP API | Se queda REST v1 (tiene API keys) con Lambda authorizer |
+| `lib/api.ts` del template manda el token en `Authorization: Bearer …` | Con proxy integration ese header llega a PostgREST y responde `PGRST300` ("Server lacks JWT secret"), verificado en dev | El token va en `X-Id-Token` (*Token Source* del authorizer y `lib/api.ts`) |
 | "La expiración del `id_token` de Google a la hora no afecta al usuario porque NextAuth reutiliza el último `id_token`" | El authorizer (y cualquier JWT Authorizer) **rechaza tokens vencidos** con 401: después de una hora, todas las llamadas fallarían | El login pide refresh token (`access_type=offline`) y renueva el `id_token` 5 min antes de que venza (`apps/web/src/lib/auth.ts`) |
 
 ### Decisiones propias (el template no las cubre)
@@ -244,7 +244,7 @@ Si todo pasa, responde una política *Allow* con `context.email`; la integració
 | Política *Allow* sobre **todo el stage** (`.../v3/*`), no solo la ruta pedida | Con caché, API Gateway reutiliza la política en otras rutas; si cubriera solo una, las demás darían 403 | Comportamiento documentado de AWS con caché de authorizer |
 | Token inválido → **401** (`Unauthorized`), no *Deny* (403) | El dashboard trata 401 como sesión vencida y 403 como error de configuración (`autenticacion.md`, "Manejo de errores") | Template, tabla de errores HTTP |
 | **Schema fijo por ruta** (`Content-Profile` / `Accept-Profile` en la integración: `/toma-unidades` → `valuacion`, `/hub` → `hub_cleber`) | Que una ruta no sirva para llamar funciones de otro schema | Agregado propio |
-| Plan B para el header del token: `X-Id-Token` en lugar de `Authorization` | Con proxy integration, `Authorization` llega a PostgREST; si tiene `jwt-secret`, lo rechazaría. **Sin verificar**: se confirma en el paso 7 | Agregado propio (paso 6) |
+| El token viaja en **`X-Id-Token`**, no en `Authorization` | Con proxy integration, `Authorization` llega a PostgREST, que lo intenta validar como JWT propio: `PGRST300` sin `jwt-secret` (**verificado en dev el 2026-11-13**) | Paso 6 |
 | Lambda **fuera de la VPC** | Necesita internet para descargar las llaves de Google | Requisito técnico |
 | `GOOGLE_CLIENT_IDS` acepta varios Client IDs | Un solo authorizer para todos los sistemas: cada uno puede tener su propio cliente OAuth | Template ("solo se crea una vez") + diseño (Q27) |
 
