@@ -14,6 +14,12 @@ Solo lee el proyecto y la base de desarrollo del hub (igual que dev/seed.py):
 
     GOOGLE_CLOUD_PROJECT=ambiente-desarrollo-ti    FIRESTORE_DATABASE=dev-hub-conversaciones
 
+Roles (decisión Q36): en Firestore el rol (`role`) es uno por usuario y vale para ventas y servicio. Aquí se convierte
+en un rol de ventas y otro de servicio en cada marca del usuario (admin → ADMINISTRADOR, agent → AGENTE,
+viewer → CONSULTA). El equipo de la marca (`orgTeams`) va al módulo de su vertical (`teams/{id}.vertical`).
+La carga maneja solo ventas y servicio (`modulos`): los roles de valuación que se asignen en el editor no se tocan.
+`moduleRoles` de Firestore no se copia (se avisa si existe): los roles de valuación se asignan en el editor.
+
 El catálogo de agencias no vive en el hub (viene de un API externo). Del usuario solo se copian los ids que tenga en
 `orgAgencies`, por valor; hoy ese campo no existe en Firestore, así que los usuarios quedan sin agencias.
 
@@ -29,10 +35,11 @@ from pathlib import Path
 PROJECT = "ambiente-desarrollo-ti"
 DATABASE = "dev-hub-conversaciones"
 EMAIL_SISTEMA = "sistema@hub-conversaciones.internal"
-ROLES = {"admin", "agent", "viewer"}
+# Rol de Firestore → rol del catálogo hub_cleber.roles_modulo, igual en ventas y en servicio
+ROL_MODULO = {"admin": "ADMINISTRADOR", "agent": "AGENTE", "viewer": "CONSULTA"}
 ESTADOS = {"online", "away", "offline"}
 PLANES = {"free", "pro", "enterprise"}
-MODULOS = {"ventas", "servicio", "valuacion"}
+MODULOS_CARGA = ["ventas", "servicio"]   # los únicos módulos cuyos roles reemplaza esta carga
 # Las credenciales de Salesforce son globales (variables de entorno / Secret Manager); nunca pasan a PostgreSQL.
 LLAVES_SECRETAS = {"clientid", "clientsecret", "username", "password", "securitytoken"}
 
@@ -75,8 +82,12 @@ def mapea_organizacion(doc_id: str, data: dict) -> dict:
     return {k: v for k, v in org.items() if v is not None}
 
 
-def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str]):
-    """Usuario de Firestore al formato de Hub.importaUsuarios, o None si no se puede cargar (con el motivo en `avisos`)."""
+def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str], verticales: dict | None = None):
+    """Usuario de Firestore al formato de Hub.importaUsuarios, o None si no se puede cargar (con el motivo en `avisos`).
+
+    `verticales`: {id de equipo: vertical} de la colección `teams`, para saber a qué módulo va el equipo de cada marca.
+    """
+    verticales = verticales or {}
     email = (_texto(data.get("email")) or "").lower()
     if "@" not in email:
         avisos.append(f"users/{doc_id}: sin email válido, no se carga")
@@ -84,10 +95,10 @@ def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str]):
     if email.endswith(".internal"):
         avisos.append(f"users/{doc_id}: email de sistema ({email}), no se carga")
         return None
-    rol = data.get("role")
-    if rol not in ROLES:
-        avisos.append(f"users/{doc_id} ({email}): rol {rol!r} no válido, se carga como viewer")
-        rol = "viewer"
+    rol = ROL_MODULO.get(data.get("role"))
+    if rol is None:
+        avisos.append(f"users/{doc_id} ({email}): rol {data.get('role')!r} no válido, se carga como CONSULTA")
+        rol = "CONSULTA"
 
     org_ids = list(data.get("organizationIds") or ([data["organizationId"]] if data.get("organizationId") else []))
     equipos = data.get("orgTeams") or {}
@@ -97,33 +108,36 @@ def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str]):
         if org not in orgs:
             avisos.append(f"users/{doc_id} ({email}): la organización {org!r} no existe, se omite esa membresía")
             continue
-        m = {"idOrganizacion": org, "agencias": list(agencias.get(org) or [])}
-        if equipos.get(org):
-            m["idEquipo"] = equipos[org]
-        membresias.append(m)
+        modulos = {modulo: {"rol": rol} for modulo in MODULOS_CARGA}
+        equipo = equipos.get(org)
+        if equipo:
+            vertical = verticales.get(equipo)
+            if vertical in modulos:
+                modulos[vertical]["idEquipo"] = equipo
+            else:
+                avisos.append(f"users/{doc_id} ({email}): el equipo {equipo!r} de {org!r} no es de ventas ni de servicio "
+                              f"(vertical {vertical!r}), se omite")
+        membresias.append({"idOrganizacion": org, "agencias": list(agencias.get(org) or []), "modulos": modulos})
 
-    roles = {}
-    for modulo, rol_modulo in (data.get("moduleRoles") or {}).items():
-        if modulo in MODULOS and isinstance(rol_modulo, str) and rol_modulo and rol_modulo != "SISTEMA":
-            roles[modulo] = rol_modulo.upper()
-        else:
-            avisos.append(f"users/{doc_id} ({email}): moduleRoles.{modulo}={rol_modulo!r} no válido, se omite")
+    if data.get("moduleRoles"):
+        avisos.append(f"users/{doc_id} ({email}): moduleRoles no se copia; asigna esos roles en el editor de usuarios")
 
     usuario = {"idOrigen": doc_id, "email": email, "nombre": _texto(data.get("name")) or "", "fotoUrl": _texto(data.get("photoURL")),
-               "rol": rol, "esSuperAdmin": bool(data.get("isSuperAdmin")), "esDisponible": data.get("isAvailable", True) is not False,
+               "esSuperAdmin": bool(data.get("isSuperAdmin")), "esDisponible": data.get("isAvailable", True) is not False,
                "estado": data.get("status") if data.get("status") in ESTADOS else "offline", "invitadoPor": _texto(data.get("invitedBy")),
                "ultimoAccesoEn": _fecha(data.get("lastLoginAt")), "creadoEn": _fecha(data.get("createdAt")),
-               "organizaciones": membresias, "rolesModulo": roles}
+               "organizaciones": membresias}
     return {k: v for k, v in usuario.items() if v is not None}
 
 
-def construye_carga(organizaciones, usuarios, avisos: list[str]) -> dict:
-    """`organizaciones` y `usuarios` son pares (id, datos) de Firestore."""
+def construye_carga(organizaciones, usuarios, avisos: list[str], equipos=()) -> dict:
+    """`organizaciones`, `usuarios` y `equipos` son pares (id, datos) de Firestore."""
     orgs = [mapea_organizacion(i, d) for i, d in organizaciones]
     ids = {o["idOrganizacion"] for o in orgs}
+    verticales = {i: d.get("vertical") for i, d in equipos}
     vistos, lista = set(), []
     for i, d in usuarios:
-        u = mapea_usuario(i, d, ids, avisos)
+        u = mapea_usuario(i, d, ids, avisos, verticales)
         if u is None:
             continue
         if u["email"] in vistos:
@@ -131,7 +145,7 @@ def construye_carga(organizaciones, usuarios, avisos: list[str]) -> dict:
             continue
         vistos.add(u["email"])
         lista.append(u)
-    return {"organizaciones": orgs, "usuarios": lista}
+    return {"modulos": MODULOS_CARGA, "organizaciones": orgs, "usuarios": lista}
 
 
 def genera_sql(carga: dict) -> str:
@@ -172,8 +186,9 @@ def main(argv=None) -> int:
     db = get_db()
     organizaciones = [(s.id, s.to_dict() or {}) for s in db.collection("organizations").stream()]
     usuarios = [(s.id, s.to_dict() or {}) for s in db.collection("users").stream()]
+    equipos = [(s.id, s.to_dict() or {}) for s in db.collection("teams").stream()]
     avisos: list[str] = []
-    carga = construye_carga(organizaciones, usuarios, avisos)
+    carga = construye_carga(organizaciones, usuarios, avisos, equipos)
 
     Path(args.salida).write_text(genera_sql(carga), encoding="utf-8")
     print(f"Escrito {args.salida}: {len(carga['organizaciones'])} organizaciones, "

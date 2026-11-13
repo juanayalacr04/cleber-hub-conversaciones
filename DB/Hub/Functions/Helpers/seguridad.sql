@@ -5,7 +5,10 @@
       - Usuarios: el Lambda authorizer de Google valida el id_token y API Gateway inyecta X-User-Email
         (sobrescribe el que mande el cliente). Ruta /hub.
       - Máquinas: llaman por /internal (AWS_IAM) con un email de servicio registrado en hub_cleber.usuarios con es_sistema.
-    No hay X-User-Contexto: rol, marcas, agencias y roles por módulo se leen de las tablas de hub.
+    No hay X-User-Contexto: marcas, agencias, roles y equipos por módulo se leen de las tablas de hub_cleber.
+
+    No hay rol global (Q36): el usuario tiene un rol por marca y módulo, del catálogo hub_cleber.roles_modulo.
+    Solo es_super_admin vale en todas las marcas y módulos.
 
     Pendiente (§12 del diseño): plpgsql no sabe por qué ruta llegó la petición. Que un email de servicio solo valga
     por /internal depende de que /hub nunca deje pasar un email *.internal (el authorizer solo emite emails de Google).
@@ -73,17 +76,9 @@ BEGIN
 END;
 $$;
 
--- Rol global del hub (admin / agent / viewer). El super admin pasa siempre; el sistema no tiene rol global.
-CREATE OR REPLACE FUNCTION hub_cleber.exige_rol(p_usuario hub_cleber.usuarios, p_roles text[])
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  IF NOT (coalesce((p_usuario).es_super_admin, false) OR (p_usuario).rol = ANY (p_roles)) THEN
-    PERFORM hub_cleber.error_de_aplicacion('SIN_PERMISO', format('Se requiere uno de los roles %s', array_to_string(p_roles, ', ')));
-  END IF;
-END;
-$$;
+-- Firmas anteriores (rol global y rol de módulo sin marca); se reemplazan por las de abajo.
+DROP FUNCTION IF EXISTS hub_cleber.exige_rol(hub_cleber.usuarios, text[]);
+DROP FUNCTION IF EXISTS hub_cleber.rol_modulo(hub_cleber.usuarios, text);
 
 -- ¿El usuario ve la marca? Super admin y sistema: todas.
 CREATE OR REPLACE FUNCTION hub_cleber.tiene_organizacion(p_usuario hub_cleber.usuarios, p_id_organizacion text)
@@ -109,14 +104,64 @@ BEGIN
 END;
 $$;
 
--- Rol del usuario en un módulo (moduleRoles), o NULL.
-CREATE OR REPLACE FUNCTION hub_cleber.rol_modulo(p_usuario hub_cleber.usuarios, p_modulo text)
+-- Rol del usuario en un módulo de una marca, o NULL.
+CREATE OR REPLACE FUNCTION hub_cleber.rol_modulo(p_usuario hub_cleber.usuarios, p_id_organizacion text, p_modulo text)
 RETURNS text
 LANGUAGE sql
 STABLE
 AS $$
   SELECT rm.rol FROM hub_cleber.usuarios_roles_modulo rm
-   WHERE rm.id_usuario = (p_usuario).id_usuario AND rm.modulo = p_modulo;
+   WHERE rm.id_usuario = (p_usuario).id_usuario AND rm.id_organizacion = p_id_organizacion AND rm.modulo = p_modulo;
+$$;
+
+-- ¿Administra el módulo en la marca? Super admin: siempre. Los demás: si su rol ahí es de administrador (catálogo).
+CREATE OR REPLACE FUNCTION hub_cleber.es_administrador_modulo(p_usuario hub_cleber.usuarios, p_id_organizacion text, p_modulo text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT coalesce((p_usuario).es_super_admin, false)
+      OR EXISTS (SELECT 1 FROM hub_cleber.usuarios_roles_modulo rm
+                   JOIN hub_cleber.roles_modulo c ON c.modulo = rm.modulo AND c.rol = rm.rol
+                  WHERE rm.id_usuario = (p_usuario).id_usuario AND rm.id_organizacion = p_id_organizacion
+                    AND rm.modulo = p_modulo AND c.es_administrador);
+$$;
+
+CREATE OR REPLACE FUNCTION hub_cleber.exige_administrador_modulo(p_usuario hub_cleber.usuarios, p_id_organizacion text, p_modulo text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NOT hub_cleber.es_administrador_modulo(p_usuario, p_id_organizacion, p_modulo) THEN
+    PERFORM hub_cleber.error_de_aplicacion('SIN_PERMISO', format('No administras el módulo %s en la organización %s', p_modulo, p_id_organizacion),
+      jsonb_build_object('idOrganizacion', p_id_organizacion, 'modulo', p_modulo));
+  END IF;
+END;
+$$;
+
+-- ¿Administra algún módulo de la marca? Es lo que se pide para editar lo que es de la marca y no de un módulo
+-- (las agencias del usuario, Q39). Super admin: siempre.
+CREATE OR REPLACE FUNCTION hub_cleber.es_administrador_organizacion(p_usuario hub_cleber.usuarios, p_id_organizacion text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT coalesce((p_usuario).es_super_admin, false)
+      OR EXISTS (SELECT 1 FROM hub_cleber.usuarios_roles_modulo rm
+                   JOIN hub_cleber.roles_modulo c ON c.modulo = rm.modulo AND c.rol = rm.rol
+                  WHERE rm.id_usuario = (p_usuario).id_usuario AND rm.id_organizacion = p_id_organizacion AND c.es_administrador);
+$$;
+
+CREATE OR REPLACE FUNCTION hub_cleber.exige_administrador_organizacion(p_usuario hub_cleber.usuarios, p_id_organizacion text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NOT hub_cleber.es_administrador_organizacion(p_usuario, p_id_organizacion) THEN
+    PERFORM hub_cleber.error_de_aplicacion('SIN_PERMISO', format('No administras ningún módulo de la organización %s', p_id_organizacion),
+      jsonb_build_object('idOrganizacion', p_id_organizacion));
+  END IF;
+END;
 $$;
 
 -- Agencias del usuario en una marca. NULL = sin restricción (super admin y sistema); '{}' = ninguna.
@@ -138,13 +183,14 @@ $$;
     Contexto de un usuario para un módulo. Lo llama valuacion.usuario_actual() por valor (sin join a tablas de hub_cleber);
     junto con clientes.normaliza_telefono es la única dependencia permitida entre schemas.
 
-      { email, rol, esSuperAdmin, esSistema, agencias: { "<idOrganizacion>": ["<idAgencia>", ...] } }
+      { email, esSuperAdmin, esSistema,
+        marcas: { "<idOrganizacion>": { rol, idEquipo, agencias: ["<idAgencia>", ...] } } }
 
-    rol = rol del usuario en p_modulo (NULL si no tiene). agencias = las asignadas explícitamente por marca
-    (el super admin y el sistema ven todas; eso lo resuelve cada módulo con esSuperAdmin / esSistema).
-    Usuario inexistente o inactivo → NULL.
+    marcas = solo las marcas donde el usuario tiene rol en p_modulo (sin rol en una marca = sin acceso al módulo ahí).
+    El super admin entra a todas aunque no aparezcan; el sistema no tiene marcas (cada módulo reconoce su email de
+    servicio). Usuario inexistente o inactivo → NULL.
 
-    SECURITY DEFINER: valuación no necesita permisos sobre las tablas de hub.
+    SECURITY DEFINER: valuación no necesita permisos sobre las tablas de hub_cleber.
 */
 CREATE OR REPLACE FUNCTION hub_cleber.usuarios_contexto(p_email text, p_modulo text)
 RETURNS jsonb
@@ -155,11 +201,16 @@ SET search_path = hub_cleber, pg_temp
 AS $$
   SELECT jsonb_build_object(
     'email',        u.email,
-    'rol',          (SELECT rm.rol FROM hub_cleber.usuarios_roles_modulo rm WHERE rm.id_usuario = u.id_usuario AND rm.modulo = p_modulo),
     'esSuperAdmin', u.es_super_admin,
     'esSistema',    u.es_sistema,
-    'agencias',     coalesce((SELECT jsonb_object_agg(uo.id_organizacion, to_jsonb(uo.agencias))
-                                FROM hub_cleber.usuarios_organizaciones uo WHERE uo.id_usuario = u.id_usuario), '{}'::jsonb))
+    'marcas',       coalesce((SELECT jsonb_object_agg(rm.id_organizacion, jsonb_build_object(
+                                       'rol',      rm.rol,
+                                       'idEquipo', rm.id_equipo,
+                                       'agencias', to_jsonb(uo.agencias)))
+                                FROM hub_cleber.usuarios_roles_modulo rm
+                                JOIN hub_cleber.usuarios_organizaciones uo
+                                  ON uo.id_usuario = rm.id_usuario AND uo.id_organizacion = rm.id_organizacion
+                               WHERE rm.id_usuario = u.id_usuario AND rm.modulo = p_modulo), '{}'::jsonb))
     FROM hub_cleber.usuarios u
    WHERE u.email = lower(btrim(p_email)) AND u.es_activo;
 $$;

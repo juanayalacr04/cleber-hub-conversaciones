@@ -9,13 +9,21 @@
       organizaciones: [ { idOrganizacion, nombre,
                           zonaHoraria?, horario? (objeto), sfCodigoMarca?, sfCalendario?,
                           salesforceConfig? (objeto, sin secretos), plan?, esActiva?, creadoEn? } ]
-      usuarios:       [ { email, rol (admin|agent|viewer), idOrigen? (uid de Firebase), nombre?, fotoUrl?,
+      usuarios:       [ { email, idOrigen? (uid de Firebase), nombre?, fotoUrl?,
                           esSuperAdmin?, esActivo?, esDisponible?, estado?, invitadoPor? (idOrigen de quien invitó),
                           ultimoAccesoEn?, creadoEn?,
-                          organizaciones: [ { idOrganizacion, idEquipo?, agencias? } ]   reemplaza las del usuario
-                                          (agencias: ids del API de agencias, por valor; el hub no tiene catálogo)
-                          rolesModulo?:   { "<modulo>": "<ROL>" }                         reemplaza los del usuario } ]
-      Las dos listas son opcionales (default []).
+                          organizaciones: [ { idOrganizacion,
+                                              agencias?,   ids del API de agencias, por valor (el hub no tiene catálogo)
+                                              modulos?: { "<modulo>": { rol, idEquipo? } } } ] } ]
+      modulos:        [ "<modulo>" ]   módulos que maneja esta carga (default: todos). Ver "Reemplazo".
+      Las tres listas son opcionales.
+
+    Reemplazo, por usuario:
+      - organizaciones reemplaza las marcas del usuario; al quitarle una marca se borran sus roles en ella.
+      - En cada marca, los roles de los módulos que maneja la carga (param modulos) se reemplazan por los que vienen;
+        los de los demás módulos no se tocan. Así la carga desde Firestore (ventas y servicio) no borra los roles de
+        valuación asignados en el editor. Mandar un rol de un módulo que la carga no maneja es CAMPO_INVALIDO.
+      - El rol debe existir en hub_cleber.roles_modulo para ese módulo. No hay rol global (Q36).
 
     Un usuario se encuentra por idOrigen y, si no, por email (así se corrige un email cambiado en Firestore).
     No importa usuarios de sistema: esos se dan de alta en Datos_maestros/usuarios_sistema.sql.
@@ -55,8 +63,10 @@ DECLARE
   v_id_usuario    bigint;
   v_otro          bigint;
   v_orgs_usuario  text[];
+  v_modulos       text[];
   v_roles         jsonb;
   v_modulo        text;
+  v_rol           text;
   v_n_orgs        integer := 0;
   v_creados       integer := 0;
   v_actualizados  integer := 0;
@@ -66,6 +76,12 @@ DECLARE
 BEGIN
   v_params := hub_cleber.valida_peticion(peticion, 'Hub.importaUsuarios');
   PERFORM hub_cleber.exige_sistema(hub_cleber.usuario_actual());
+
+  v_modulos := coalesce(hub_cleber.param_textos(v_params, 'modulos', false), ARRAY['ventas', 'servicio', 'valuacion']);
+  SELECT x INTO v_modulo FROM unnest(v_modulos) x WHERE x NOT IN ('ventas', 'servicio', 'valuacion') LIMIT 1;
+  IF v_modulo IS NOT NULL THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('Módulo desconocido: %s', v_modulo), '{"campo":"modulos"}');
+  END IF;
 
   -- ── Organizaciones ───────────────────────────────────────────────────────────────────────
   v_lista := 'organizaciones';
@@ -141,9 +157,6 @@ BEGIN
       IF v_email LIKE '%.internal' THEN
         PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'Los usuarios de sistema no se importan', '{"campo":"email"}');
       END IF;
-      IF hub_cleber.param_texto(e, 'rol') NOT IN ('admin', 'agent', 'viewer') THEN
-        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'rol debe ser admin, agent o viewer', '{"campo":"rol"}');
-      END IF;
       IF coalesce(hub_cleber.param_texto(e, 'estado', false), 'offline') NOT IN ('online', 'away', 'offline') THEN
         PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'estado debe ser online, away u offline', '{"campo":"estado"}');
       END IF;
@@ -161,12 +174,11 @@ BEGIN
       END IF;
 
       IF v_id_usuario IS NULL THEN
-        INSERT INTO hub_cleber.usuarios (email, nombre, foto_url, rol, es_super_admin, es_activo, es_disponible, estado,
+        INSERT INTO hub_cleber.usuarios (email, nombre, foto_url, es_super_admin, es_activo, es_disponible, estado,
                                   ultimo_acceso_en, id_origen, creado_en)
         VALUES (v_email,
                 coalesce(hub_cleber.param_texto(e, 'nombre', false), ''),
                 hub_cleber.param_texto(e, 'fotoUrl', false),
-                hub_cleber.param_texto(e, 'rol'),
                 coalesce(hub_cleber.param_booleano(e, 'esSuperAdmin', false), false),
                 coalesce(hub_cleber.param_booleano(e, 'esActivo', false), true),
                 coalesce(hub_cleber.param_booleano(e, 'esDisponible', false), true),
@@ -181,7 +193,6 @@ BEGIN
           email            = v_email,
           nombre           = coalesce(hub_cleber.param_texto(e, 'nombre', false), ''),
           foto_url         = hub_cleber.param_texto(e, 'fotoUrl', false),
-          rol              = hub_cleber.param_texto(e, 'rol'),
           es_super_admin   = coalesce(hub_cleber.param_booleano(e, 'esSuperAdmin', false), false),
           es_activo        = coalesce(hub_cleber.param_booleano(e, 'esActivo', false), true),
           es_disponible    = coalesce(hub_cleber.param_booleano(e, 'esDisponible', false), true),
@@ -193,7 +204,7 @@ BEGIN
         v_actualizados := v_actualizados + 1;
       END IF;
 
-      -- Marcas: reemplaza las del usuario
+      -- Marcas: reemplaza las del usuario (al quitar una, sus roles se borran en cascada)
       v_orgs_usuario := '{}';
       FOR m IN SELECT * FROM jsonb_array_elements(hub_cleber.param_arreglo(e, 'organizaciones')) LOOP
         IF jsonb_typeof(m) <> 'object' THEN
@@ -209,33 +220,41 @@ BEGIN
         END IF;
         v_orgs_usuario := v_orgs_usuario || v_id_org;
 
-        INSERT INTO hub_cleber.usuarios_organizaciones (id_usuario, id_organizacion, id_equipo, agencias)
-        VALUES (v_id_usuario, v_id_org, hub_cleber.param_texto(m, 'idEquipo', false),
-                coalesce(hub_cleber.param_textos(m, 'agencias', false), '{}'))
+        INSERT INTO hub_cleber.usuarios_organizaciones (id_usuario, id_organizacion, agencias)
+        VALUES (v_id_usuario, v_id_org, coalesce(hub_cleber.param_textos(m, 'agencias', false), '{}'))
         ON CONFLICT (id_usuario, id_organizacion) DO UPDATE SET
-          id_equipo      = EXCLUDED.id_equipo,
           agencias       = EXCLUDED.agencias,
           actualizado_en = now();
+
+        -- Roles en la marca: reemplaza los de los módulos que maneja la carga
+        v_roles := coalesce(hub_cleber.param_objeto(m, 'modulos', false), '{}'::jsonb);
+        FOR v_modulo IN SELECT jsonb_object_keys(v_roles) LOOP
+          IF NOT (v_modulo = ANY (v_modulos)) THEN
+            PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El módulo %s no está entre los que maneja la carga', v_modulo),
+              jsonb_build_object('campo', 'modulos', 'idOrganizacion', v_id_org));
+          END IF;
+          IF jsonb_typeof(v_roles->v_modulo) <> 'object' THEN
+            PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('modulos.%s debe ser un objeto { rol, idEquipo? }', v_modulo),
+              jsonb_build_object('campo', 'modulos', 'idOrganizacion', v_id_org));
+          END IF;
+          v_rol := hub_cleber.param_texto(v_roles->v_modulo, 'rol');
+          IF NOT EXISTS (SELECT 1 FROM hub_cleber.roles_modulo WHERE modulo = v_modulo AND rol = v_rol) THEN
+            PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El rol %s no existe en el módulo %s', v_rol, v_modulo),
+              jsonb_build_object('campo', 'modulos', 'idOrganizacion', v_id_org, 'modulo', v_modulo));
+          END IF;
+          INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_organizacion, modulo, rol, id_equipo)
+          VALUES (v_id_usuario, v_id_org, v_modulo, v_rol, hub_cleber.param_texto(v_roles->v_modulo, 'idEquipo', false))
+          ON CONFLICT (id_usuario, id_organizacion, modulo) DO UPDATE SET
+            rol            = EXCLUDED.rol,
+            id_equipo      = EXCLUDED.id_equipo,
+            actualizado_en = now();
+        END LOOP;
+        DELETE FROM hub_cleber.usuarios_roles_modulo rm
+         WHERE rm.id_usuario = v_id_usuario AND rm.id_organizacion = v_id_org
+           AND rm.modulo = ANY (v_modulos) AND NOT (v_roles ? rm.modulo);
       END LOOP;
       DELETE FROM hub_cleber.usuarios_organizaciones
        WHERE id_usuario = v_id_usuario AND NOT (id_organizacion = ANY (v_orgs_usuario));
-
-      -- Roles por módulo: reemplaza los del usuario
-      v_roles := coalesce(hub_cleber.param_objeto(e, 'rolesModulo', false), '{}'::jsonb);
-      FOR v_modulo IN SELECT jsonb_object_keys(v_roles) LOOP
-        IF v_modulo NOT IN ('ventas', 'servicio', 'valuacion') THEN
-          PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('Módulo desconocido: %s', v_modulo), '{"campo":"rolesModulo"}');
-        END IF;
-        IF jsonb_typeof(v_roles->v_modulo) <> 'string' OR (v_roles->>v_modulo) !~ '^[A-Z][A-Z_]*$' OR (v_roles->>v_modulo) = 'SISTEMA' THEN
-          PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('Rol inválido en %s (mayúsculas y _, sin SISTEMA)', v_modulo),
-            '{"campo":"rolesModulo"}');
-        END IF;
-        INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, modulo, rol)
-        VALUES (v_id_usuario, v_modulo, v_roles->>v_modulo)
-        ON CONFLICT (id_usuario, modulo) DO UPDATE SET rol = EXCLUDED.rol, actualizado_en = now();
-      END LOOP;
-      DELETE FROM hub_cleber.usuarios_roles_modulo
-       WHERE id_usuario = v_id_usuario AND NOT (v_roles ? modulo);
 
       v_invitaciones := v_invitaciones || jsonb_build_object('idUsuario', v_id_usuario, 'invitadoPor', hub_cleber.param_texto(e, 'invitadoPor', false));
     EXCEPTION WHEN SQLSTATE 'HB001' THEN

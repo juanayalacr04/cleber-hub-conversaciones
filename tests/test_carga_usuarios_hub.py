@@ -31,21 +31,40 @@ def test_usuario_completo():
     avisos = []
     u = carga.mapea_usuario("uid1", {
         "email": " Ana@Cleber.com ", "name": "Ana", "role": "agent", "isAvailable": False, "status": "online",
-        "organizationIds": ["honda", "kia", "honda"], "orgTeams": {"honda": "honda-ventas"},
-        "orgAgencies": {"honda": ["fleteros"]}, "moduleRoles": {"valuacion": "valuador"},
-        "invitedBy": "uid0", "lastLoginAt": CREADO, "createdAt": CREADO}, {"honda", "kia"}, avisos)
+        "organizationIds": ["honda", "kia", "honda"], "orgTeams": {"honda": "honda-servicio"},
+        "orgAgencies": {"honda": ["fleteros"]}, "invitedBy": "uid0", "lastLoginAt": CREADO, "createdAt": CREADO},
+        {"honda", "kia"}, avisos, {"honda-servicio": "servicio"})
     assert avisos == []
     assert u["email"] == "ana@cleber.com" and u["idOrigen"] == "uid1" and u["esDisponible"] is False
-    assert u["organizaciones"] == [{"idOrganizacion": "honda", "agencias": ["fleteros"], "idEquipo": "honda-ventas"},
-                                   {"idOrganizacion": "kia", "agencias": []}]
-    assert u["rolesModulo"] == {"valuacion": "VALUADOR"}
+    # El rol de Firestore vale para ventas y servicio en cada marca; el equipo va al módulo de su vertical
+    assert u["organizaciones"] == [
+        {"idOrganizacion": "honda", "agencias": ["fleteros"],
+         "modulos": {"ventas": {"rol": "AGENTE"}, "servicio": {"rol": "AGENTE", "idEquipo": "honda-servicio"}}},
+        {"idOrganizacion": "kia", "agencias": [], "modulos": {"ventas": {"rol": "AGENTE"}, "servicio": {"rol": "AGENTE"}}}]
+    assert "rol" not in u and "rolesModulo" not in u
     assert u["invitadoPor"] == "uid0" and u["ultimoAccesoEn"] == CREADO.isoformat()
+
+
+@pytest.mark.parametrize("role, esperado", [("admin", "ADMINISTRADOR"), ("agent", "AGENTE"), ("viewer", "CONSULTA")])
+def test_rol_de_firestore_al_catalogo(role, esperado):
+    u = carga.mapea_usuario("u", {"email": "a@cleber.com", "role": role, "organizationIds": ["honda"]}, {"honda"}, [])
+    assert {m: v["rol"] for m, v in u["organizaciones"][0]["modulos"].items()} == {"ventas": esperado, "servicio": esperado}
+
+
+def test_equipo_de_otra_vertical_o_desconocido_se_omite():
+    avisos = []
+    u = carga.mapea_usuario("u", {"email": "a@cleber.com", "role": "agent", "organizationIds": ["honda", "kia"],
+                                  "orgTeams": {"honda": "honda-valuacion", "kia": "borrado"}},
+                            {"honda", "kia"}, avisos, {"honda-valuacion": "valuacion"})
+    assert all("idEquipo" not in v for m in u["organizaciones"] for v in m["modulos"].values())
+    assert len(avisos) == 2
 
 
 def test_usuario_legado_con_organization_id():
     u = carga.mapea_usuario("uid2", {"email": "b@cleber.com", "role": "admin", "organizationId": "honda"}, {"honda"}, [])
     assert [m["idOrganizacion"] for m in u["organizaciones"]] == ["honda"]
     assert u["estado"] == "offline" and u["esDisponible"] is True and "ultimoAccesoEn" not in u
+    assert u["organizaciones"][0]["modulos"]["ventas"] == {"rol": "ADMINISTRADOR"}
 
 
 @pytest.mark.parametrize("data, motivo", [
@@ -62,17 +81,19 @@ def test_avisos_de_rol_organizacion_y_modulo():
     avisos = []
     u = carga.mapea_usuario("u", {"email": "c@cleber.com", "role": "jefe", "organizationIds": ["borrada"],
                                   "moduleRoles": {"marketing": "X", "valuacion": "SISTEMA"}}, {"honda"}, avisos)
-    assert u["rol"] == "viewer" and u["organizaciones"] == [] and u["rolesModulo"] == {}
-    assert len(avisos) == 4
+    assert u["organizaciones"] == []
+    assert len(avisos) == 3   # rol inválido (queda CONSULTA), organización inexistente y moduleRoles sin copiar
 
 
 def test_carga_omite_emails_repetidos():
     avisos = []
     c = carga.construye_carga(
         [("honda", {"name": "Honda"})],
-        [("u1", {"email": "a@cleber.com", "role": "agent"}), ("u2", {"email": "A@cleber.com", "role": "admin"})], avisos)
+        [("u1", {"email": "a@cleber.com", "role": "agent"}), ("u2", {"email": "A@cleber.com", "role": "admin"})], avisos,
+        [("t1", {"vertical": "ventas"})])
     assert [u["idOrigen"] for u in c["usuarios"]] == ["u1"]
-    assert set(c) == {"organizaciones", "usuarios"}
+    assert set(c) == {"modulos", "organizaciones", "usuarios"}
+    assert c["modulos"] == ["ventas", "servicio"]   # la carga no reemplaza los roles de valuación
     assert len(avisos) == 1
 
 

@@ -1,13 +1,11 @@
--- Marcas a las que pertenece el usuario. Reemplaza users.organizationIds + orgTeams + orgAgencies.
+-- Marcas a las que pertenece el usuario. Reemplaza users.organizationIds + orgAgencies.
+-- Sus roles y equipos en cada módulo de la marca van en usuarios_roles_modulo (Q36, Q38).
 --
--- id_equipo va por valor (id del documento teams/{id} de Firestore) mientras los equipos sigan en Firestore.
--- En la Fase 4, al crear hub_cleber.equipos, se convierte en FK.
--- agencias: ids de agencia por valor. El catálogo NO vive en el hub (viene de un API externo); quien edita al usuario
--- (editor de usuarios) muestra y valida las opciones contra ese API.
+-- agencias: ids de agencia por valor, los mismos para todos los módulos de la marca (Q38). El catálogo NO vive en
+-- el hub (viene de un API externo, Q34); el editor de usuarios muestra y valida las opciones contra ese API.
 CREATE TABLE IF NOT EXISTS hub_cleber.usuarios_organizaciones (
   id_usuario        bigint      NOT NULL,
   id_organizacion   text        NOT NULL,
-  id_equipo         text,
   agencias          text[]      NOT NULL DEFAULT '{}',
   creado_en         timestamptz NOT NULL DEFAULT now(),
   actualizado_en    timestamptz NOT NULL DEFAULT now(),

@@ -1,6 +1,6 @@
 # Diseño — El hub sobre PostgreSQL
 
-**Fecha:** 12 de noviembre de 2026 · **Estado:** diseño aprobado en sesión (Q1–Q33; Q34 y Q35 agregadas después), pendiente de revisión escrita.
+**Fecha:** 12 de noviembre de 2026 · **Estado:** diseño aprobado en sesión (Q1–Q33; Q34–Q39 agregadas después), pendiente de revisión escrita.
 
 Corresponde a la **Fase 2** de `toma-unidades-en-taller/docs/plan-de-trabajo.md` ("Diseño de la migración del hub, sin ejecutar"). Reemplaza lo que dicen sobre Firestore [`PLAN_TRABAJO_CENTRALIZACION.md`](PLAN_TRABAJO_CENTRALIZACION.md) §7.3 y §7.7, y `esquema-valuacion.md` §5 (conversaciones en Firestore).
 
@@ -27,10 +27,14 @@ Documentos relacionados:
 |---|------|----------|
 | Q1 | Conectividad GCP → AWS | Por el **API Gateway de Cleber** (REST v1) → VPC Link → NLB → PostgREST. Sin Cloud SQL ni red privada |
 | Q2 | Login del dashboard | **NextAuth v5 + Google**. El navegador abre además la sesión de Firebase con el mismo `id_token` (`signInWithCredential`), solo para leer Firestore |
-| Q3 | Identidad en plpgsql | Solo `X-User-Email` inyectado por API Gateway. Rol, `moduleRoles` y agencias se leen del schema `hub_cleber`. **Se elimina `X-User-Contexto`** |
+| Q3 | Identidad en plpgsql | Solo `X-User-Email` inyectado por API Gateway. Roles por marca y módulo, equipos y agencias se leen del schema `hub_cleber`. **Se elimina `X-User-Contexto`** |
 | Q4 | Orden | **Usuarios y organizaciones** en `hub_cleber` (con las agencias de cada usuario por valor) se adelantan a la Fase 3 (antes de las pantallas de valuación). El resto en la Fase 4 |
 | Q34 | Catálogo de agencias | **No vive en el hub**: viene de un API externo (2026-11-12). El hub guarda solo los ids de agencia del usuario, por valor; el editor de usuarios muestra y valida las opciones contra ese API |
 | Q35 | Nombre del schema | **`hub_cleber`** (2026-11-12). Las acciones conservan el prefijo `Hub.*` (`Content-Profile: hub_cleber`) |
+| Q36 | Roles | **Por marca y módulo** (2026-11-13): un rol por (usuario, marca, módulo). **Se elimina el rol global** (`admin`/`agent`/`viewer` del usuario); solo `es_super_admin` vale en todo. Tener rol en un módulo de una marca es lo que da acceso a él |
+| Q37 | Catálogo de roles | **`hub_cleber.roles_modulo`**: qué roles existen en cada módulo, para el editor y para validar. Qué permite cada rol lo define el módulo (valuación: `valuacion.roles_permisos`). Códigos en mayúsculas: ventas y servicio `ADMINISTRADOR`/`AGENTE`/`CONSULTA`; valuación `ADMINISTRADOR`/`GERENTE`/`VALUADOR`/`CONSULTA`. `SISTEMA` no está en el catálogo: cada módulo reconoce su email de servicio |
+| Q38 | Equipo y agencias | **Equipo por marca y módulo** (junto al rol: alguien puede estar en un equipo de ventas y en otro de servicio de la misma marca). **Agencias por marca**, las mismas para todos sus módulos |
+| Q39 | Quién edita a quién | Super admin: todo. **Administrador de un módulo en una marca** (rol con `es_administrador` en el catálogo): los roles y equipos de ese módulo en esa marca. Agencias de un usuario en una marca: cualquier administrador de algún módulo de la marca. Invitar = dar el primer rol en un módulo de una marca |
 | Q5 | Backend del hub | Se queda en GCP como cliente máquina (excepción, §1) |
 | Q6 | Dónde vive el DDL | **Provisional:** `DB/Hub/` de este repo. Se mueve cuando se decida la ubicación final (candidato: `GitLab/api`, el repo central `api-cleber`) |
 | Q7 | Conversaciones y mensajes | **A PostgreSQL.** Firestore queda como **canal de aviso** (§6.1) |
@@ -119,13 +123,14 @@ Helpers del schema `hub_cleber` (mismo patrón que `valuacion`):
 | Helper | Uso |
 |--------|-----|
 | `hub_cleber.usuario_actual()` | `X-User-Email` → fila de `hub_cleber.usuarios` (activo). Sin header o sin usuario → `SIN_PERMISO` |
-| `hub_cleber.exige_rol(...)` | Rol global del hub (`admin` / `agent` / `viewer`) o super admin |
 | `hub_cleber.exige_organizacion(id_organizacion)` | La organización está entre las del usuario |
-| `hub_cleber.rol_modulo(modulo)` | Rol por módulo (`moduleRoles`), ej. `valuacion` → `VALUADOR` |
+| `hub_cleber.rol_modulo(id_organizacion, modulo)` | Rol del usuario en ese módulo de esa marca, ej. (`marca-a`, `valuacion`) → `VALUADOR` |
+| `hub_cleber.exige_administrador_modulo(id_organizacion, modulo)` | Administra el módulo en la marca (Q39) o super admin |
+| `hub_cleber.exige_administrador_organizacion(id_organizacion)` | Administra algún módulo de la marca (para sus agencias) o super admin |
 | `hub_cleber.agencias_permitidas(id_organizacion)` | Agencias del usuario en esa marca; `NULL` = sin restricción (super admin y sistema) |
 
 **Valuación** deja de recibir `X-User-Contexto`:
-- `valuacion.usuario_actual()` lee `X-User-Email` y consulta `hub_cleber.usuarios_contexto(email)`. Es una función de `hub_cleber` que devuelve rol de módulo, super admin y agencias; se llama por valor, sin join a tablas ajenas.
+- `valuacion.usuario_actual()` lee `X-User-Email` y consulta `hub_cleber.usuarios_contexto(email)`. Es una función de `hub_cleber` que devuelve super admin, sistema y las marcas donde el usuario tiene rol en el módulo, cada una con `{ rol, idEquipo, agencias }`; se llama por valor, sin join a tablas ajenas. El permiso se evalúa con la marca del recurso (la de la oferta).
 - Es la segunda dependencia permitida entre schemas, junto a `clientes.normaliza_telefono`.
 
 ### 4.3 Máquinas
@@ -162,7 +167,7 @@ Helpers del schema `hub_cleber` (mismo patrón que `valuacion`):
 
 | Schema | Dueño | Contenido |
 |--------|-------|-----------|
-| `hub_cleber` | Hub | Organizaciones, usuarios, equipos, números, bots, plantillas, etiquetas, conversaciones, mensajes, notas, campañas, bitácora |
+| `hub_cleber` | Hub | Organizaciones, usuarios, catálogo de roles por módulo, equipos, números, bots, plantillas, etiquetas, conversaciones, mensajes, notas, campañas, bitácora |
 | `clientes` | Hub | Ficha única (ya creado en `db_dev_01`; `DB/Clientes/` de `toma-unidades-en-taller`) |
 | `valuacion` | Valuación | Ofertas (ya creado en `db_dev_01`) |
 
@@ -178,9 +183,10 @@ Ids: los documentos migrados conservan su id de Firestore como `id_origen` (úni
 | Tabla | Sale de (Firestore) | Columnas clave | Notas |
 |-------|---------------------|----------------|-------|
 | `organizaciones` | `organizations` | `id_organizacion text` PK (= `organizationId`, se conserva), `nombre`, `zona_horaria`, `horario` jsonb, `sf_codigo_marca` **UNIQUE**, `sf_calendario`, `salesforce_config` jsonb (no secretos), `plan` | Los secretos de Salesforce van a Secret Manager (`DECISIONES_UNIFICACION.md`) |
-| `usuarios` | `users` | `id_usuario`, `email` **UNIQUE** (citext), `nombre`, `foto_url`, `rol` (`admin`/`agent`/`viewer`), `es_super_admin`, `es_sistema`, `es_disponible`, `estado`, `invitado_por`, `ultimo_acceso_en` | El email es la identidad (authorizer) |
-| `usuarios_organizaciones` | `users.organizationIds`, `orgTeams` | (`id_usuario`, `id_organizacion`) PK, `id_equipo` FK nullable, `agencias text[]` | Reemplaza `organizationIds` + `orgTeams` + `orgAgencies`. Agencias por valor: el catálogo viene de un API (Q34) |
-| `usuarios_roles_modulo` | `users.moduleRoles` (nuevo) | (`id_usuario`, `modulo`) PK, `rol` | Ej. (`juan`, `valuacion`, `VALUADOR`) |
+| `usuarios` | `users` | `id_usuario`, `email` **UNIQUE** (citext), `nombre`, `foto_url`, `es_super_admin`, `es_sistema`, `es_disponible`, `estado`, `invitado_por`, `ultimo_acceso_en` | El email es la identidad (authorizer). Sin rol global (Q36) |
+| `usuarios_organizaciones` | `users.organizationIds`, `orgAgencies` | (`id_usuario`, `id_organizacion`) PK, `agencias text[]` | Marcas del usuario. Agencias por valor, las mismas para todos los módulos de la marca: el catálogo viene de un API (Q34, Q38) |
+| `roles_modulo` | nueva | (`modulo`, `rol`) PK, `nombre`, `descripcion`, `es_administrador`, `orden` | Catálogo de roles de cada módulo (Q37) |
+| `usuarios_roles_modulo` | `users.role`, `orgTeams` | (`id_usuario`, `id_organizacion`, `modulo`) PK, `rol` FK al catálogo, `id_equipo` FK nullable | Ej. (`juan`, `marca-a`, `valuacion`, `VALUADOR`) y (`juan`, `marca-b`, `valuacion`, `GERENTE`). FK a `usuarios_organizaciones`: al salir de la marca se borran sus roles (Q36, Q38) |
 | `equipos` | `teams` | `id_equipo`, `id_organizacion` FK, `nombre`, `vertical` (`ventas`/`servicio`/`valuacion`), `modo_asignacion`, `max_conversaciones_agente`, `accion_opt_out`, `umbrales_semaforo` jsonb, `estado` | `activeConversations` se calcula, no se guarda |
 | `numeros` | `whatsappNumbers` | `id_numero`, `id_organizacion`, `telefono` UNIQUE entre activos, `nombre`, `proveedor` (`twilio`/`meta`/`valuetext`), `id_equipo`, `id_bot_default`, `ventana_reapertura_horas`, `horas_cierre_inactividad`, `webhook_cierre_url`, `plantillas` jsonb, `ids_proveedor` jsonb (no secretos), `estado` | Tokens de Twilio/Meta en Secret Manager |
 | `bots` | `bots` | `id_bot`, `id_organizacion`, `nombre`, `tipo` (`chatllm`/`workflow`/`vertex_ai`/`external`), `vertical`, `categoria`, `estado`, `config` jsonb (`abacusConfig` sin token, `handoffConfig`, `inactivityConfig`, `scheduleConfig`, `situationRouting`, `outcomeActions`, …), `herramientas text[]`, `accion_opt_out`, `inyecta_contexto_telefono` | Configuración variable en jsonb; tokens en Secret Manager |
@@ -205,7 +211,7 @@ Envelope y errores de la convención. Las llama PostgREST por `POST rpc/<funcion
 |-------|----------|-------------|
 | Identidad | `usuarioActual`, `usuariosContexto` (para valuación) | Dashboard, `valuacion` |
 | Configuración | `consulta*` / `guarda*` / `elimina*` de organizaciones, equipos, números, bots, plantillas, etiquetas | Dashboard (directo) |
-| Usuarios | `consultaUsuarios`, `invitaUsuario`, `guardaUsuario`, `quitaUsuarioDeOrganizacion`, `cambiaDisponibilidad` | **Backend** (también escribe `accesos`) |
+| Usuarios | `consultaUsuarios`, `consultaRolesModulo`, `invitaUsuario`, `guardaUsuario`, `quitaUsuarioDeOrganizacion`, `cambiaDisponibilidad` | **Backend** (también escribe `accesos`) |
 | Conversaciones (pipeline) | `resuelveNumero` (número + equipo + bot + org, para la caché), `obtieneOAbreConversacion` (incluye reapertura por ventana), `guardaMensaje` (idempotente por `id_mensaje_proveedor`), `consultaHistorial` (para el bot) | Backend (`/internal`) |
 | Conversaciones (operación) | `asignaConversacion`, `reclamaConversacion`, `transfiereConversacion`, `cierraConversacion`, `registraResultado`, `agregaNota`, `agregaEtiqueta` | Backend (por usuario o sistema) |
 | Consultas del dashboard | `consultaConversaciones` (bandeja/kanban), `consultaMensajes` (`desde` para incremental), `consultaNotas`, `consultaBitacora`, `consultaEstadisticas` | Dashboard (directo) |
@@ -234,9 +240,9 @@ Mismo id que `hub_cleber.conversaciones.id_conversacion`. Lo escribe **solo el b
 
 ### 6.2 Permisos — `accesos/{email}`
 
-Copia mínima derivada de `hub_cleber.usuarios*`: `organizationIds`, `orgTeams`, `role`, `isSuperAdmin`.
+Copia mínima derivada de `hub_cleber.usuarios*`: `isSuperAdmin`, `organizationIds` y `modulos` (`{ "<idOrganizacion>": { "<modulo>": { rol, teamId } } }`, Q36 y Q38).
 - **Quién la escribe:** el backend, cada vez que cambia un usuario (acciones de Usuarios, §5.3).
-- **Qué la lee:** las reglas de Firestore, con `request.auth.token.email` y `email_verified == true`, para decidir lectura de `conversations/{id}` con la misma lógica que el `canAccessTeam` actual.
+- **Qué la lee:** las reglas de Firestore, con `request.auth.token.email` y `email_verified == true`, para decidir lectura de `conversations/{id}` con la lógica del `canAccessTeam` actual, aplicada al rol y al equipo del usuario en el módulo (`vertical`) y la marca de la conversación.
 - `firestore.rules` sigue siendo **solo lectura** para el navegador (tarea 1.40).
 
 ### 6.3 Lo que sale de Firestore
@@ -277,7 +283,7 @@ Copia mínima derivada de `hub_cleber.usuarios*`: `organizationIds`, `orgTeams`,
 
 | Fase | Cambios |
 |------|---------|
-| **Fase 3** (con valuación) | **Login con NextAuth v5 + Google** en todo el dashboard (reemplaza `signInWithPopup`) y puente `signInWithCredential` a Firebase · cliente HTTP de la convención (`lib/api.ts`: `id_token`, API key, 401/403) · **editor de usuarios** sobre `hub_cleber` (agencias por marca y rol por módulo; guarda por el backend) · organizaciones y agencias desde `hub_cleber` · reglas de Firestore a `accesos/{email}` · pantallas de valuación contra su API (reemplaza `lib/valuacion/store.ts`) |
+| **Fase 3** (con valuación) | **Login con NextAuth v5 + Google** en todo el dashboard (reemplaza `signInWithPopup`) y puente `signInWithCredential` a Firebase · cliente HTTP de la convención (`lib/api.ts`: `id_token`, API key, 401/403) · **editor de usuarios** sobre `hub_cleber` (rol y equipo por marca y módulo, agencias por marca; guarda por el backend) · organizaciones y agencias desde `hub_cleber` · reglas de Firestore a `accesos/{email}` · pantallas de valuación contra su API (reemplaza `lib/valuacion/store.ts`) |
 | **Fase 4** | Pantallas de configuración (equipos, bots, números, plantillas, etiquetas) de `onSnapshot` a consultas a la API · campañas con polling del avance · conversaciones (lista, kanban, chat, notificaciones, semáforo) sobre el documento de aviso + `Hub.consultaMensajes` · rutas API de Next.js (`salesforce/*`, `abacus-config`) sin Admin SDK de Firestore |
 | Cortes por marca | Sin cambios |
 

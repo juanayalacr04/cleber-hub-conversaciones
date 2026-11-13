@@ -1,10 +1,12 @@
 /**
     Objeto Usuario.
 
-    { idUsuario, email, nombre, fotoUrl, rol, esSuperAdmin, esSistema, esActivo, esDisponible, estado,
+    { idUsuario, email, nombre, fotoUrl, esSuperAdmin, esSistema, esActivo, esDisponible, estado,
       ultimoAccesoEn, creadoEn,
-      organizaciones: [ { idOrganizacion, nombre, idEquipo, agencias } ],   ordenadas por nombre
-      rolesModulo:    { "<modulo>": "<ROL>" } }
+      organizaciones: [ { idOrganizacion, nombre, agencias,                          ordenadas por nombre
+                          modulos: { "<modulo>": { rol, idEquipo } } } ] }
+
+    No hay rol global (Q36): el rol está en cada módulo de cada marca.
 
     @Acceso No-Publica
 */
@@ -18,7 +20,6 @@ AS $$
     'email',          u.email,
     'nombre',         u.nombre,
     'fotoUrl',        u.foto_url,
-    'rol',            u.rol,
     'esSuperAdmin',   u.es_super_admin,
     'esSistema',      u.es_sistema,
     'esActivo',       u.es_activo,
@@ -30,15 +31,15 @@ AS $$
         SELECT jsonb_agg(jsonb_build_object(
                  'idOrganizacion', uo.id_organizacion,
                  'nombre',         o.nombre,
-                 'idEquipo',       uo.id_equipo,
-                 'agencias',       to_jsonb(uo.agencias)) ORDER BY o.nombre, uo.id_organizacion)
+                 'agencias',       to_jsonb(uo.agencias),
+                 'modulos',        coalesce((
+                     SELECT jsonb_object_agg(rm.modulo, jsonb_build_object('rol', rm.rol, 'idEquipo', rm.id_equipo))
+                       FROM hub_cleber.usuarios_roles_modulo rm
+                      WHERE rm.id_usuario = uo.id_usuario AND rm.id_organizacion = uo.id_organizacion), '{}'::jsonb))
+                 ORDER BY o.nombre, uo.id_organizacion)
           FROM hub_cleber.usuarios_organizaciones uo
           JOIN hub_cleber.organizaciones o ON o.id_organizacion = uo.id_organizacion
-         WHERE uo.id_usuario = u.id_usuario), '[]'::jsonb),
-    'rolesModulo',    coalesce((
-        SELECT jsonb_object_agg(rm.modulo, rm.rol)
-          FROM hub_cleber.usuarios_roles_modulo rm
-         WHERE rm.id_usuario = u.id_usuario), '{}'::jsonb))
+         WHERE uo.id_usuario = u.id_usuario), '[]'::jsonb))
     FROM hub_cleber.usuarios u
    WHERE u.id_usuario = p_id_usuario;
 $$;

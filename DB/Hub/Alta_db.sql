@@ -3,12 +3,14 @@
  * Script maestro: ejecuta todo el paquete en orden, dentro de una transacción; se detiene al primer error.
  *
  * Este adelanto crea solo lo que necesita valuación para saber quién es el usuario: organizaciones, usuarios,
- * sus marcas (con sus agencias por valor) y sus roles por módulo, los helpers de identidad y hub_cleber.usuarios_contexto.
+ * sus marcas (con sus agencias por valor), el catálogo de roles de cada módulo y el rol del usuario en cada módulo
+ * de cada marca, los helpers de identidad y hub_cleber.usuarios_contexto.
  * El catálogo de agencias NO vive en el hub: viene de un API externo.
  * El resto del schema (equipos, números, bots, conversaciones, ...) entra en la Fase 4.
  * Diseño: Arquitectura/DISENO_MIGRACION_POSTGRES.md §4.2 y §5.
  *
  * Es re-ejecutable: tablas con IF NOT EXISTS, funciones con CREATE OR REPLACE y datos maestros idempotentes.
+ * Un cambio de estructura en una tabla que ya existe NO se aplica aquí: va en Migraciones/ (ver README).
  *
  * Requisitos:
  *   - PostgreSQL 13+ (gen_random_uuid nativo)
@@ -54,6 +56,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Tables/usuarios.sql
 \echo 'Tables/usuarios_organizaciones.sql'
 \i Tables/usuarios_organizaciones.sql
+\echo 'Tables/roles_modulo.sql'
+\i Tables/roles_modulo.sql
 \echo 'Tables/usuarios_roles_modulo.sql'
 \i Tables/usuarios_roles_modulo.sql
 
@@ -80,6 +84,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 -- 5. Datos maestros
 \echo '================================================================================'
 \echo 'CARGANDO DATOS MAESTROS ...'
+\echo 'Datos_maestros/roles_modulo.sql'
+\i Datos_maestros/roles_modulo.sql
 \echo 'Datos_maestros/usuarios_sistema.sql'
 \i Datos_maestros/usuarios_sistema.sql
 
