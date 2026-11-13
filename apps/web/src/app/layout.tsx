@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
+import { SessionProvider } from "next-auth/react";
 import { AuthProvider } from "@/contexts/AuthContext";
 import "./globals.css";
 
@@ -14,7 +15,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es" suppressHydrationWarning className={`${geist.variable} ${geistMono.variable}`}>
       <body>
         <ThemeProvider attribute={["class", "data-theme"]} defaultTheme="system" enableSystem disableTransitionOnChange>
-          <AuthProvider>{children}</AuthProvider>
+          <SessionProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </SessionProvider>
         </ThemeProvider>
       </body>
     </html>

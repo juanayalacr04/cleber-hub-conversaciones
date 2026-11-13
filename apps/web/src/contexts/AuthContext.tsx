@@ -1,14 +1,16 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import {
   User,
-  signInWithPopup,
+  GoogleAuthProvider,
+  signInWithCredential,
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from "firebase/auth";
 import { doc, getDoc, collection, query, getDocs, orderBy } from "firebase/firestore";
-import { auth, db, googleProvider } from "@/lib/firebase";
+import { signIn as nextAuthSignIn, signOut as nextAuthSignOut, useSession } from "next-auth/react";
+import { auth, db } from "@/lib/firebase";
 import { callHubAction, HubActionError } from "@/lib/hub-actions";
 
 export interface UserData {
@@ -52,6 +54,11 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // Login: NextAuth + Google (lib/auth.ts). Con el id_token de la sesión se abre además la de Firebase
+  // (signInWithCredential), que sigue siendo la que lee Firestore y la que usan las acciones del backend.
+  const { data: session, status: sessionStatus } = useSession();
+  const [bridging, setBridging] = useState(false);
+  const bridgeDenied = useRef(false);   // no reintentar el puente en esta sesión después de negar el acceso
   const [user, setUser] = useState<User | null>(null);
   const [rawUserData, setRawUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -169,9 +176,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const updated = { ...data, teamId: data.teamId || null, lastLoginAt: new Date(), status: "online" } as UserData;
           setRawUserData(updated);
         } else {
-          // Not invited — deny access and sign out
+          // Not invited — deny access and sign out (también de NextAuth: si no, el puente volvería a entrar)
           setAccessDenied(true);
+          bridgeDenied.current = true;
           await firebaseSignOut(auth);
+          await nextAuthSignOut({ redirect: false });
           setUser(null);
           setRawUserData(null);
         }
@@ -257,14 +266,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [activeOrgId, orgNameFromList]);
 
-  const signInWithGoogle = async () => {
-    try {
-      setAccessDenied(false);
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Error signing in with Google:", error);
-      throw error;
+  // Puente NextAuth → Firebase. La sesión de NextAuth manda: sin ella no hay sesión de Firebase.
+  useEffect(() => {
+    if (sessionStatus === "loading") return;
+    if (sessionStatus === "unauthenticated") {
+      bridgeDenied.current = false;
+      if (auth.currentUser) firebaseSignOut(auth).catch(() => {});   // p. ej. una sesión vieja de signInWithPopup
+      return;
     }
+    if (session?.error === "RENOVACION_FALLIDA") {
+      // El id_token venció y no se pudo renovar: hay que volver a entrar
+      firebaseSignOut(auth).finally(() => nextAuthSignOut({ redirectTo: "/login" }));
+      return;
+    }
+    const idToken = session?.idToken;
+    if (!idToken || bridgeDenied.current || auth.currentUser) return;
+
+    let cancelled = false;
+    setBridging(true);
+    signInWithCredential(auth, GoogleAuthProvider.credential(idToken))
+      .catch((error) => {
+        console.error("No se pudo abrir la sesión de Firebase con el token de Google:", error);
+        if (!cancelled) setUserDataError(true);
+      })
+      .finally(() => !cancelled && setBridging(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionStatus, session?.idToken, session?.error]);
+
+  const signInWithGoogle = async () => {
+    setAccessDenied(false);
+    bridgeDenied.current = false;
+    // Redirige a Google; al volver, el puente abre la sesión de Firebase
+    await nextAuthSignIn("google", { redirectTo: "/" });
   };
 
   const signOut = async () => {
@@ -274,15 +309,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await callHubAction(user, "me.sign_out").catch((e) => console.error("No se pudo marcar offline:", e));
       }
       await firebaseSignOut(auth);
+      await nextAuthSignOut({ redirectTo: "/login" });
     } catch (error) {
       console.error("Error signing out:", error);
       throw error;
     }
   };
 
+  const sessionPending = sessionStatus === "loading" || bridging
+    || (sessionStatus === "authenticated" && !!session?.idToken && !user && !bridgeDenied.current && !userDataError);
+
   return (
     <AuthContext.Provider
-      value={{ user, userData, loading: loading || verticalPending, accessDenied, userDataError, signInWithGoogle, signOut, organizations, setSelectedOrgId, refreshOrganizations, currentOrgName }}
+      value={{ user, userData, loading: loading || verticalPending || sessionPending, accessDenied, userDataError, signInWithGoogle, signOut, organizations, setSelectedOrgId, refreshOrganizations, currentOrgName }}
     >
       {children}
     </AuthContext.Provider>

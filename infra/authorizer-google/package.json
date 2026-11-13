@@ -1,0 +1,14 @@
+{
+  "name": "authorizer-google",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Lambda authorizer (TOKEN) del API Gateway REST v1 de Cleber: valida el id_token de Google e inyecta el email",
+  "main": "index.mjs",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

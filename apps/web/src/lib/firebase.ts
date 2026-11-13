@@ -1,5 +1,5 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -14,10 +14,10 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
+// La sesión de Firebase la abre AuthContext con el id_token de NextAuth (signInWithCredential); no hay login propio.
 export const auth = getAuth(app);
 // Una sola base para todos los módulos: la `(default)` o, si el proyecto la comparte con otra aplicación, una con nombre
 // (NEXT_PUBLIC_FIRESTORE_DATABASE). Debe ser la misma que usa la función (FIRESTORE_DATABASE) y la de firebase.json.
 export const db = getFirestore(app, process.env.NEXT_PUBLIC_FIRESTORE_DATABASE || "(default)");
 // Archivos adjuntos de la bandeja. Requiere el bucket de Storage del proyecto (pendiente de habilitar).
 export const storage = getStorage(app);
-export const googleProvider = new GoogleAuthProvider();
