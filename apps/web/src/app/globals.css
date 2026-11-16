@@ -538,3 +538,16 @@ a.nav[aria-current="page"] { color: var(--primary-fg); }
 /* ---- Demo pública de Valuación (marca Toyota) ---- */
 .demo .demo-mark { background: #eb0a1e; color: #fff; }
 .demo .modpick .mod-trigger { cursor: default; }
+
+/* ---- Demo: Financiamiento (carga de cartera simulada) ---- */
+.vdrop { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 56px 24px; text-align: center; border-style: dashed; border-width: 2px; transition: border-color .15s, background .15s; }
+.vdrop.over { border-color: var(--mod); background: var(--mod-soft); }
+.vdrop b { font-size: 15px; }
+.vdrop p { margin: 0 0 10px; color: var(--fg-3); font-size: 13px; }
+.vdrop-i { color: var(--mod); }
+.vdrop .spin { animation: ospin 1s linear infinite; }
+.vfile { display: flex; align-items: center; gap: 12px; padding: 12px 16px; flex-wrap: wrap; }
+.vfile > svg { color: var(--mod); flex: none; }
+.vfile .grow { flex: 1; min-width: 180px; }
+.vprog { height: 4px; width: 72px; background: var(--mute-bg); border-radius: 99px; margin-top: 4px; overflow: hidden; }
+.vprog i { display: block; height: 100%; background: var(--mod); }
