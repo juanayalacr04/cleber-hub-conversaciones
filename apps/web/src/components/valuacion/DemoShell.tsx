@@ -13,6 +13,9 @@ import { ValuacionBase } from "@/lib/valuacion/base";
 export const DEMO_BASE = "/demo/valuacion";
 const SIDEBAR_KEY = "hub_sidebar_collapsed";
 
+/** Opciones que solo existen en la demo, no en el módulo de Valuación del HUB. */
+const DEMO_NAV = [{ slug: "financiamiento", label: "Financiamiento", icon: "bank" }];
+
 /**
  * Marco de la demo pública de Valuación: el mismo menú lateral del HUB, pero solo con
  * el módulo de Valuación, marca Toyota y sin sesión (no hay usuario, organización ni
@@ -65,7 +68,7 @@ export function DemoShell({ children }: { children: ReactNode }) {
           <nav className="nav-wrap" aria-label="Navegación del módulo">
             <div className="nav-group" data-g="operacion">
               <p className="lbl">Operación</p>
-              {getModuleNav(mod).map((n) => (
+              {[...getModuleNav(mod), ...DEMO_NAV].map((n) => (
                 <Link
                   key={n.slug} href={`${DEMO_BASE}/${n.slug}`} className="nav" aria-current={section === n.slug ? "page" : undefined}
                   title={collapsed ? n.label : undefined} aria-label={collapsed ? n.label : undefined}
