@@ -2,12 +2,12 @@
 
 import { notFound, useParams } from "next/navigation";
 import { getModule } from "@/lib/modules";
-import { OfertasView } from "@/components/valuacion/OfertasView";
+import { OfertasApiView } from "@/components/valuacion/OfertasApiView";
 
-/** Ofertas solo existe en el módulo de Valuación. */
+/** Ofertas solo existe en el módulo de Valuación. Datos reales del schema `valuacion` (el prototipo queda en /demo). */
 export default function OfertasPage() {
   const { module: moduleId } = useParams<{ module: string }>();
   const mod = getModule(moduleId);
   if (mod?.id !== "valuacion") notFound();
-  return <OfertasView mod={mod} />;
+  return <OfertasApiView mod={mod} />;
 }
