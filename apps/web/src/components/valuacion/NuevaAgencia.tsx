@@ -1,21 +1,20 @@
 "use client";
 
 /**
- * Alta de una agencia de valuación (solo super admin): marca, nombre, id y taller de Quiter. Se guarda con
- * `guardaConfiguracion` PAUSADA y con criterios por omisión, para que el proceso de madrugada no la tome antes de
- * revisar sus criterios y activarla en la pantalla de Configuración.
+ * Alta de una agencia de valuación (solo super admin): se elige del catálogo de Cleber de la marca de la pantalla
+ * (lib/hub/agencias.ts). Del catálogo salen el id (que también es el taller de Quiter), el nombre y la marca; no se
+ * capturan. Se guarda con `guardaConfiguracion` PAUSADA y con criterios por omisión, para que el proceso de madrugada
+ * no la tome antes de revisar sus criterios y activarla.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { consultaAgenciasMarca, type AgenciaCatalogo } from "@/lib/hub/agencias";
 import { guardaConfiguracion } from "@/lib/valuacion/acciones";
 import { SERVICE_TYPES } from "@/lib/valuacion/store";
 import { mensajeError, type ConfiguracionAgencia } from "@/lib/valuacion/tipos";
-
-/** "Toyota Cumbres" → "toyota-cumbres" */
-const aId = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim()
-  .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
 const anio = new Date().getFullYear();
 /** Criterios con los que nace la agencia; se ajustan en Configuración antes de activarla. */
@@ -29,46 +28,56 @@ const CRITERIOS_INICIALES = {
   meta: { citasEsperadasDia: 40, pctMetaEnvio: 30 },
 };
 
-export function NuevaAgencia({ open, onOpenChange, marcas, existentes, onCreada }: {
+const lugar = (a: AgenciaCatalogo) => [a.municipio, a.estado].filter(Boolean).join(", ");
+
+export function NuevaAgencia({ open, onOpenChange, existentes, onCreada }: {
   open: boolean;
   /** Ids de agencia ya dados de alta: guardaConfiguracion es upsert y pisaría su configuración */
   existentes: string[];
   onOpenChange: (o: boolean) => void;
-  marcas: { idMarca: string; nombre: string }[];
   onCreada: (a: ConfiguracionAgencia) => void;
 }) {
-  const [idMarca, setIdMarca] = useState("");
-  const [nombre, setNombre] = useState("");
+  const { userData } = useAuth();
+  const idMarca = userData?.organizationId ?? "";
+  const [catalogo, setCatalogo] = useState<AgenciaCatalogo[] | null>(null);
+  const [errorCatalogo, setErrorCatalogo] = useState<string | null>(null);
   const [idAgencia, setIdAgencia] = useState("");
-  const [idTocado, setIdTocado] = useState(false);
-  const [taller, setTaller] = useState("");
-  const [error, setError] = useState<{ campo: string | null; mensaje: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
-  const reinicia = () => { setIdMarca(""); setNombre(""); setIdAgencia(""); setIdTocado(false); setTaller(""); setError(null); };
-  const cambiaAbierto = (o: boolean) => { if (!o) reinicia(); onOpenChange(o); };
+  // Catálogo de la marca al abrir (y si cambia la marca)
+  useEffect(() => {
+    if (!open || !idMarca) return;
+    let vivo = true;
+    setCatalogo(null);
+    setErrorCatalogo(null);
+    consultaAgenciasMarca(idMarca)
+      .then((r) => {
+        if (!vivo) return;
+        if (r.successful) setCatalogo(r.info.agencias);
+        else setErrorCatalogo(r.errorMessage || "No se pudo cargar el catálogo de agencias");
+      })
+      .catch(() => vivo && setErrorCatalogo("No se pudo cargar el catálogo de agencias"));
+    return () => { vivo = false; };
+  }, [open, idMarca]);
 
-  const listo = idMarca && nombre.trim() && idAgencia.trim() && taller.trim();
+  const cambiaAbierto = (o: boolean) => { if (!o) { setIdAgencia(""); setError(null); } onOpenChange(o); };
+
+  const disponibles = (catalogo ?? []).filter((a) => !existentes.includes(a.idAgencia));
+  const elegida = disponibles.find((a) => a.idAgencia === idAgencia) ?? null;
 
   const crea = async () => {
-    if (!listo) return;
-    if (existentes.includes(idAgencia.trim())) {
-      setError({ campo: "idAgencia", mensaje: "Ya existe una agencia con ese id" });
-      return;
-    }
+    if (!elegida || !idMarca) return;
     setGuardando(true);
     setError(null);
     const r = await guardaConfiguracion({
-      idAgencia: idAgencia.trim(), idTallerQuiter: taller.trim(), nombreAgencia: nombre.trim(), idMarca,
+      idAgencia: elegida.idAgencia, idTallerQuiter: elegida.idAgencia, nombreAgencia: elegida.nombre, idMarca,
       esActivo: false, ...CRITERIOS_INICIALES,
     });
     setGuardando(false);
     if (r.successful) { onCreada(r.info); cambiaAbierto(false); return; }
-    const campo = (r.info as { campo?: string } | undefined)?.campo ?? null;
-    setError({ campo, mensaje: campo ? r.errorMessage : mensajeError(r) });
+    setError((r.info as { campo?: string } | undefined)?.campo ? r.errorMessage : mensajeError(r));
   };
-
-  const err = (campo: string) => (error?.campo === campo ? <small className="verr" role="alert">{error.mensaje}</small> : null);
 
   return (
     <Dialog open={open} onOpenChange={cambiaAbierto}>
@@ -80,35 +89,22 @@ export function NuevaAgencia({ open, onOpenChange, marcas, existentes, onCreada 
           </DialogDescription>
         </DialogHeader>
         <form className="vnueva" onSubmit={(e) => { e.preventDefault(); crea(); }}>
-          <label className="vfl-l" htmlFor="na-marca">Marca</label>
-          <select id="na-marca" className="date" value={idMarca} onChange={(e) => setIdMarca(e.target.value)}>
-            <option value="" disabled>Elige la marca</option>
-            {marcas.map((m) => <option key={m.idMarca} value={m.idMarca}>{m.nombre}</option>)}
+          <label className="vfl-l" htmlFor="na-agencia">Agencia</label>
+          <select id="na-agencia" className="date" value={idAgencia} onChange={(e) => { setIdAgencia(e.target.value); setError(null); }} disabled={!catalogo}>
+            <option value="" disabled>{catalogo ? "Elige la agencia" : errorCatalogo ? "Sin catálogo" : "Cargando catálogo…"}</option>
+            {disponibles.map((a) => (
+              <option key={a.idAgencia} value={a.idAgencia}>{a.idAgencia} · {a.nombre}{lugar(a) ? ` — ${lugar(a)}` : ""}</option>
+            ))}
           </select>
-          {marcas.length === 0 && <small className="vhint">No hay marcas activas. Créala primero en Marcas.</small>}
-          {err("idMarca")}
-
-          <label className="vfl-l" htmlFor="na-nombre">Nombre de la agencia</label>
-          <input
-            id="na-nombre" className="date" value={nombre} placeholder="Ej. Toyota Cumbres"
-            onChange={(e) => { setNombre(e.target.value); if (!idTocado) setIdAgencia(aId(e.target.value)); }}
-          />
-          {err("nombreAgencia")}
-
-          <label className="vfl-l" htmlFor="na-id">Id de la agencia</label>
-          <input id="na-id" className="date num" value={idAgencia} onChange={(e) => { setIdTocado(true); setIdAgencia(e.target.value); }} placeholder="toyota-cumbres" />
-          <small className="vhint">Lo guardan las ofertas y las agencias de cada usuario; no se cambia después.</small>
-          {err("idAgencia")}
-
-          <label className="vfl-l" htmlFor="na-taller">Taller de Quiter</label>
-          <input id="na-taller" className="date num" value={taller} onChange={(e) => setTaller(e.target.value)} placeholder="workshopId de Quiter" />
-          {err("idTallerQuiter")}
-
-          {error && !error.campo && <small className="verr" role="alert">{error.mensaje}</small>}
+          {errorCatalogo && <small className="verr" role="alert">{errorCatalogo}</small>}
+          {catalogo && disponibles.length === 0 && (
+            <small className="vhint">{catalogo.length ? "Todas las agencias de la marca ya están dadas de alta." : "El catálogo no tiene agencias para esta marca."}</small>
+          )}
+          {error && <small className="verr" role="alert">{error}</small>}
 
           <div className="vnueva-acts">
             <button type="button" className="btn" onClick={() => cambiaAbierto(false)}>Cancelar</button>
-            <button type="submit" className="btn primary" disabled={!listo || guardando}>
+            <button type="submit" className="btn primary" disabled={!elegida || guardando}>
               {guardando && <Loader2 size={14} className="animate-spin" />}Crear agencia
             </button>
           </div>

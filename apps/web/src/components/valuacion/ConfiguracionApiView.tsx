@@ -60,7 +60,7 @@ export function ConfiguracionApiView({ mod }: { mod: ModuleDef }) {
   const [guardando, setGuardando] = useState(false);
   const [pendiente, setPendiente] = useState<string | null>(null);
   // Alta de agencias: solo super admin (una agencia nueva aún no está en las agencias de nadie)
-  const [marcas, setMarcas] = useState<{ idMarca: string; nombre: string }[] | null>(null);
+  const [soySuper, setSoySuper] = useState(false);
   const [nueva, setNueva] = useState(false);
 
   const sesionVencida = (r: { errorCode: string; errorMessage: string }) => {
@@ -83,7 +83,7 @@ export function ConfiguracionApiView({ mod }: { mod: ModuleDef }) {
 
   useEffect(() => { carga(); }, [carga]);
   useEffect(() => {
-    consultaUsuarioActual().then((r) => { if (r.successful && r.info.usuario.esSuperAdmin) setMarcas(r.info.marcasVisibles); }).catch(() => {});
+    consultaUsuarioActual().then((r) => { if (r.successful) setSoySuper(r.info.usuario.esSuperAdmin); }).catch(() => {});
   }, []);
 
   const creada = (a: ConfiguracionAgencia) => {
@@ -91,9 +91,9 @@ export function ConfiguracionApiView({ mod }: { mod: ModuleDef }) {
     setIdAgencia(a.idAgencia);
     toast.success(`Agencia ${a.nombreAgencia} creada en pausa: revisa sus criterios y actívala`);
   };
-  const botonNueva = marcas && <button type="button" className="btn" onClick={() => setNueva(true)}><Plus size={14} />Nueva agencia</button>;
-  const dialogoNueva = marcas && (
-    <NuevaAgencia open={nueva} onOpenChange={setNueva} marcas={marcas} existentes={(agencias ?? []).map((a) => a.idAgencia)} onCreada={creada} />
+  const botonNueva = soySuper && <button type="button" className="btn" onClick={() => setNueva(true)}><Plus size={14} />Nueva agencia</button>;
+  const dialogoNueva = soySuper && (
+    <NuevaAgencia open={nueva} onOpenChange={setNueva} existentes={(agencias ?? []).map((a) => a.idAgencia)} onCreada={creada} />
   );
 
   const actual = agencias?.find((a) => a.idAgencia === idAgencia) ?? null;
