@@ -6,8 +6,10 @@ falla, el webhook suelta la marca de deduplicación y responde 500 para que el p
 (salvo `processed_events`, que es su deduplicación): lo que hay que guardar viaja en el evento y lo guarda la función 2
 (`channels/ingest.py`). `channels/router.py` los enruta.
 """
+import hmac
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -131,10 +133,17 @@ def handle_valuetext(raw_body: str, publish, db=None) -> tuple:
 # --------------------------------------------------------------------------- Meta
 
 def handle_meta_verification(args, db=None) -> tuple:
-    """GET de verificación del webhook: el token debe pertenecer a un número de Meta activo."""
+    """GET de verificación del webhook: el token debe ser el del ambiente o pertenecer a un número de Meta activo.
+
+    En AWS las credenciales están en Secrets Manager, que no busca por valor: ahí vale el token del ambiente
+    (META_WEBHOOK_VERIFY_TOKEN). Meta configura un webhook por app, no por número, así que basta uno.
+    """
     mode, token, challenge = args.get("hub.mode", ""), args.get("hub.verify_token", ""), args.get("hub.challenge", "")
     if mode != "subscribe" or not token:
         return "Bad Request", 400
+    esperado = (os.environ.get("META_WEBHOOK_VERIFY_TOKEN") or "").strip()
+    if esperado and hmac.compare_digest(token.encode(), esperado.encode()):
+        return challenge, 200
     db = db or get_db()
     number_id = credentials.find_number_by_verify_token(db, token)
     if number_id:
