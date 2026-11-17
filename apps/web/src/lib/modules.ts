@@ -41,6 +41,8 @@ export const MODULES: ModuleDef[] = [
       { slug: "conversaciones", label: "Conversaciones", icon: "msg", ready: true },
       // Solo quien administra valuación en alguna marca (permiso `configurar` en la base)
       { slug: "configuracion", label: "Configuración", icon: "gear", group: "admin", ready: true },
+      // Editor de usuarios de la marca (hub_cleber)
+      { slug: "agentes", label: "Usuarios", icon: "user", group: "admin", ready: true },
       // Alta de marcas (hub_cleber), solo super admin
       { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
     ],

@@ -120,7 +120,7 @@ Objeto `UsuarioEnMarca` (una marca): `idUsuario`, `email`, `nombre`, `fotoUrl`, 
 ## Pendientes
 
 - **Valuación** (`toma-unidades-en-taller`): adaptar `valuacion.contexto_usuario` y los permisos al nuevo `usuarios_contexto` (rol por marca: el permiso se evalúa con la marca de la oferta), y definir en `valuacion.roles_permisos` los permisos de `GERENTE`.
-- Definir el API del catálogo de agencias y qué id expone (debe coincidir con `valuacion.configuraciones_agencias.id_agencia`).
-- Editor de usuarios: falta el backend (llamar las acciones con el token del usuario, validar agencias contra su API, mandar el correo de invitación y escribir `accesos/{email}`) y la pantalla. Depende de la ruta `/hub-cleber` en API Gateway.
+- Catálogo de agencias: es `Cleber.catalogoQuiterWorkshopsDealersWarehouses` (repo api, `DB/Cleber`), filtrado por `sf_codigo_marca`; el hub guarda su `id` como texto. Falta que `valuacion.configuraciones_agencias.id_agencia` use los mismos ids.
+- Editor de usuarios: la pantalla ya existe (Agentes en Ventas/Servicio/General, Usuarios en Valuación; `apps/web/src/components/hub/UsuariosView.tsx`) y llama las acciones con el token del usuario desde Server Actions (`apps/web/src/lib/hub/usuarios.ts`). Las agencias se eligen del catálogo (`apps/web/src/lib/hub/agencias.ts`): el super admin, todas las de la marca; los demás, solo las suyas (regla solo en la pantalla). Falta: validar agencias en la base, mandar el correo de invitación y escribir `accesos/{email}`.
 - Bitácora de cambios de usuarios (`hub_cleber.bitacora`, Fase 4).
 - Que un email de servicio solo valga por `/internal` depende de API Gateway; plpgsql no ve la ruta (diseño §4.3).
