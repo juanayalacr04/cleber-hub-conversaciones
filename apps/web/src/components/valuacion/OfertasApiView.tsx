@@ -482,8 +482,8 @@ function FichaOferta({ oferta: o, deshabilitado, onCalibra }: { oferta: Oferta; 
   );
 }
 
-/** Conversación de WhatsApp de la oferta en hub_cleber (la abrió el envío). */
-const rutaConversacion = (id: string) => `/valuacion/conversacion/${encodeURIComponent(id)}`;
+/** Conversación de WhatsApp de la oferta (la abrió el envío): Conversaciones, vista conversación, con ella seleccionada. */
+const rutaConversacion = (id: string) => `/valuacion/conversaciones?c=${encodeURIComponent(id)}`;
 
 const km = (n: number | null | undefined) => (n == null ? "—" : fmtKm(Number(n)));
 
