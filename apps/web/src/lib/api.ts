@@ -69,4 +69,57 @@ async function call<T>(ruta: RutaApi, funcion: string, action: string, params: R
   return res.json();
 }
 
-export const api = { call };
+/** Rutas del gateway con integración proxy a una Lambda (no a PostgREST). */
+export type RutaLambda = "toma-unidades-acciones";
+
+/** Recurso del gateway de cada Lambda. `toma-unidades-acciones` → Lambda de valuación (TomaUnidades.*). */
+const RECURSO_LAMBDA: Record<RutaLambda, string> = { "toma-unidades-acciones": "toma-unidades-acciones" };
+
+/**
+ * Acción de una Lambda por el gateway, con el mismo envelope { action, params } y la misma autenticación que `call`.
+ * La Lambda responde 500 cuando la acción falla (aws-util Lambda.toLambdaResponse), así que el cuerpo se lee también en
+ * ese caso: trae el errorCode y el info de la acción.
+ */
+async function lambda<T>(ruta: RutaLambda, action: string, params: Record<string, unknown> = {}): Promise<ApiResponse<T>> {
+  const base = process.env.API_GATEWAY_URL;
+  const key = process.env.API_GATEWAY_KEY;
+  if (!base || !key) {
+    return { successful: false, errorCode: "CONFIGURACION", errorMessage: "Falta API_GATEWAY_URL o API_GATEWAY_KEY" };
+  }
+  const session = await auth();
+  if (!session?.idToken || session.error) {
+    return { successful: false, errorCode: "SESION_EXPIRADA", errorMessage: "Inicia sesión de nuevo" };
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}/${RECURSO_LAMBDA[ruta]}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        [HEADER_TOKEN]: HEADER_TOKEN.toLowerCase() === "authorization" ? `Bearer ${session.idToken}` : session.idToken,
+      },
+      body: JSON.stringify({ action, params }),
+      cache: "no-store",
+    });
+  } catch (e) {
+    console.error(`api.lambda ${ruta} ${action}: sin respuesta`, e);
+    return { successful: false, errorCode: "SIN_CONEXION", errorMessage: "No se pudo contactar al servidor" };
+  }
+
+  if (res.status === 401) return { successful: false, errorCode: "SESION_EXPIRADA", errorMessage: "Inicia sesión de nuevo" };
+  if (res.status === 403) {
+    console.error(`api.lambda ${ruta} ${action}: 403 (API key o ruta)`);
+    return { successful: false, errorCode: "CONFIGURACION", errorMessage: "Error de configuración del servidor" };
+  }
+  const texto = await res.text().catch(() => "");
+  try {
+    const cuerpo = JSON.parse(texto);
+    if (cuerpo && typeof cuerpo.successful === "boolean") return cuerpo;
+  } catch { /* no es el envelope */ }
+  console.error(`api.lambda ${ruta} ${action}: HTTP ${res.status}`, texto.slice(0, 500));
+  return { successful: false, errorCode: `HTTP_${res.status}`, errorMessage: `Error HTTP ${res.status}` };
+}
+
+export const api = { call, lambda };

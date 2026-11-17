@@ -200,8 +200,15 @@ export function motivoNoVigente(o: Oferta): string {
 }
 
 /** Mensajes para los errores de las acciones (envelope de la convención + causas de valuación). */
-export function mensajeError(r: { errorCode: string; errorMessage: string }): string {
+export function mensajeError(r: { errorCode: string; errorMessage: string; info?: unknown }): string {
+  // Envío por WhatsApp (TomaUnidades.enviaOferta): el motivo del hub viene en info.hub
+  const motivo = ((r.info as { hub?: { motivo?: string } } | undefined)?.hub ?? {}).motivo;
+  if (motivo === "CONVERSACION_ABIERTA") return "El cliente ya tiene una conversación abierta en WhatsApp de Valuación. Reintenta cuando se cierre.";
+  if (motivo === "SIN_NUMERO") return "La marca no tiene configurado su número de WhatsApp de Valuación.";
   switch (r.errorCode) {
+    case "PLANTILLA_NO_CONFIGURADA": return "Falta configurar la plantilla de WhatsApp de la oferta en el número de Valuación.";
+    case "ERROR_PROVEEDOR": return `El proveedor de WhatsApp rechazó el envío (${r.errorMessage}). Puedes reintentar.`;
+    case "ERROR_HUB": return "No se pudo contactar al hub de conversaciones. Puedes reintentar.";
     case "SIN_PERMISO": return "No tienes permiso para esta acción en esta marca o agencia.";
     case "SESION_EXPIRADA": return "Tu sesión venció. Vuelve a iniciar sesión.";
     case "CONFIGURACION": return "Error de configuración del servidor. Avisa a soporte.";

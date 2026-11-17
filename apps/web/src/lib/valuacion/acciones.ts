@@ -5,8 +5,8 @@
  * ruta `/toma-unidades` con lib/api.ts: la API key y el id_token nunca llegan al navegador.
  * Contratos: toma-unidades-en-taller/DB/Valuacion/Functions/Acciones/*.sql (docs/acciones-valuacion.md).
  *
- * El envío por WhatsApp no está aquí: lo hace la Lambda (TomaUnidades.enviaOferta → Valuacion.solicitaEnvio, que es
- * de sistema) y aún no tiene ruta en el gateway.
+ * El envío por WhatsApp va a la Lambda de valuación (ruta `/toma-unidades-acciones`, TomaUnidades.enviaOferta): ella
+ * llama a Valuacion.solicitaEnvio en nombre del usuario, al hub (Hub.abreConversacion) y a Valuacion.marcaEnviada.
  */
 
 import { api, type ApiResponse } from "@/lib/api";
@@ -47,6 +47,14 @@ export async function registraRespuesta(o: Ref & { idEtiqueta: string; motivo?: 
 
 export async function cierraOferta(o: Ref & { motivo?: string }): Promise<ApiResponse<{ oferta: Oferta }>> {
   return llama("cierra_oferta", "cierraOferta", o);
+}
+
+/**
+ * Envía la oferta al cliente por WhatsApp. Si el hub no pudo enviarla, la respuesta falla con su errorCode e
+ * info { oferta (ya en FALLIDO), hub: { motivo... } }; ver mensajeError.
+ */
+export async function enviaOferta(o: Ref): Promise<ApiResponse<{ oferta: Oferta; idConversacion: string }>> {
+  return api.lambda("toma-unidades-acciones", "TomaUnidades.enviaOferta", { idOferta: o.idOferta, version: o.version });
 }
 
 // ---------- Configuración por agencia (permiso: configurar) ----------

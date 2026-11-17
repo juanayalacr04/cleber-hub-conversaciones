@@ -28,7 +28,7 @@ import {
   type EstadoOferta, type Etiqueta, type EvaluacionCita, type Grupo, type Oferta,
 } from "@/lib/valuacion/tipos";
 import {
-  calibraOferta, cierraOferta, consultaEtiquetas, consultaOferta, consultaOfertas, descartaOferta, registraRespuesta, retomaOferta,
+  calibraOferta, cierraOferta, consultaEtiquetas, consultaOferta, consultaOfertas, descartaOferta, enviaOferta, registraRespuesta, retomaOferta,
 } from "@/lib/valuacion/acciones";
 
 type Orden = { por: "hora" | "modelo"; asc: boolean };
@@ -109,6 +109,9 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
   };
   const calibra = (o: Oferta, monto: number) =>
     ejecuta(o, () => calibraOferta({ idOferta: o.idOferta, version: o.version, montoOferta: monto }), "Monto guardado");
+  // Si el hub no pudo enviar, la respuesta trae la oferta ya en FALLIDO (se reemplaza en la tabla) y el motivo
+  const envia = (o: Oferta) =>
+    ejecuta(o, () => enviaOferta({ idOferta: o.idOferta, version: o.version }), "Oferta enviada por WhatsApp");
 
   const agencias = useMemo(() => {
     const m = new Map<string, string>();
@@ -244,7 +247,8 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
                             )}
                             <td><span className={`pill ${det.tono}`}>{det.texto}</span></td>
                             <td onClick={(e) => e.stopPropagation()}>
-                              <AccionesFila oferta={o} deshabilitado={enCurso} onAbre={(tipo) => setDialogo({ tipo, oferta: o })} />
+                              <AccionesFila oferta={o} deshabilitado={enCurso} enviando={ocupada === o.idOferta} onEnvia={() => envia(o)}
+                                onAbre={(tipo) => setDialogo({ tipo, oferta: o })} />
                             </td>
                           </tr>
                           {abiertaFila && (
@@ -329,7 +333,9 @@ function ColOrden({ activa, asc, onClick, children }: { activa: boolean; asc: bo
 
 // ---------- Acciones de la fila: una principal a la vista, el resto en el menú ----------
 
-function AccionesFila({ oferta: o, deshabilitado, onAbre }: { oferta: Oferta; deshabilitado: boolean; onAbre: (t: TipoDialogo) => void }) {
+function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
+  oferta: Oferta; deshabilitado: boolean; enviando: boolean; onEnvia: () => void; onAbre: (t: TipoDialogo) => void;
+}) {
   const principal: "enviar" | "respuesta" | "retomar" | null =
     o.puede.enviar ? "enviar" : o.puede.registrarRespuesta ? "respuesta" : o.puede.retomar ? "retomar" : null;
   const menu = [
@@ -342,8 +348,8 @@ function AccionesFila({ oferta: o, deshabilitado, onAbre }: { oferta: Oferta; de
   return (
     <div className="vacts">
       {principal === "enviar" && (
-        <button type="button" className="btn" disabled title="El envío por WhatsApp se conecta cuando la Lambda de valuación tenga su ruta en el API Gateway">
-          <Send size={14} />Enviar
+        <button type="button" className="btn" disabled={deshabilitado} onClick={onEnvia} title="Enviar la oferta al cliente por WhatsApp">
+          <Send size={14} />{enviando ? "Enviando…" : "Enviar"}
         </button>
       )}
       {principal === "respuesta" && <button type="button" className="btn" disabled={deshabilitado} onClick={() => onAbre("respuesta")}><MessageSquareReply size={14} />Respuesta</button>}
