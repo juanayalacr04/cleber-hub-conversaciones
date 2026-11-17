@@ -9,7 +9,7 @@
     El backend actualiza accesos/{email} en Firestore con el usuario de la respuesta.
 
     Params:
-      idUsuario (number), idMarca (string)
+      idUsuario (string, UUID), idMarca (string)
       agencias? (string[])
       modulos?  { "<modulo>": { rol, idEquipo? } | null }
       (al menos uno de los dos)
@@ -28,7 +28,7 @@ DECLARE
   v_params   jsonb;
   v_actor    hub_cleber.usuarios;
   v_usuario  hub_cleber.usuarios;
-  v_id       bigint;
+  v_id       uuid;
   v_org      text;
   v_agencias text[];
   v_modulos  jsonb;
@@ -41,7 +41,7 @@ BEGIN
   v_actor  := hub_cleber.usuario_actual();
   PERFORM hub_cleber.exige_persona(v_actor);
 
-  v_id       := hub_cleber.param_entero(v_params, 'idUsuario', true, 1, 2147483647);
+  v_id       := hub_cleber.param_uuid(v_params, 'idUsuario');
   v_org      := hub_cleber.param_texto(v_params, 'idMarca');
   v_agencias := hub_cleber.param_textos(v_params, 'agencias', false);
   v_modulos  := hub_cleber.param_objeto(v_params, 'modulos', false);

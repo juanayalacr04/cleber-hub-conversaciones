@@ -4,7 +4,7 @@
     Si el usuario recibe asignaciones automáticas (isAvailable). Cada quien cambia la suya; la de otro la cambia un
     administrador de alguna marca que compartan, o el super admin.
 
-    Params: esDisponible (boolean), idUsuario? (number; default: el propio)
+    Params: esDisponible (boolean), idUsuario? (string, UUID; default: el propio)
     Info: { idUsuario, esDisponible }
 
     @Acceso Publica
@@ -17,7 +17,7 @@ DECLARE
   v_params     jsonb;
   v_actor      hub_cleber.usuarios;
   v_usuario    hub_cleber.usuarios;
-  v_id         bigint;
+  v_id         uuid;
   v_disponible boolean;
   v_err_estado text; v_err_mensaje text; v_err_detalle text; v_err_info text; v_err_contexto text;
 BEGIN
@@ -26,7 +26,7 @@ BEGIN
   PERFORM hub_cleber.exige_persona(v_actor);
 
   v_disponible := hub_cleber.param_booleano(v_params, 'esDisponible');
-  v_id         := coalesce(hub_cleber.param_entero(v_params, 'idUsuario', false, 1, 2147483647), v_actor.id_usuario);
+  v_id         := coalesce(hub_cleber.param_uuid(v_params, 'idUsuario', false), v_actor.id_usuario);
 
   IF v_id <> v_actor.id_usuario THEN
     v_usuario := hub_cleber.usuario_objetivo(v_id, v_actor);

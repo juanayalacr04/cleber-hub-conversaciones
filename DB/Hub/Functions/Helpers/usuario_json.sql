@@ -10,7 +10,7 @@
 
     @Acceso No-Publica
 */
-CREATE OR REPLACE FUNCTION hub_cleber.usuario_json(p_id_usuario bigint)
+CREATE OR REPLACE FUNCTION hub_cleber.usuario_json(p_id_usuario uuid)
 RETURNS jsonb
 LANGUAGE sql
 STABLE

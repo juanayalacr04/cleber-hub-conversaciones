@@ -98,10 +98,10 @@ DECLARE
   v_carga    jsonb;
   v_usuarios jsonb;
   v_valuador jsonb;
-  v_id_admin    bigint;
-  v_id_valuador bigint;
-  v_id_super    bigint;
-  v_id_nuevo    bigint;
+  v_id_admin    uuid;
+  v_id_valuador uuid;
+  v_id_super    uuid;
+  v_id_nuevo    uuid;
   v_invita      jsonb;
   i          jsonb;
 BEGIN
@@ -334,7 +334,7 @@ BEGIN
                         '9.1 No invita a un módulo que no administra');
   i := pg_temp.ok(pg_temp.llama('Hub.invitaUsuario', v_invita), '9.2 Invita a ventas');
   PERFORM pg_temp.igual(i->>'creado', 'true', '9.3 Crea al usuario');
-  v_id_nuevo := (i#>>'{usuario,idUsuario}')::bigint;
+  v_id_nuevo := (i#>>'{usuario,idUsuario}')::uuid;
   PERFORM pg_temp.igual(i#>>'{usuario,marcas,0,modulos,ventas}', '{"rol": "AGENTE", "idEquipo": "equipo-a-ventas"}',
                         '9.4 Con rol y equipo');
   PERFORM pg_temp.igual((SELECT invitado_por::text || '/' || coalesce(ultimo_acceso_en::text, 'invitado') FROM hub_cleber.usuarios
@@ -373,6 +373,8 @@ BEGIN
        '10.7 No se quita a sí mismo la administración');
   PERFORM pg_temp.error(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_nuevo, 'idMarca', 'prueba-hub-a')),
        'CAMPO_REQUERIDO', '10.8 Sin nada que cambiar');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaUsuario', '{"idUsuario": "123", "idMarca": "prueba-hub-a", "agencias": []}'),
+       'CAMPO_INVALIDO', '10.8b idUsuario que no es UUID');
   PERFORM pg_temp.error(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_super, 'idMarca', 'prueba-hub-a',
          'agencias', '[]'::jsonb)), 'SIN_PERMISO', '10.9 Un administrador no modifica a un super admin');
   i := pg_temp.ok(pg_temp.llama('Hub.guardaUsuario', jsonb_build_object('idUsuario', v_id_nuevo, 'idMarca', 'prueba-hub-a',

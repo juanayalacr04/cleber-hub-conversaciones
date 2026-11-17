@@ -64,7 +64,7 @@ $$;
 
 -- Usuario sobre el que se actúa. Inexistente o de sistema → CAMPO_INVALIDO (NO_EXISTE).
 -- Un super admin solo lo modifica otro super admin.
-CREATE OR REPLACE FUNCTION hub_cleber.usuario_objetivo(p_id_usuario bigint, p_actor hub_cleber.usuarios)
+CREATE OR REPLACE FUNCTION hub_cleber.usuario_objetivo(p_id_usuario uuid, p_actor hub_cleber.usuarios)
 RETURNS hub_cleber.usuarios
 LANGUAGE plpgsql
 AS $$
@@ -84,7 +84,7 @@ END;
 $$;
 
 -- El usuario pertenece a la marca.
-CREATE OR REPLACE FUNCTION hub_cleber.exige_miembro(p_id_usuario bigint, p_id_marca text)
+CREATE OR REPLACE FUNCTION hub_cleber.exige_miembro(p_id_usuario uuid, p_id_marca text)
 RETURNS void
 LANGUAGE plpgsql
 AS $$
@@ -102,7 +102,7 @@ $$;
     { idUsuario, email, nombre, fotoUrl, esSuperAdmin, esActivo, esDisponible, estado, ultimoAccesoEn,
       esInvitado (nunca ha entrado), agencias, modulos: { "<modulo>": { rol, idEquipo } } }
 */
-CREATE OR REPLACE FUNCTION hub_cleber.usuario_en_marca_json(p_id_usuario bigint, p_id_marca text)
+CREATE OR REPLACE FUNCTION hub_cleber.usuario_en_marca_json(p_id_usuario uuid, p_id_marca text)
 RETURNS jsonb
 LANGUAGE sql
 STABLE

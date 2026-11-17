@@ -4,7 +4,7 @@
 -- agencias: ids de agencia por valor, los mismos para todos los módulos de la marca (Q38). El catálogo NO vive en
 -- el hub (viene de un API externo, Q34); el editor de usuarios muestra y valida las opciones contra ese API.
 CREATE TABLE IF NOT EXISTS hub_cleber.usuarios_marcas (
-  id_usuario        bigint      NOT NULL,
+  id_usuario        uuid        NOT NULL,
   id_marca          text        NOT NULL,
   agencias          text[]      NOT NULL DEFAULT '{}',
   creado_en         timestamptz NOT NULL DEFAULT now(),

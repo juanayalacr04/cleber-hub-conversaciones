@@ -7,7 +7,7 @@
 -- Si el usuario sale de la marca (usuarios_marcas), sus roles en ella se borran en cascada.
 -- Los usuarios de sistema no tienen filas: se reconocen por usuarios.es_sistema.
 CREATE TABLE IF NOT EXISTS hub_cleber.usuarios_roles_modulo (
-  id_usuario        bigint      NOT NULL,
+  id_usuario        uuid        NOT NULL,
   id_marca          text        NOT NULL,
   modulo            text        NOT NULL,
   rol               text        NOT NULL,

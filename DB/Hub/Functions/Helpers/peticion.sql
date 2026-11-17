@@ -79,6 +79,24 @@ BEGIN
 END;
 $$;
 
+-- UUID en texto (ids de usuario).
+CREATE OR REPLACE FUNCTION hub_cleber.param_uuid(p_params jsonb, p_campo text, p_requerido boolean DEFAULT true)
+RETURNS uuid
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_texto text := hub_cleber.param_texto(p_params, p_campo, p_requerido);
+BEGIN
+  IF v_texto IS NULL THEN
+    RETURN NULL;
+  END IF;
+  RETURN v_texto::uuid;
+EXCEPTION WHEN invalid_text_representation THEN
+  PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El campo %s debe ser un UUID', p_campo), jsonb_build_object('campo', p_campo));
+  RETURN NULL;
+END;
+$$;
+
 -- Fecha-hora ISO 8601.
 CREATE OR REPLACE FUNCTION hub_cleber.param_fecha_hora(p_params jsonb, p_campo text, p_requerido boolean DEFAULT true)
 RETURNS timestamptz

@@ -6,7 +6,7 @@
     ninguno, basta administrar alguno). Nadie (salvo el super admin) se quita a sí mismo.
     El backend actualiza accesos/{email} en Firestore con el usuario de la respuesta.
 
-    Params: idUsuario (number), idMarca (string)
+    Params: idUsuario (string, UUID), idMarca (string)
     Info: { usuario: Usuario }
     Errores:
       CAMPO_INVALIDO  causa NO_EXISTE o NO_PERTENECE
@@ -22,7 +22,7 @@ DECLARE
   v_params  jsonb;
   v_actor   hub_cleber.usuarios;
   v_usuario hub_cleber.usuarios;
-  v_id      bigint;
+  v_id      uuid;
   v_org     text;
   v_modulo  text;
   v_err_estado text; v_err_mensaje text; v_err_detalle text; v_err_info text; v_err_contexto text;
@@ -31,7 +31,7 @@ BEGIN
   v_actor  := hub_cleber.usuario_actual();
   PERFORM hub_cleber.exige_persona(v_actor);
 
-  v_id  := hub_cleber.param_entero(v_params, 'idUsuario', true, 1, 2147483647);
+  v_id  := hub_cleber.param_uuid(v_params, 'idUsuario');
   v_org := hub_cleber.param_texto(v_params, 'idMarca');
 
   PERFORM hub_cleber.exige_administrador_marca(v_actor, v_org);

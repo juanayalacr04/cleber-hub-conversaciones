@@ -178,7 +178,7 @@ Reglas que se mantienen (`esquema-valuacion.md` §1):
 
 ### 5.2 Entidades del schema `hub_cleber`
 
-Ids: los documentos migrados conservan su id de Firestore como `id_origen` (único) para la importación idempotente. Las llaves nuevas son `bigint identity` salvo donde se indica `text`.
+Ids: los documentos migrados conservan su id de Firestore como `id_origen` (único) para la importación idempotente. Las llaves nuevas son `bigint identity` salvo donde se indica `text`; `usuarios.id_usuario` es `uuid` (`gen_random_uuid()`).
 
 | Tabla | Sale de (Firestore) | Columnas clave | Notas |
 |-------|---------------------|----------------|-------|

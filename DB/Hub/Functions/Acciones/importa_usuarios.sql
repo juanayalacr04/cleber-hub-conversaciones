@@ -60,8 +60,8 @@ DECLARE
   v_codigo_marca  text;
   v_email         text;
   v_origen        text;
-  v_id_usuario    bigint;
-  v_otro          bigint;
+  v_id_usuario    uuid;
+  v_otro          uuid;
   v_orgs_usuario  text[];
   v_modulos       text[];
   v_roles         jsonb;
@@ -266,7 +266,7 @@ BEGIN
   -- Quién invitó a quién: al final, cuando ya existen todos (el que invitó puede venir después en la lista).
   -- Si quien invitó no está en el hub, queda NULL.
   UPDATE hub_cleber.usuarios u SET invitado_por = i.id_invito
-    FROM (SELECT (x->>'idUsuario')::bigint AS id_usuario, inv.id_usuario AS id_invito
+    FROM (SELECT (x->>'idUsuario')::uuid AS id_usuario, inv.id_usuario AS id_invito
             FROM jsonb_array_elements(v_invitaciones) x
             LEFT JOIN hub_cleber.usuarios inv ON inv.id_origen = x->>'invitadoPor') i
    WHERE u.id_usuario = i.id_usuario AND u.invitado_por IS DISTINCT FROM i.id_invito;

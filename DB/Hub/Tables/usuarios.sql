@@ -6,7 +6,7 @@
 -- Usuarios de sistema (es_sistema): emails de servicio (*.internal) que llaman por /internal. No tienen roles en el
 -- catálogo; cada módulo reconoce su propio email de servicio (ej. valuación: sistema@toma-unidades.internal → SISTEMA).
 CREATE TABLE IF NOT EXISTS hub_cleber.usuarios (
-  id_usuario        bigint      GENERATED ALWAYS AS IDENTITY,
+  id_usuario        uuid        NOT NULL DEFAULT gen_random_uuid(),
   email             text        NOT NULL,                 -- siempre en minúsculas (sin citext: no requiere la extensión)
   nombre            text        NOT NULL DEFAULT '',
   foto_url          text,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.usuarios (
   es_activo         boolean     NOT NULL DEFAULT true,    -- false = no entra (sin borrar su historial)
   es_disponible     boolean     NOT NULL DEFAULT true,    -- isAvailable: recibe asignaciones automáticas
   estado            text        NOT NULL DEFAULT 'offline', -- presencia (status): online / away / offline
-  invitado_por      bigint,
+  invitado_por      uuid,
   ultimo_acceso_en  timestamptz,                          -- lastLoginAt; NULL = invitado que no ha entrado
   id_origen         text,                                 -- uid de Firebase (id del documento users/{uid})
   creado_en         timestamptz NOT NULL DEFAULT now(),
