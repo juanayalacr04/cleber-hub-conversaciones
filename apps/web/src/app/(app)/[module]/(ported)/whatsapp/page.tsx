@@ -333,7 +333,7 @@ export default function WhatsAppNumbersPage() {
     const orgId = (userData?.isSuperAdmin && formOrgId) ? formOrgId : userData?.organizationId;
     if (!formPhoneNumber.trim()) return;
     if (!orgId) {
-      alert("No hay una organización activa. Si eres superadmin, crea una en Organizaciones y elígela en el selector.");
+      alert("No hay una marca activa. Si eres superadmin, crea una en Marcas y elígela en el selector.");
       return;
     }
 
@@ -537,7 +537,7 @@ export default function WhatsAppNumbersPage() {
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-gray-500">
-              Necesitas pertenecer a una organizacion para ver los numeros.
+              Necesitas pertenecer a una marca para ver los numeros.
             </p>
           </CardContent>
         </Card>
@@ -1053,10 +1053,10 @@ export default function WhatsAppNumbersPage() {
           <div className="space-y-4 py-4">
             {userData?.isSuperAdmin && authOrgs.length > 0 && (
               <div className="space-y-2">
-                <Label>Organizacion</Label>
+                <Label>Marca</Label>
                 <Select value={formOrgId || userData?.organizationId || ""} onValueChange={setFormOrgId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar organizacion" />
+                    <SelectValue placeholder="Seleccionar marca" />
                   </SelectTrigger>
                   <SelectContent>
                     {authOrgs.map((org) => (
@@ -1184,10 +1184,10 @@ export default function WhatsAppNumbersPage() {
           <div className="space-y-4 py-4">
             {userData?.isSuperAdmin && authOrgs.length > 0 && (
               <div className="space-y-2">
-                <Label>Organizacion</Label>
+                <Label>Marca</Label>
                 <Select value={formOrgId || userData?.organizationId || ""} onValueChange={setFormOrgId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar organizacion" />
+                    <SelectValue placeholder="Seleccionar marca" />
                   </SelectTrigger>
                   <SelectContent>
                     {authOrgs.map((org) => (

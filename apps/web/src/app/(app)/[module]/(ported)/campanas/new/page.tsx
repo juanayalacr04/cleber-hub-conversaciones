@@ -286,7 +286,7 @@ export default function NewBroadcastPage() {
       const cleanMapping = isReminderType ? variableMapping.filter(Boolean) : [];
 
       // La función 2 pone el id, el estado, los contadores, el autor y la fecha, y valida que el número y el bot
-      // sean de la organización. Los destinatarios se guardan en lotes antes que la campaña.
+      // sean de la marca. Los destinatarios se guardan en lotes antes que la campaña.
       const { id: broadcastId } = await callHubAction<{ id: string }>(user, "broadcast.create", {
         organizationId: userData?.organizationId,
         fields: {
@@ -324,7 +324,7 @@ export default function NewBroadcastPage() {
   if (!userData?.organizationId) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Card><CardContent className="p-6">Necesitas pertenecer a una organización.</CardContent></Card>
+        <Card><CardContent className="p-6">Necesitas pertenecer a una marca.</CardContent></Card>
       </div>
     );
   }
@@ -456,7 +456,7 @@ export default function NewBroadcastPage() {
                 </div>
               ) : sfTemplates.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  {whatsappNumberId ? "No se encontraron templates para esta organización." : "Selecciona un número WhatsApp primero."}
+                  {whatsappNumberId ? "No se encontraron templates para esta marca." : "Selecciona un número WhatsApp primero."}
                 </p>
               ) : (
                 <Select

@@ -9,7 +9,7 @@
     El backend actualiza accesos/{email} en Firestore con el usuario de la respuesta.
 
     Params:
-      idUsuario (number), idOrganizacion (string)
+      idUsuario (number), idMarca (string)
       agencias? (string[])
       modulos?  { "<modulo>": { rol, idEquipo? } | null }
       (al menos uno de los dos)
@@ -42,7 +42,7 @@ BEGIN
   PERFORM hub_cleber.exige_persona(v_actor);
 
   v_id       := hub_cleber.param_entero(v_params, 'idUsuario', true, 1, 2147483647);
-  v_org      := hub_cleber.param_texto(v_params, 'idOrganizacion');
+  v_org      := hub_cleber.param_texto(v_params, 'idMarca');
   v_agencias := hub_cleber.param_textos(v_params, 'agencias', false);
   v_modulos  := hub_cleber.param_objeto(v_params, 'modulos', false);
   IF v_agencias IS NULL AND v_modulos IS NULL THEN
@@ -50,7 +50,7 @@ BEGIN
   END IF;
 
   -- Para editar algo de la marca hay que administrar algún módulo de ella
-  PERFORM hub_cleber.exige_administrador_organizacion(v_actor, v_org);
+  PERFORM hub_cleber.exige_administrador_marca(v_actor, v_org);
   v_usuario := hub_cleber.usuario_objetivo(v_id, v_actor);
   PERFORM hub_cleber.exige_miembro(v_id, v_org);
 
@@ -79,11 +79,11 @@ BEGIN
     END IF;
 
     IF v_rol IS NULL THEN
-      DELETE FROM hub_cleber.usuarios_roles_modulo WHERE id_usuario = v_id AND id_organizacion = v_org AND modulo = v_modulo;
+      DELETE FROM hub_cleber.usuarios_roles_modulo WHERE id_usuario = v_id AND id_marca = v_org AND modulo = v_modulo;
     ELSE
-      INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_organizacion, modulo, rol, id_equipo)
+      INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_marca, modulo, rol, id_equipo)
       VALUES (v_id, v_org, v_modulo, v_rol, hub_cleber.param_texto(v_valor, 'idEquipo', false))
-      ON CONFLICT (id_usuario, id_organizacion, modulo) DO UPDATE SET
+      ON CONFLICT (id_usuario, id_marca, modulo) DO UPDATE SET
         rol            = EXCLUDED.rol,
         id_equipo      = EXCLUDED.id_equipo,
         actualizado_en = now();
@@ -91,8 +91,8 @@ BEGIN
   END LOOP;
 
   IF v_agencias IS NOT NULL THEN
-    UPDATE hub_cleber.usuarios_organizaciones SET agencias = v_agencias, actualizado_en = now()
-     WHERE id_usuario = v_id AND id_organizacion = v_org;
+    UPDATE hub_cleber.usuarios_marcas SET agencias = v_agencias, actualizado_en = now()
+     WHERE id_usuario = v_id AND id_marca = v_org;
   END IF;
 
   UPDATE hub_cleber.usuarios SET actualizado_en = now() WHERE id_usuario = v_id;

@@ -154,7 +154,7 @@ export default function TeamPage() {
   const orgIdActive = userData?.organizationId ?? "";
   const memberTeamId = (m: TeamMember) => m.orgTeams[orgIdActive] ?? m.teamId ?? null;
 
-  // Agentes del módulo: su equipo en la organización activa pertenece al módulo
+  // Agentes del módulo: su equipo en la marca activa pertenece al módulo
   const visibleMembers = vertical
     ? members.filter((m) => {
         const tid = memberTeamId(m);
@@ -198,10 +198,10 @@ export default function TeamPage() {
   const handleChangeOrg = async (memberId: string, orgId: string) => {
     try {
       await callHubAction(user, "member.set_primary_org", { organizationId: orgId, userId: memberId });
-      toast.success("Organización actualizada");
+      toast.success("Marca actualizada");
     } catch (error) {
       console.error("Error changing org:", error);
-      alert(error instanceof Error ? error.message : "Error al cambiar organización");
+      alert(error instanceof Error ? error.message : "Error al cambiar marca");
     }
   };
 
@@ -283,7 +283,7 @@ export default function TeamPage() {
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-gray-500">
-              Necesitas pertenecer a una organización para ver el equipo.
+              Necesitas pertenecer a una marca para ver el equipo.
             </p>
           </CardContent>
         </Card>
@@ -305,7 +305,7 @@ export default function TeamPage() {
         <div>
           <h1 className="text-2xl font-bold">Agentes</h1>
           <p className="text-gray-500">
-            {visibleMembers.length} miembro{visibleMembers.length !== 1 ? "s" : ""} {vertical ? `en el módulo ${getModule(moduleId)?.label}` : "en tu organización"}
+            {visibleMembers.length} miembro{visibleMembers.length !== 1 ? "s" : ""} {vertical ? `en el módulo ${getModule(moduleId)?.label}` : "en tu marca"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -407,7 +407,7 @@ export default function TeamPage() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem disabled className="text-xs text-gray-500">
-                          Asignar a organización:
+                          Asignar a marca:
                         </DropdownMenuItem>
                         {authOrgs.map((org) => (
                           <DropdownMenuItem
@@ -451,7 +451,7 @@ export default function TeamPage() {
                         {userData?.isSuperAdmin && authOrgs.length > 0 && (
                           <>
                             <DropdownMenuItem disabled className="text-xs text-gray-500">
-                              Asignar a organización:
+                              Asignar a marca:
                             </DropdownMenuItem>
                             {authOrgs.map((org) => (
                               <DropdownMenuItem
@@ -552,10 +552,10 @@ export default function TeamPage() {
             </div>
             {authOrgs.length > 0 && (
               <div className="space-y-2">
-                <Label htmlFor="org">Organización</Label>
+                <Label htmlFor="org">Marca</Label>
                 <Select value={inviteOrgId || userData?.organizationId || ""} onValueChange={setInviteOrgId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar organización" />
+                    <SelectValue placeholder="Seleccionar marca" />
                   </SelectTrigger>
                   <SelectContent>
                     {authOrgs.map((org) => (

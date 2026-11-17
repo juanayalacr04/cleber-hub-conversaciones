@@ -5,10 +5,10 @@ import { Building2, Check, ChevronsUpDown, Search } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDismiss } from "./useDismiss";
 
-/** Con más organizaciones que esto, el menú ofrece un buscador. */
+/** Con más marcas que esto, el menú ofrece un buscador. */
 const SEARCH_FROM = 6;
 
-/** Cambia la organización activa: todas para el superadmin, las asignadas para quien tiene varias. */
+/** Cambia la marca activa: todas para el superadmin, las asignadas para quien tiene varias. */
 export function OrgSwitcher() {
   const { userData, organizations, setSelectedOrgId, currentOrgName } = useAuth();
   const [open, setOpen] = useState(false);
@@ -17,7 +17,7 @@ export function OrgSwitcher() {
   useDismiss(ref, open, () => setOpen(false));
 
   const activeId = userData?.organizationId ?? null;
-  const name = currentOrgName ?? "Organización";
+  const name = currentOrgName ?? "Marca";
   const switchable = organizations.length > 1 || (userData?.isSuperAdmin && organizations.length > 0);
 
   if (!activeId) return null;
@@ -25,7 +25,7 @@ export function OrgSwitcher() {
   if (!switchable) {
     return (
       <div className="orgpick">
-        <p className="lbl">Organización</p>
+        <p className="lbl">Marca</p>
         <div className="mod-btn org-static" data-m="general">
           <span className="dot"><Building2 /></span>
           <span className="grow"><b>{name}</b></span>
@@ -38,7 +38,7 @@ export function OrgSwitcher() {
 
   return (
     <div className="orgpick modpick" ref={ref}>
-      <p className="lbl">{userData?.isSuperAdmin ? "Organización · todas" : "Organización"}</p>
+      <p className="lbl">{userData?.isSuperAdmin ? "Marca · todas" : "Marca"}</p>
       <button
         type="button"
         className="mod-btn mod-trigger"
@@ -56,10 +56,10 @@ export function OrgSwitcher() {
           {organizations.length > SEARCH_FROM && (
             <label className="org-search">
               <Search size={14} aria-hidden="true" />
-              <input autoFocus value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Buscar organización" aria-label="Buscar organización" />
+              <input autoFocus value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Buscar marca" aria-label="Buscar marca" />
             </label>
           )}
-          <ul role="listbox" aria-label="Organización">
+          <ul role="listbox" aria-label="Marca">
             {shown.map((o) => (
               <li key={o.id} role="option" aria-selected={o.id === activeId}>
                 <button

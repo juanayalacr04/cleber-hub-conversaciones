@@ -131,7 +131,7 @@ export default function BotsPage() {
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-gray-500">
-              Necesitas pertenecer a una organizacion para ver bots.
+              Necesitas pertenecer a una marca para ver bots.
             </p>
           </CardContent>
         </Card>
@@ -174,7 +174,7 @@ export default function BotsPage() {
             <p className="text-gray-500 text-center mb-4">
               {userData?.isSuperAdmin
                 ? "Crea tu primer bot para empezar a responder mensajes de WhatsApp automaticamente."
-                : "Un superadministrador debe crear el bot de tu organizacion."}
+                : "Un superadministrador debe crear el bot de tu marca."}
             </p>
             {userData?.isSuperAdmin && (
               <Link href={modulePath(moduleId, "/bots/new")}>

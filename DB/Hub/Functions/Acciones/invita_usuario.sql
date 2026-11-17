@@ -7,13 +7,13 @@
     backend, que además actualiza accesos/{email} en Firestore con el usuario de la respuesta.
 
     Params:
-      email (string), idOrganizacion (string), modulo (string), rol (string, del catálogo del módulo)
+      email (string), idMarca (string), modulo (string), rol (string, del catálogo del módulo)
       idEquipo? (string)       equipo en ese módulo (id de Firestore mientras los equipos sigan ahí)
       agencias? (string[])     reemplaza las del usuario en la marca (ids del API de agencias, por valor)
       nombre? (string)         solo si se crea
     Info: { usuario: Usuario, creado: boolean }
     Errores:
-      CAMPO_INVALIDO  causa NO_EXISTE (organización), rol fuera del catálogo, email de sistema
+      CAMPO_INVALIDO  causa NO_EXISTE (marca), rol fuera del catálogo, email de sistema
       ESTADO_INVALIDO causa YA_TIENE_ROL (cambiarlo con Hub.guardaUsuario) o USUARIO_INACTIVO
 
     @Acceso Publica
@@ -41,7 +41,7 @@ BEGIN
   PERFORM hub_cleber.exige_persona(v_actor);
 
   v_email    := hub_cleber.param_email(v_params, 'email');
-  v_org      := hub_cleber.param_texto(v_params, 'idOrganizacion');
+  v_org      := hub_cleber.param_texto(v_params, 'idMarca');
   v_modulo   := hub_cleber.param_modulo(v_params, 'modulo');
   v_rol      := hub_cleber.param_texto(v_params, 'rol');
   v_equipo   := hub_cleber.param_texto(v_params, 'idEquipo', false);
@@ -49,7 +49,7 @@ BEGIN
   v_nombre   := hub_cleber.param_texto(v_params, 'nombre', false);
 
   PERFORM hub_cleber.exige_administrador_modulo(v_actor, v_org, v_modulo);
-  PERFORM hub_cleber.exige_organizacion_activa(v_org);
+  PERFORM hub_cleber.exige_marca_activa(v_org);
   PERFORM hub_cleber.exige_rol_catalogo(v_modulo, v_rol);
   IF v_email LIKE '%.internal' THEN
     PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'Los usuarios de sistema no se invitan', '{"campo":"email"}');
@@ -62,9 +62,9 @@ BEGIN
     END IF;
     v_usuario := hub_cleber.usuario_objetivo(v_usuario.id_usuario, v_actor);
     IF EXISTS (SELECT 1 FROM hub_cleber.usuarios_roles_modulo
-                WHERE id_usuario = v_usuario.id_usuario AND id_organizacion = v_org AND modulo = v_modulo) THEN
+                WHERE id_usuario = v_usuario.id_usuario AND id_marca = v_org AND modulo = v_modulo) THEN
       PERFORM hub_cleber.error_de_aplicacion('ESTADO_INVALIDO',
-        format('El usuario ya tiene rol en %s en esta organización; cámbialo desde el editor', v_modulo),
+        format('El usuario ya tiene rol en %s en esta marca; cámbialo desde el editor', v_modulo),
         jsonb_build_object('causa', 'YA_TIENE_ROL', 'idUsuario', v_usuario.id_usuario));
     END IF;
   ELSE
@@ -74,13 +74,13 @@ BEGIN
     v_creado := true;
   END IF;
 
-  INSERT INTO hub_cleber.usuarios_organizaciones AS uo (id_usuario, id_organizacion, agencias)
+  INSERT INTO hub_cleber.usuarios_marcas AS uo (id_usuario, id_marca, agencias)
   VALUES (v_usuario.id_usuario, v_org, coalesce(v_agencias, '{}'))
-  ON CONFLICT (id_usuario, id_organizacion) DO UPDATE SET
+  ON CONFLICT (id_usuario, id_marca) DO UPDATE SET
     agencias       = coalesce(v_agencias, uo.agencias),
     actualizado_en = now();
 
-  INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_organizacion, modulo, rol, id_equipo)
+  INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_marca, modulo, rol, id_equipo)
   VALUES (v_usuario.id_usuario, v_org, v_modulo, v_rol, v_equipo);
 
   UPDATE hub_cleber.usuarios SET actualizado_en = now() WHERE id_usuario = v_usuario.id_usuario;

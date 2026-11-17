@@ -1114,7 +1114,7 @@ function HubConversationsPage() {
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-gray-500">
-              Necesitas pertenecer a una organización para ver conversaciones.
+              Necesitas pertenecer a una marca para ver conversaciones.
             </p>
           </CardContent>
         </Card>

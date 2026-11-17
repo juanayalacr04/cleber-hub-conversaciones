@@ -1,4 +1,4 @@
-"""Genera el SQL que carga organizaciones y usuarios de Firestore al schema `hub_cleber` de PostgreSQL (Fase 3, adelanto).
+"""Genera el SQL que carga marcas y usuarios de Firestore al schema `hub_cleber` de PostgreSQL (Fase 3, adelanto).
 
     python dev/carga_usuarios_hub.py --salida C:/ruta/fuera/del/repo/carga_hub.sql
 
@@ -69,11 +69,11 @@ def es_secreta(llave: str) -> bool:
     return llave in LLAVES_SECRETAS or "secret" in llave or "password" in llave or "token" in llave
 
 
-def mapea_organizacion(doc_id: str, data: dict) -> dict:
+def mapea_marca(doc_id: str, data: dict) -> dict:
     settings = dict(data.get("settings") or {})
     zona = _texto(settings.pop("timezone", None))
     salesforce = {k: v for k, v in (data.get("salesforceConfig") or {}).items() if not es_secreta(k)}
-    org = {"idOrganizacion": doc_id, "nombre": _texto(data.get("name")) or doc_id, "horario": settings,
+    org = {"idMarca": doc_id, "nombre": _texto(data.get("name")) or doc_id, "horario": settings,
            "salesforceConfig": salesforce, "sfCodigoMarca": _texto(data.get("sfBrandCode")),
            "sfCalendario": _texto(data.get("sfCalendario")), "plan": data.get("plan") if data.get("plan") in PLANES else "free",
            "creadoEn": _fecha(data.get("createdAt"))}
@@ -106,7 +106,7 @@ def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str], ve
     membresias = []
     for org in dict.fromkeys(org_ids):
         if org not in orgs:
-            avisos.append(f"users/{doc_id} ({email}): la organización {org!r} no existe, se omite esa membresía")
+            avisos.append(f"users/{doc_id} ({email}): la marca {org!r} no existe, se omite esa membresía")
             continue
         modulos = {modulo: {"rol": rol} for modulo in MODULOS_CARGA}
         equipo = equipos.get(org)
@@ -117,7 +117,7 @@ def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str], ve
             else:
                 avisos.append(f"users/{doc_id} ({email}): el equipo {equipo!r} de {org!r} no es de ventas ni de servicio "
                               f"(vertical {vertical!r}), se omite")
-        membresias.append({"idOrganizacion": org, "agencias": list(agencias.get(org) or []), "modulos": modulos})
+        membresias.append({"idMarca": org, "agencias": list(agencias.get(org) or []), "modulos": modulos})
 
     if data.get("moduleRoles"):
         avisos.append(f"users/{doc_id} ({email}): moduleRoles no se copia; asigna esos roles en el editor de usuarios")
@@ -126,14 +126,14 @@ def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str], ve
                "esSuperAdmin": bool(data.get("isSuperAdmin")), "esDisponible": data.get("isAvailable", True) is not False,
                "estado": data.get("status") if data.get("status") in ESTADOS else "offline", "invitadoPor": _texto(data.get("invitedBy")),
                "ultimoAccesoEn": _fecha(data.get("lastLoginAt")), "creadoEn": _fecha(data.get("createdAt")),
-               "organizaciones": membresias}
+               "marcas": membresias}
     return {k: v for k, v in usuario.items() if v is not None}
 
 
-def construye_carga(organizaciones, usuarios, avisos: list[str], equipos=()) -> dict:
-    """`organizaciones`, `usuarios` y `equipos` son pares (id, datos) de Firestore."""
-    orgs = [mapea_organizacion(i, d) for i, d in organizaciones]
-    ids = {o["idOrganizacion"] for o in orgs}
+def construye_carga(marcas, usuarios, avisos: list[str], equipos=()) -> dict:
+    """`marcas`, `usuarios` y `equipos` son pares (id, datos) de Firestore."""
+    orgs = [mapea_marca(i, d) for i, d in marcas]
+    ids = {o["idMarca"] for o in orgs}
     verticales = {i: d.get("vertical") for i, d in equipos}
     vistos, lista = set(), []
     for i, d in usuarios:
@@ -145,7 +145,7 @@ def construye_carga(organizaciones, usuarios, avisos: list[str], equipos=()) -> 
             continue
         vistos.add(u["email"])
         lista.append(u)
-    return {"modulos": MODULOS_CARGA, "organizaciones": orgs, "usuarios": lista}
+    return {"modulos": MODULOS_CARGA, "marcas": orgs, "usuarios": lista}
 
 
 def genera_sql(carga: dict) -> str:
@@ -154,7 +154,7 @@ def genera_sql(carga: dict) -> str:
         raise SystemExit("Los datos contienen una marca de cita ($carga$ o $importa$); no se puede generar el SQL.")
     headers = json.dumps({"x-user-email": EMAIL_SISTEMA})
     return f"""-- Generado por dev/carga_usuarios_hub.py el {datetime.now().isoformat(timespec='seconds')}
--- {len(carga['organizaciones'])} organizaciones, {len(carga['usuarios'])} usuarios.
+-- {len(carga['marcas'])} marcas, {len(carga['usuarios'])} usuarios.
 -- Contiene emails: no lo subas al repo y bórralo al terminar.
 \\encoding UTF8
 \\set ON_ERROR_STOP on
@@ -184,14 +184,14 @@ def main(argv=None) -> int:
     from core.db import get_db   # después de verificar el entorno: lee FIRESTORE_DATABASE al importarse
 
     db = get_db()
-    organizaciones = [(s.id, s.to_dict() or {}) for s in db.collection("organizations").stream()]
+    marcas = [(s.id, s.to_dict() or {}) for s in db.collection("organizations").stream()]
     usuarios = [(s.id, s.to_dict() or {}) for s in db.collection("users").stream()]
     equipos = [(s.id, s.to_dict() or {}) for s in db.collection("teams").stream()]
     avisos: list[str] = []
-    carga = construye_carga(organizaciones, usuarios, avisos, equipos)
+    carga = construye_carga(marcas, usuarios, avisos, equipos)
 
     Path(args.salida).write_text(genera_sql(carga), encoding="utf-8")
-    print(f"Escrito {args.salida}: {len(carga['organizaciones'])} organizaciones, "
+    print(f"Escrito {args.salida}: {len(carga['marcas'])} marcas, "
           f"{len(carga['usuarios'])} usuarios (de {len(usuarios)} en Firestore).")
     for aviso in avisos:
         print(f"  aviso: {aviso}")

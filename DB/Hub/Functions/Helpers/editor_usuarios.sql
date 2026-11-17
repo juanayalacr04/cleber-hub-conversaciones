@@ -1,5 +1,5 @@
 /**
-    Helpers del editor de usuarios (Hub.consultaUsuarios, invitaUsuario, guardaUsuario, quitaUsuarioDeOrganizacion,
+    Helpers del editor de usuarios (Hub.consultaUsuarios, invitaUsuario, guardaUsuario, quitaUsuarioDeMarca,
     cambiaDisponibilidad). Quién edita a quién: decisión Q39 (DISENO_MIGRACION_POSTGRES.md):
       - Super admin: todo.
       - Administrador de un módulo en una marca: los roles y equipos de ese módulo en esa marca.
@@ -49,15 +49,15 @@ BEGIN
 END;
 $$;
 
--- La organización existe y está activa.
-CREATE OR REPLACE FUNCTION hub_cleber.exige_organizacion_activa(p_id_organizacion text)
+-- La marca existe y está activa.
+CREATE OR REPLACE FUNCTION hub_cleber.exige_marca_activa(p_id_marca text)
 RETURNS void
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM hub_cleber.organizaciones WHERE id_organizacion = p_id_organizacion AND es_activa) THEN
-    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('No existe la organización %s', p_id_organizacion),
-      jsonb_build_object('campo', 'idOrganizacion', 'causa', 'NO_EXISTE'));
+  IF NOT EXISTS (SELECT 1 FROM hub_cleber.marcas WHERE id_marca = p_id_marca AND es_activa) THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('No existe la marca %s', p_id_marca),
+      jsonb_build_object('campo', 'idMarca', 'causa', 'NO_EXISTE'));
   END IF;
 END;
 $$;
@@ -84,15 +84,15 @@ END;
 $$;
 
 -- El usuario pertenece a la marca.
-CREATE OR REPLACE FUNCTION hub_cleber.exige_miembro(p_id_usuario bigint, p_id_organizacion text)
+CREATE OR REPLACE FUNCTION hub_cleber.exige_miembro(p_id_usuario bigint, p_id_marca text)
 RETURNS void
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM hub_cleber.usuarios_organizaciones
-                  WHERE id_usuario = p_id_usuario AND id_organizacion = p_id_organizacion) THEN
-    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El usuario no pertenece a la organización %s', p_id_organizacion),
-      jsonb_build_object('campo', 'idOrganizacion', 'causa', 'NO_PERTENECE'));
+  IF NOT EXISTS (SELECT 1 FROM hub_cleber.usuarios_marcas
+                  WHERE id_usuario = p_id_usuario AND id_marca = p_id_marca) THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El usuario no pertenece a la marca %s', p_id_marca),
+      jsonb_build_object('campo', 'idMarca', 'causa', 'NO_PERTENECE'));
   END IF;
 END;
 $$;
@@ -102,7 +102,7 @@ $$;
     { idUsuario, email, nombre, fotoUrl, esSuperAdmin, esActivo, esDisponible, estado, ultimoAccesoEn,
       esInvitado (nunca ha entrado), agencias, modulos: { "<modulo>": { rol, idEquipo } } }
 */
-CREATE OR REPLACE FUNCTION hub_cleber.usuario_en_organizacion_json(p_id_usuario bigint, p_id_organizacion text)
+CREATE OR REPLACE FUNCTION hub_cleber.usuario_en_marca_json(p_id_usuario bigint, p_id_marca text)
 RETURNS jsonb
 LANGUAGE sql
 STABLE
@@ -121,8 +121,8 @@ AS $$
     'agencias',       to_jsonb(uo.agencias),
     'modulos',        coalesce((SELECT jsonb_object_agg(rm.modulo, jsonb_build_object('rol', rm.rol, 'idEquipo', rm.id_equipo))
                                   FROM hub_cleber.usuarios_roles_modulo rm
-                                 WHERE rm.id_usuario = uo.id_usuario AND rm.id_organizacion = uo.id_organizacion), '{}'::jsonb))
+                                 WHERE rm.id_usuario = uo.id_usuario AND rm.id_marca = uo.id_marca), '{}'::jsonb))
     FROM hub_cleber.usuarios u
-    JOIN hub_cleber.usuarios_organizaciones uo ON uo.id_usuario = u.id_usuario AND uo.id_organizacion = p_id_organizacion
+    JOIN hub_cleber.usuarios_marcas uo ON uo.id_usuario = u.id_usuario AND uo.id_marca = p_id_marca
    WHERE u.id_usuario = p_id_usuario;
 $$;

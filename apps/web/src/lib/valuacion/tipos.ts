@@ -16,7 +16,7 @@ export interface Oferta {
   version: number;
   idAgencia: string;
   nombreAgencia: string | null;
-  idOrganizacion: string;
+  idMarca: string;
   idCita: string;
   fechaCita: string;
   horaCita: string | null;
@@ -92,6 +92,32 @@ export interface DetalleOferta {
   evaluacion: Record<string, unknown> | null;
   historial: EventoHistorial[];
 }
+
+/** Configuración de una agencia (valuacion.configuraciones_agencias), como la devuelve consultaConfiguracion. */
+export interface ConfiguracionAgencia {
+  idAgencia: string;
+  idTallerQuiter: string;
+  nombreAgencia: string;
+  idMarca: string;
+  esActivo: boolean;
+  criterios: {
+    minYear: number; maxYear: number;
+    minKm: number; maxKm: number;
+    /** Al menos `minMantenimientos` en los últimos `aniosHistorial` años */
+    minMantenimientos: number; aniosHistorial: number;
+    minPublicaciones: number;
+    tiposServicio: string[];
+  };
+  /** % que se descuenta al precio de venta y al promedio venta-compra (0–100) */
+  montos: { pctDescuentoVenta: number; pctDescuentoVentaCompra: number };
+  meta: { citasEsperadasDia: number; pctMetaEnvio: number; metaDiaria: number };
+  actualizadoPor: string | null;
+  actualizadoEn: string;
+}
+
+export type GuardaConfiguracion = Pick<ConfiguracionAgencia, "idAgencia" | "idTallerQuiter" | "nombreAgencia" | "idMarca" | "esActivo" | "criterios" | "montos"> & {
+  meta: { citasEsperadasDia: number; pctMetaEnvio: number };
+};
 
 // ---------- Cómo se muestra ----------
 

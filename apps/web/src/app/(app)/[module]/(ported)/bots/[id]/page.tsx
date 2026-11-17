@@ -563,10 +563,10 @@ export default function EditBotPage() {
             <CardContent className="space-y-4">
               {userData?.isSuperAdmin && authOrgs.length > 0 && (
                 <div className="space-y-2">
-                  <Label>Organizacion</Label>
+                  <Label>Marca</Label>
                   <Select value={formOrgId || bot?.organizationId || ""} onValueChange={setFormOrgId}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar organizacion" />
+                      <SelectValue placeholder="Seleccionar marca" />
                     </SelectTrigger>
                     <SelectContent>
                       {authOrgs.map((org) => (
@@ -1841,7 +1841,7 @@ function SituationRoutingTab({
               <>
                 {isSuperAdmin && authOrgs.length > 0 && (
                   <div className="space-y-2">
-                    <Label>Empresa / Organización</Label>
+                    <Label>Empresa / Marca</Label>
                     <Select
                       value={route.internalOrganizationId || defaultOrgId}
                       onValueChange={(v) => {
@@ -1850,7 +1850,7 @@ function SituationRoutingTab({
                       }}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar organización" />
+                        <SelectValue placeholder="Seleccionar marca" />
                       </SelectTrigger>
                       <SelectContent>
                         {authOrgs.map((org) => (
@@ -1887,7 +1887,7 @@ function SituationRoutingTab({
               <>
                 {isSuperAdmin && authOrgs.length > 0 && (
                   <div className="space-y-2">
-                    <Label>Empresa / Organización</Label>
+                    <Label>Empresa / Marca</Label>
                     <Select
                       value={route.internalOrganizationId || defaultOrgId}
                       onValueChange={(v) => {
@@ -1896,7 +1896,7 @@ function SituationRoutingTab({
                       }}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar organización" />
+                        <SelectValue placeholder="Seleccionar marca" />
                       </SelectTrigger>
                       <SelectContent>
                         {authOrgs.map((org) => (

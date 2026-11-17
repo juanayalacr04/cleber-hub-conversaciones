@@ -9,7 +9,7 @@
     Params: ninguno
     Info: {
       usuario: Usuario,
-      organizacionesVisibles: [ { idOrganizacion, nombre } ]   super admin: todas las activas; los demás: las suyas
+      marcasVisibles: [ { idMarca, nombre } ]   super admin: todas las activas; los demás: las suyas
     }
 
     @Acceso Publica
@@ -27,14 +27,14 @@ BEGIN
 
   RETURN cleber.construye_respuesta_exitosa(jsonb_build_object(
     'usuario', hub_cleber.usuario_json(v_usuario.id_usuario),
-    'organizacionesVisibles', coalesce((
-        SELECT jsonb_agg(jsonb_build_object('idOrganizacion', o.id_organizacion, 'nombre', o.nombre)
-                         ORDER BY o.nombre, o.id_organizacion)
-          FROM hub_cleber.organizaciones o
+    'marcasVisibles', coalesce((
+        SELECT jsonb_agg(jsonb_build_object('idMarca', o.id_marca, 'nombre', o.nombre)
+                         ORDER BY o.nombre, o.id_marca)
+          FROM hub_cleber.marcas o
          WHERE o.es_activa
            AND (v_usuario.es_super_admin OR v_usuario.es_sistema
-                OR EXISTS (SELECT 1 FROM hub_cleber.usuarios_organizaciones uo
-                            WHERE uo.id_usuario = v_usuario.id_usuario AND uo.id_organizacion = o.id_organizacion))),
+                OR EXISTS (SELECT 1 FROM hub_cleber.usuarios_marcas uo
+                            WHERE uo.id_usuario = v_usuario.id_usuario AND uo.id_marca = o.id_marca))),
         '[]'::jsonb)));
 
 EXCEPTION WHEN OTHERS THEN

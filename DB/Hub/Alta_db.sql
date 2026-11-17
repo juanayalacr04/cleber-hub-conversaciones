@@ -2,7 +2,7 @@
  * Alta_db.sql — schema hub_cleber (adelanto de la Fase 3: identidad)
  * Script maestro: ejecuta todo el paquete en orden, dentro de una transacción; se detiene al primer error.
  *
- * Este adelanto crea solo lo que necesita valuación para saber quién es el usuario: organizaciones, usuarios,
+ * Este adelanto crea solo lo que necesita valuación para saber quién es el usuario: marcas, usuarios,
  * sus marcas (con sus agencias por valor), el catálogo de roles de cada módulo y el rol del usuario en cada módulo
  * de cada marca, los helpers de identidad y hub_cleber.usuarios_contexto.
  * El catálogo de agencias NO vive en el hub: viene de un API externo.
@@ -50,12 +50,12 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \echo 'CREANDO TABLAS ...'
 \echo 'Tables/log_errores.sql'
 \i Tables/log_errores.sql
-\echo 'Tables/organizaciones.sql'
-\i Tables/organizaciones.sql
+\echo 'Tables/marcas.sql'
+\i Tables/marcas.sql
 \echo 'Tables/usuarios.sql'
 \i Tables/usuarios.sql
-\echo 'Tables/usuarios_organizaciones.sql'
-\i Tables/usuarios_organizaciones.sql
+\echo 'Tables/usuarios_marcas.sql'
+\i Tables/usuarios_marcas.sql
 \echo 'Tables/roles_modulo.sql'
 \i Tables/roles_modulo.sql
 \echo 'Tables/usuarios_roles_modulo.sql'
@@ -74,6 +74,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Helpers/usuario_json.sql
 \echo 'Functions/Helpers/editor_usuarios.sql'
 \i Functions/Helpers/editor_usuarios.sql
+\echo 'Functions/Helpers/marca_json.sql'
+\i Functions/Helpers/marca_json.sql
 
 -- 4. Funciones de acciones
 \echo '================================================================================'
@@ -90,12 +92,16 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/invita_usuario.sql
 \echo 'Functions/Acciones/guarda_usuario.sql'
 \i Functions/Acciones/guarda_usuario.sql
-\echo 'Functions/Acciones/quita_usuario_de_organizacion.sql'
-\i Functions/Acciones/quita_usuario_de_organizacion.sql
+\echo 'Functions/Acciones/quita_usuario_de_marca.sql'
+\i Functions/Acciones/quita_usuario_de_marca.sql
 \echo 'Functions/Acciones/cambia_disponibilidad.sql'
 \i Functions/Acciones/cambia_disponibilidad.sql
 \echo 'Functions/Acciones/registra_inicio_sesion.sql'
 \i Functions/Acciones/registra_inicio_sesion.sql
+\echo 'Functions/Acciones/consulta_marcas.sql'
+\i Functions/Acciones/consulta_marcas.sql
+\echo 'Functions/Acciones/guarda_marca.sql'
+\i Functions/Acciones/guarda_marca.sql
 
 -- 5. Datos maestros
 \echo '================================================================================'

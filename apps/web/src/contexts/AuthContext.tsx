@@ -46,7 +46,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   organizations: OrgOption[];
   setSelectedOrgId: (orgId: string) => void;
-  /** Vuelve a leer la lista de organizaciones (el superadmin la necesita tras crear o renombrar una). */
+  /** Vuelve a leer la lista de marcas (el superadmin la necesita tras crear o renombrar una). */
   refreshOrganizations: () => Promise<void>;
   currentOrgName: string | null;
 }
@@ -155,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!userSnap.exists()) {
           // Primer inicio de sesión de alguien invitado: la función 2 convierte el documento pre-registrado
-          // por email en users/{uid} (rol, organizaciones y equipo salen de la invitación, no del cliente)
+          // por email en users/{uid} (rol, marcas y equipo salen de la invitación, no del cliente)
           try {
             await callHubAction(firebaseUser, "me.claim_invite");
             userSnap = await getDoc(userRef);
@@ -198,8 +198,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  // Todas las organizaciones, para el superadmin. Trabaja con la que tenía elegida; si no hay (primer inicio de sesión, o la guardada
-  // en el navegador ya no existe, p. ej. de otro proyecto) usa su organización principal y, si tampoco, la primera de la lista.
+  // Todas las marcas, para el superadmin. Trabaja con la que tenía elegida; si no hay (primer inicio de sesión, o la guardada
+  // en el navegador ya no existe, p. ej. de otro proyecto) usa su marca principal y, si tampoco, la primera de la lista.
   const loadSuperadminOrgs = async (primaryOrgId: string | null) => {
     try {
       const orgsSnap = await getDocs(query(collection(db, "organizations"), orderBy("name")));
@@ -209,7 +209,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const next = exists(selectedOrgId) ? selectedOrgId : exists(primaryOrgId) ? primaryOrgId : orgs[0]?.id ?? null;
       if (next && next !== selectedOrgId) setSelectedOrgId(next);
     } catch (error) {
-      console.error("Error cargando las organizaciones:", error);
+      console.error("Error cargando las marcas:", error);
     }
   };
 
@@ -336,7 +336,7 @@ export function useAuth() {
   return context;
 }
 
-/** Administrador de la organización o superadmin. */
+/** Administrador de la marca o superadmin. */
 export function isAdmin(u: UserData | null): boolean {
   return !!u && (u.role === "admin" || u.isSuperAdmin === true);
 }

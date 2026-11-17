@@ -29,7 +29,7 @@ En desarrollo, el API Gateway, la Lambda `authorizer-google-dev` y PostgREST est
 
 | # | Pendiente | Qué hacer |
 |---|-----------|-----------|
-| I1 | **Reemplazar la integración HTTP directa por una privada**, como en producción | En la cuenta `807746362931`: un NLB interno en `vpc-9edb67e4` con el EC2 de PostgREST como destino (puerto 3000), un VPC Link del API Gateway de dev hacia ese NLB y las rutas `/toma-unidades` y `/hub` con integración *VPC Link*. Después, S1 |
+| I1 | **Reemplazar la integración HTTP directa por una privada**, como en producción | En la cuenta `807746362931`: un NLB interno en `vpc-9edb67e4` con el EC2 de PostgREST como destino (puerto 3000), un VPC Link del API Gateway de dev hacia ese NLB y las rutas `/toma-unidades` y `/hub-cleber` con integración *VPC Link*. Después, S1 |
 | I2 | **El nombre `ec2-3-89-235-189…` puede cambiar** | Si la instancia se detiene y no tiene Elastic IP, cambia su IP pública y la integración se rompe. Asignar una Elastic IP, o resolverlo con I1 (el NLB usa la instancia, no su IP pública) |
 
 ### Verificaciones pendientes (guía, pasos 6 y 7)
@@ -44,7 +44,7 @@ En desarrollo, el API Gateway, la Lambda `authorizer-google-dev` y PostgREST est
 | # | Pendiente |
 |---|-----------|
 | P1 | Desplegar `authorizer-google` (prd) en la cuenta `386458449724` (`.\deploy.ps1 prd`) y registrarlo en `z66x2zyooj` |
-| P2 | Rutas `/toma-unidades/{proxy+}` y `/hub/{proxy+}` en `z66x2zyooj` con VPC Link `g55dvn` (pasos 3 a 5 de la guía, tal cual) |
+| P2 | Rutas `/toma-unidades/{proxy+}` y `/hub-cleber/{proxy+}` en `z66x2zyooj` con VPC Link `g55dvn` (pasos 3 a 5 de la guía, tal cual) |
 | P3 | Cliente OAuth de producción y URIs de Vercel (paso 0) |
 | P4 | Acordar con el dueño del API Gateway dónde vive el código del authorizer (repo `api`) y si es compartido con otros sistemas, p. ej. `autorizaciones` ([guía, "Pendientes de acordar"](GUIA_API_GATEWAY.md#pendientes-de-acordar)) |
 

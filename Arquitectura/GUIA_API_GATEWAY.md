@@ -21,7 +21,7 @@ Rutas que crea esta guía:
 | Ruta | Schema (`Content-Profile`) | Quién la usa |
 |------|----------------------------|--------------|
 | `/toma-unidades/{proxy+}` | `valuacion` | Pantallas de valuación |
-| `/hub/{proxy+}` | `hub_cleber` | Dashboard (usuarios, organizaciones; después el resto) y backend reenviando el token del usuario |
+| `/hub-cleber/{proxy+}` | `hub_cleber` | Dashboard (usuarios, marcas; después el resto) y backend reenviando el token del usuario |
 
 `/internal/{proxy+}` (IAM, para máquinas) **no** es parte de esta guía.
 
@@ -140,9 +140,9 @@ Acepta el permiso para que API Gateway invoque la Lambda.
 
    Fijar el schema en la ruta evita que alguien use `/toma-unidades` para llamar funciones de otro schema.
 
-## Paso 4 — Ruta `/hub/{proxy+}`
+## Paso 4 — Ruta `/hub-cleber/{proxy+}`
 
-Igual que el paso 3, con el recurso `hub` y `Content-Profile` / `Accept-Profile` = `'hub_cleber'`.
+Igual que el paso 3, con el recurso `hub-cleber` (así se llama en dev; `lib/api.ts` lo usa para la ruta lógica `hub`) y `Content-Profile` / `Accept-Profile` = `'hub_cleber'`.
 
 ## Paso 5 — API key y despliegue
 
@@ -168,7 +168,7 @@ $URL   = "https://z66x2zyooj.execute-api.us-east-1.amazonaws.com/v3"   # dev: UR
 
 1. **Identidad** (debe responder `successful: true` con tu email):
    ```powershell
-   curl.exe -s -X POST "$URL/hub/rpc/consulta_usuario_actual" -H "X-Id-Token: $TOKEN" -H "x-api-key: $KEY" `
+   curl.exe -s -X POST "$URL/hub-cleber/rpc/consulta_usuario_actual" -H "X-Id-Token: $TOKEN" -H "x-api-key: $KEY" `
      -H "Content-Type: application/json" -H "Prefer: params=single-object" -d '{\"action\":\"Hub.consultaUsuarioActual\",\"params\":{}}'
    ```
 2. **El email no se puede suplantar** (pendiente §12 del diseño): repite el 1 agregando `-H "X-User-Email: otra@cleber.com"`. La respuesta debe traer **tu** email.
@@ -243,7 +243,7 @@ Si todo pasa, responde una política *Allow* con `context.email`; la integració
 | Caché del resultado por token, **300 s** | La Lambda no corre en cada petición: menos costo y latencia | Opción estándar del authorizer |
 | Política *Allow* sobre **todo el stage** (`.../v3/*`), no solo la ruta pedida | Con caché, API Gateway reutiliza la política en otras rutas; si cubriera solo una, las demás darían 403 | Comportamiento documentado de AWS con caché de authorizer |
 | Token inválido → **401** (`Unauthorized`), no *Deny* (403) | El dashboard trata 401 como sesión vencida y 403 como error de configuración (`autenticacion.md`, "Manejo de errores") | Template, tabla de errores HTTP |
-| **Schema fijo por ruta** (`Content-Profile` / `Accept-Profile` en la integración: `/toma-unidades` → `valuacion`, `/hub` → `hub_cleber`) | Que una ruta no sirva para llamar funciones de otro schema | Agregado propio |
+| **Schema fijo por ruta** (`Content-Profile` / `Accept-Profile` en la integración: `/toma-unidades` → `valuacion`, `/hub-cleber` → `hub_cleber`) | Que una ruta no sirva para llamar funciones de otro schema | Agregado propio |
 | El token viaja en **`X-Id-Token`**, no en `Authorization` | Con proxy integration, `Authorization` llega a PostgREST, que lo intenta validar como JWT propio: `PGRST300` sin `jwt-secret` (**verificado en dev el 2026-11-13**) | Paso 6 |
 | Lambda **fuera de la VPC** | Necesita internet para descargar las llaves de Google | Requisito técnico |
 | `GOOGLE_CLIENT_IDS` acepta varios Client IDs | Un solo authorizer para todos los sistemas: cada uno puede tener su propio cliente OAuth | Template ("solo se crea una vez") + diseño (Q27) |

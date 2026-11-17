@@ -10,7 +10,7 @@
  */
 
 import { api, type ApiResponse } from "@/lib/api";
-import type { ConsultaOfertas, DetalleOferta, EstadoOferta, Etiqueta, Oferta } from "./tipos";
+import type { ConfiguracionAgencia, ConsultaOfertas, DetalleOferta, EstadoOferta, Etiqueta, GuardaConfiguracion, Oferta } from "./tipos";
 
 const llama = <T>(funcion: string, accion: string, params: Record<string, unknown> = {}) =>
   api.call<T>("toma-unidades", funcion, `Valuacion.${accion}`, params);
@@ -47,4 +47,15 @@ export async function registraRespuesta(o: Ref & { idEtiqueta: string; motivo?: 
 
 export async function cierraOferta(o: Ref & { motivo?: string }): Promise<ApiResponse<{ oferta: Oferta }>> {
   return llama("cierra_oferta", "cierraOferta", o);
+}
+
+// ---------- Configuración por agencia (permiso: configurar) ----------
+
+export async function consultaConfiguracion() {
+  return llama<{ agencias: ConfiguracionAgencia[] }>("consulta_configuracion", "consultaConfiguracion");
+}
+
+/** Upsert por idAgencia; los cambios aplican desde la siguiente corrida del cron. */
+export async function guardaConfiguracion(c: GuardaConfiguracion): Promise<ApiResponse<ConfiguracionAgencia>> {
+  return llama("guarda_configuracion", "guardaConfiguracion", c);
 }

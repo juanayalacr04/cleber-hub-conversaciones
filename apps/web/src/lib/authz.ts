@@ -1,6 +1,6 @@
 /**
  * Autorización de las rutas de API que quedan en el dashboard (consultas a Abacus y a Salesforce). Usan el Admin SDK, que no
- * pasa por las reglas de Firestore: hay que pertenecer a la organización del recurso. Toda escritura vive en la función de
+ * pasa por las reglas de Firestore: hay que pertenecer a la marca del recurso. Toda escritura vive en la función de
  * reglas de negocio (core/user_actions.py), que tiene su propia autorización (core/authz.py).
  */
 import { NextResponse } from "next/server";
@@ -38,7 +38,7 @@ export const isAdminIn = (r: Requester, orgId: string | null | undefined): boole
 const forbidden = (msg = "No tienes permiso para esta operación") => NextResponse.json({ error: msg }, { status: 403 });
 
 /**
- * Verifica que el usuario pertenezca a la organización. `write` exige rol admin o agente (no viewer);
+ * Verifica que el usuario pertenezca a la marca. `write` exige rol admin o agente (no viewer);
  * `admin` exige administrador. Devuelve la respuesta 403 si no procede, o null si está autorizado.
  */
 export async function authorizeOrg(uid: string, orgId: string | null | undefined, opts: { write?: boolean; admin?: boolean } = {}): Promise<NextResponse | null> {

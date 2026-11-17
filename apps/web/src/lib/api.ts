@@ -8,7 +8,7 @@ import { auth } from "@/lib/auth";
  *   if (!r.successful) { ... r.errorCode ... }
  *
  * Cada ruta del gateway apunta a un schema fijo (Arquitectura/GUIA_API_GATEWAY.md): `toma-unidades` → valuacion,
- * `hub` → hub_cleber. La función es la de PostgREST (`rpc/<funcion>`) y `action` la del envelope { action, params }.
+ * `hub` → hub_cleber (en el gateway la ruta se llama `/hub-cleber`). La función es la de PostgREST (`rpc/<funcion>`) y `action` la del envelope { action, params }.
  *
  * Errores HTTP (autenticacion.md): 401 → SESION_EXPIRADA (volver a /login), 403 → CONFIGURACION (API key).
  */
@@ -18,6 +18,9 @@ export type ApiResponse<T> =
   | { successful: false; errorCode: string; errorMessage: string; info?: unknown };
 
 export type RutaApi = "toma-unidades" | "hub";
+
+/** Recurso del gateway de cada ruta lógica (verificado en el gateway de dev, 2026-11-16). */
+const RECURSO: Record<RutaApi, string> = { "toma-unidades": "toma-unidades", hub: "hub-cleber" };
 
 // El authorizer lee el token de este header. X-Id-Token y no Authorization: con proxy integration el gateway reenvía
 // Authorization a PostgREST, que lo intenta validar como JWT propio y responde PGRST300 ("Server lacks JWT secret").
@@ -38,7 +41,7 @@ async function call<T>(ruta: RutaApi, funcion: string, action: string, params: R
 
   let res: Response;
   try {
-    res = await fetch(`${base}/${ruta}/rpc/${funcion}`, {
+    res = await fetch(`${base}/${RECURSO[ruta]}/rpc/${funcion}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

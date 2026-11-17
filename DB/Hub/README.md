@@ -1,6 +1,6 @@
 # DB — schema `hub_cleber` (adelanto de identidad)
 
-Usuarios y organizaciones del hub en PostgreSQL. Es el **adelanto de la Fase 3** del plan de valuación (`toma-unidades-en-taller/docs/plan-de-trabajo.md`): valuación deja de recibir `X-User-Contexto` y obtiene el rol y las agencias del usuario con `hub_cleber.usuarios_contexto`.
+Usuarios y marcas del hub en PostgreSQL. Es el **adelanto de la Fase 3** del plan de valuación (`toma-unidades-en-taller/docs/plan-de-trabajo.md`): valuación deja de recibir `X-User-Contexto` y obtiene el rol y las agencias del usuario con `hub_cleber.usuarios_contexto`.
 
 **Roles por marca y módulo (Q36–Q39).** No hay rol global: cada usuario tiene un rol en cada módulo (`ventas`, `servicio`, `valuacion`) de cada marca, tomado del catálogo `hub_cleber.roles_modulo`. Tener rol en un módulo de una marca es lo que da acceso a él. Lo que puede hacer cada rol lo define el módulo (valuación: `valuacion.roles_permisos`). Solo `es_super_admin` vale en todo.
 
@@ -13,12 +13,11 @@ Diseño: [`Arquitectura/DISENO_MIGRACION_POSTGRES.md`](../../Arquitectura/DISENO
 ```
 DB/Hub/
 ├── Alta_db.sql                 Script maestro (una transacción; re-ejecutable)
-├── Tables/                     log_errores, organizaciones, usuarios, usuarios_organizaciones, roles_modulo, usuarios_roles_modulo
+├── Tables/                     log_errores, marcas, usuarios, usuarios_marcas, roles_modulo, usuarios_roles_modulo
 ├── Functions/
-│   ├── Helpers/                errores, peticion, seguridad (identidad y permisos), usuario_json, editor_usuarios
-│   └── Acciones/               consulta_usuario_actual, importa_usuarios y las del editor de usuarios
+│   ├── Helpers/                errores, peticion, seguridad (identidad y permisos), usuario_json, marca_json, editor_usuarios
+│   └── Acciones/               consulta_usuario_actual, importa_usuarios, consulta_marcas, guarda_marca y las del editor de usuarios
 ├── Datos_maestros/             roles_modulo (catálogo), usuarios_sistema (emails de servicio)
-├── Migraciones/                cambios de estructura sobre una base ya dada de alta
 └── Pruebas/                    pruebas_flujo.sql (en una transacción con ROLLBACK)
 ```
 
@@ -32,13 +31,9 @@ psql -h <host> -p <puerto> -U <usuario> -d <database> -f Alta_db.sql -q
 psql -h <host> -p <puerto> -U <usuario> -d <database> -f Pruebas/pruebas_flujo.sql -q
 ```
 
-`Alta_db.sql` crea las tablas con `IF NOT EXISTS`, así que **no cambia la estructura de una tabla que ya existe**. Esos cambios van en `Migraciones/`, y se corren **antes** de `Alta_db.sql`:
+`Alta_db.sql` crea las tablas con `IF NOT EXISTS`, así que **no cambia la estructura de una tabla que ya existe**. No hay migraciones: una base con la estructura anterior (`organizaciones`, `usuarios_organizaciones` o `usuarios.rol`) se da de alta de nuevo y se vuelve a correr la carga.
 
-| Migración | Para una base dada de alta antes de… | Qué hace |
-|-----------|--------------------------------------|----------|
-| `001_roles_por_marca_y_modulo.sql` | 2026-11-13 (con `usuarios.rol`) | Catálogo de roles; rol por marca y módulo; copia `usuarios.rol` a ventas y servicio en cada marca y los roles de módulo anteriores a cada marca del usuario. Los equipos no se copian: se llenan con la carga. Re-ejecutable |
-
-Carga de los usuarios y las organizaciones actuales de Firestore (dev). El script solo lee Firestore y **genera** un `.sql`; no se conecta a PostgreSQL:
+Carga de los usuarios y las marcas actuales de Firestore (dev). El script solo lee Firestore y **genera** un `.sql`; no se conecta a PostgreSQL:
 
 ```
 $env:GOOGLE_CLOUD_PROJECT="ambiente-desarrollo-ti"; $env:FIRESTORE_DATABASE="dev-hub-conversaciones"
@@ -54,7 +49,7 @@ psql -h <host> -p <puerto> -U <usuario> -d <database> -f <fuera del repo>/carga_
 
 | Quién | Ruta | `X-User-Email` | En `hub_cleber.usuarios` |
 |-------|------|----------------|-------------------|
-| Usuario del dashboard | `/hub` (Lambda authorizer de Google) | Lo inyecta API Gateway desde el token | `es_sistema = false`; roles en `usuarios_roles_modulo` |
+| Usuario del dashboard | `/hub-cleber` (Lambda authorizer de Google) | Lo inyecta API Gateway desde el token | `es_sistema = false`; roles en `usuarios_roles_modulo` |
 | Backend del hub | `/internal` (`AWS_IAM`) | `sistema@hub-conversaciones.internal` | `es_sistema = true`, sin roles del catálogo |
 | Lambda de valuación | `/internal` | `sistema@toma-unidades.internal` | `es_sistema = true`, sin roles del catálogo; valuación le da `SISTEMA` por su email |
 
@@ -83,19 +78,19 @@ Quién edita a quién (Q39; lo aplican las acciones del editor de usuarios):
 |--------|-----|
 | `hub_cleber.usuario_actual()` | Fila de `hub_cleber.usuarios` del `X-User-Email` (activo). Sin header, sin usuario o inactivo → `SIN_PERMISO` |
 | `hub_cleber.exige_sistema(usuario)` | Solo emails de servicio |
-| `hub_cleber.tiene_organizacion` / `hub_cleber.exige_organizacion(usuario, idOrganizacion)` | Super admin y sistema: todas |
-| `hub_cleber.rol_modulo(usuario, idOrganizacion, modulo)` | Rol del módulo en la marca, o `NULL` |
-| `hub_cleber.es_administrador_modulo` / `exige_administrador_modulo(usuario, idOrganizacion, modulo)` | Su rol en ese módulo de la marca es de administrador; super admin siempre |
-| `hub_cleber.es_administrador_organizacion` / `exige_administrador_organizacion(usuario, idOrganizacion)` | Administra algún módulo de la marca; super admin siempre |
-| `hub_cleber.agencias_permitidas(usuario, idOrganizacion)` | Ids asignados; `NULL` = sin restricción (super admin y sistema), `{}` = ninguna |
-| `hub_cleber.usuarios_contexto(email, modulo)` | Para **valuación**, por valor: `{ email, esSuperAdmin, esSistema, marcas: { idOrganizacion: { rol, idEquipo, agencias } } }`, solo las marcas donde tiene rol en el módulo; `NULL` si no existe o está inactivo. `SECURITY DEFINER` |
+| `hub_cleber.tiene_marca` / `hub_cleber.exige_marca(usuario, idMarca)` | Super admin y sistema: todas |
+| `hub_cleber.rol_modulo(usuario, idMarca, modulo)` | Rol del módulo en la marca, o `NULL` |
+| `hub_cleber.es_administrador_modulo` / `exige_administrador_modulo(usuario, idMarca, modulo)` | Su rol en ese módulo de la marca es de administrador; super admin siempre |
+| `hub_cleber.es_administrador_marca` / `exige_administrador_marca(usuario, idMarca)` | Administra algún módulo de la marca; super admin siempre |
+| `hub_cleber.agencias_permitidas(usuario, idMarca)` | Ids asignados; `NULL` = sin restricción (super admin y sistema), `{}` = ninguna |
+| `hub_cleber.usuarios_contexto(email, modulo)` | Para **valuación**, por valor: `{ email, esSuperAdmin, esSistema, marcas: { idMarca: { rol, idEquipo, agencias } } }`, solo las marcas donde tiene rol en el módulo; `NULL` si no existe o está inactivo. `SECURITY DEFINER` |
 
 ## Acciones
 
 | Acción | Función | Quién | Info |
 |--------|---------|-------|------|
-| `Hub.consultaUsuarioActual` | `consulta_usuario_actual` | Cualquier usuario activo | `{ usuario, organizacionesVisibles }` |
-| `Hub.importaUsuarios` | `importa_usuarios` | Sistema | `{ organizaciones, usuarios: { creados, actualizados } }`. Idempotente, todo o nada. Lo que viene reemplaza lo guardado (marcas del usuario y, en cada marca, los roles de los módulos que maneja la carga: param `modulos`); lo que no viene no se toca |
+| `Hub.consultaUsuarioActual` | `consulta_usuario_actual` | Cualquier usuario activo | `{ usuario, marcasVisibles }` |
+| `Hub.importaUsuarios` | `importa_usuarios` | Sistema | `{ marcas, usuarios: { creados, actualizados } }`. Idempotente, todo o nada. Lo que viene reemplaza lo guardado (marcas del usuario y, en cada marca, los roles de los módulos que maneja la carga: param `modulos`); lo que no viene no se toca |
 | `Hub.registraInicioSesion` | `registra_inicio_sesion` | El propio usuario, al entrar | `{ usuario }`. Último acceso, `online`, y nombre y foto de Google si vienen. Entrar por primera vez es "aceptar la invitación" |
 
 **Editor de usuarios** (decisión Q39). Las que escriben las llama el **backend** con el token del usuario, porque después actualiza `accesos/{email}` en Firestore con el `usuario` de la respuesta (diseño §6.2):
@@ -103,17 +98,17 @@ Quién edita a quién (Q39; lo aplican las acciones del editor de usuarios):
 | Acción | Función | Quién | Params → Info |
 |--------|---------|-------|---------------|
 | `Hub.consultaRolesModulo` | `consulta_roles_modulo` | Cualquier usuario activo | `modulo?` → `{ roles: [{ modulo, rol, nombre, descripcion, esAdministrador }] }` |
-| `Hub.consultaUsuarios` | `consulta_usuarios` | Administrador de algún módulo de la marca | `idOrganizacion`, `modulo?`, `incluyeInactivos?` → `{ usuarios: [UsuarioEnOrganizacion], permisos: { modulos, agencias } }` |
-| `Hub.invitaUsuario` | `invita_usuario` | Administrador del módulo en la marca | `email`, `idOrganizacion`, `modulo`, `rol`, `idEquipo?`, `agencias?`, `nombre?` → `{ usuario, creado }`. Crea al usuario como invitado si no existe; el correo lo manda el backend. `ESTADO_INVALIDO`: `YA_TIENE_ROL`, `USUARIO_INACTIVO` |
-| `Hub.guardaUsuario` | `guarda_usuario` | Administrador del módulo (roles) / de algún módulo (agencias) | `idUsuario`, `idOrganizacion`, `agencias?`, `modulos?: { modulo: { rol, idEquipo? } \| null }` → `{ usuario }`. Solo toca lo que viene; `null` quita el rol. `ESTADO_INVALIDO`: `PROPIO_ADMINISTRADOR` |
-| `Hub.quitaUsuarioDeOrganizacion` | `quita_usuario_de_organizacion` | Administrador de todos los módulos donde el usuario tiene rol en la marca | `idUsuario`, `idOrganizacion` → `{ usuario }`. `ESTADO_INVALIDO`: `PROPIA_MEMBRESIA` |
+| `Hub.consultaUsuarios` | `consulta_usuarios` | Administrador de algún módulo de la marca | `idMarca`, `modulo?`, `incluyeInactivos?` → `{ usuarios: [UsuarioEnMarca], permisos: { modulos, agencias } }` |
+| `Hub.invitaUsuario` | `invita_usuario` | Administrador del módulo en la marca | `email`, `idMarca`, `modulo`, `rol`, `idEquipo?`, `agencias?`, `nombre?` → `{ usuario, creado }`. Crea al usuario como invitado si no existe; el correo lo manda el backend. `ESTADO_INVALIDO`: `YA_TIENE_ROL`, `USUARIO_INACTIVO` |
+| `Hub.guardaUsuario` | `guarda_usuario` | Administrador del módulo (roles) / de algún módulo (agencias) | `idUsuario`, `idMarca`, `agencias?`, `modulos?: { modulo: { rol, idEquipo? } \| null }` → `{ usuario }`. Solo toca lo que viene; `null` quita el rol. `ESTADO_INVALIDO`: `PROPIO_ADMINISTRADOR` |
+| `Hub.quitaUsuarioDeMarca` | `quita_usuario_de_marca` | Administrador de todos los módulos donde el usuario tiene rol en la marca | `idUsuario`, `idMarca` → `{ usuario }`. `ESTADO_INVALIDO`: `PROPIA_MEMBRESIA` |
 | `Hub.cambiaDisponibilidad` | `cambia_disponibilidad` | El propio usuario, o un administrador de una marca que compartan | `esDisponible`, `idUsuario?` → `{ idUsuario, esDisponible }` |
 
 Las agencias se guardan por valor: **el backend las valida contra el API de agencias** antes de llamar (plpgsql no tiene el catálogo). Dar de baja a un usuario en todo el hub (`es_activo`) queda para el super admin, sin acción todavía.
 
-Objeto `Usuario`: `idUsuario`, `email`, `nombre`, `fotoUrl`, `esSuperAdmin`, `esSistema`, `esActivo`, `esDisponible`, `estado`, `ultimoAccesoEn`, `creadoEn`, `organizaciones` (`[{ idOrganizacion, nombre, agencias, modulos: { modulo: { rol, idEquipo } } }]`).
+Objeto `Usuario`: `idUsuario`, `email`, `nombre`, `fotoUrl`, `esSuperAdmin`, `esSistema`, `esActivo`, `esDisponible`, `estado`, `ultimoAccesoEn`, `creadoEn`, `marcas` (`[{ idMarca, nombre, agencias, modulos: { modulo: { rol, idEquipo } } }]`).
 
-Objeto `UsuarioEnOrganizacion` (una marca): `idUsuario`, `email`, `nombre`, `fotoUrl`, `esSuperAdmin`, `esActivo`, `esDisponible`, `estado`, `ultimoAccesoEn`, `esInvitado`, `agencias`, `modulos`.
+Objeto `UsuarioEnMarca` (una marca): `idUsuario`, `email`, `nombre`, `fotoUrl`, `esSuperAdmin`, `esActivo`, `esDisponible`, `estado`, `ultimoAccesoEn`, `esInvitado`, `agencias`, `modulos`.
 
 ## Diferencias con el diseño
 
@@ -126,6 +121,6 @@ Objeto `UsuarioEnOrganizacion` (una marca): `idUsuario`, `email`, `nombre`, `fot
 
 - **Valuación** (`toma-unidades-en-taller`): adaptar `valuacion.contexto_usuario` y los permisos al nuevo `usuarios_contexto` (rol por marca: el permiso se evalúa con la marca de la oferta), y definir en `valuacion.roles_permisos` los permisos de `GERENTE`.
 - Definir el API del catálogo de agencias y qué id expone (debe coincidir con `valuacion.configuraciones_agencias.id_agencia`).
-- Editor de usuarios: falta el backend (llamar las acciones con el token del usuario, validar agencias contra su API, mandar el correo de invitación y escribir `accesos/{email}`) y la pantalla. Depende de la ruta `/hub` en API Gateway.
+- Editor de usuarios: falta el backend (llamar las acciones con el token del usuario, validar agencias contra su API, mandar el correo de invitación y escribir `accesos/{email}`) y la pantalla. Depende de la ruta `/hub-cleber` en API Gateway.
 - Bitácora de cambios de usuarios (`hub_cleber.bitacora`, Fase 4).
 - Que un email de servicio solo valga por `/internal` depende de API Gateway; plpgsql no ve la ruta (diseño §4.3).

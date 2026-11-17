@@ -39,7 +39,10 @@ export const MODULES: ModuleDef[] = [
       { slug: "dashboard", label: "Dashboard", icon: "dash", ready: true },
       { slug: "ofertas", label: "Ofertas", icon: "offer", ready: true },
       { slug: "conversaciones", label: "Conversaciones", icon: "msg", ready: true },
-      { slug: "configuracion", label: "Configuración", icon: "gear", ready: true },
+      // Solo quien administra valuación en alguna marca (permiso `configurar` en la base)
+      { slug: "configuracion", label: "Configuración", icon: "gear", group: "admin", ready: true },
+      // Alta de marcas (hub_cleber), solo super admin
+      { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
     ],
   },
   { id: "general", label: "General", description: "Resumen de los módulos", vertical: null, icon: "grid" },
@@ -54,7 +57,7 @@ export function getModuleNav(mod: ModuleDef): NavItem[] {
   return mod.nav ?? NAV;
 }
 
-/** Quién ve la opción: todos (operacion), administradores de la organización (admin) o solo superadministradores (plataforma). */
+/** Quién ve la opción: todos (operacion), administradores de la marca (admin) o solo superadministradores (plataforma). */
 export type NavGroup = "operacion" | "admin" | "plataforma";
 
 export const NAV_GROUPS: { id: NavGroup; label: string }[] = [
@@ -83,7 +86,7 @@ export const NAV: NavItem[] = [
   { slug: "campanas", label: "Campañas", icon: "mega", group: "admin", ready: true },
   { slug: "plantillas", label: "Plantillas", icon: "file", group: "admin", ready: true },
   { slug: "configuracion", label: "Configuración", icon: "gear", group: "plataforma", ready: true },
-  { slug: "organizaciones", label: "Organizaciones", icon: "org", group: "plataforma", ready: true },
+  { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
 ];
 
 /** Opciones del módulo que el usuario puede ver, agrupadas y sin grupos vacíos. */

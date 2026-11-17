@@ -1,25 +1,25 @@
 /**
     Hub.importaUsuarios — sistema (script de carga desde Firestore: dev/carga_usuarios_hub.py)
 
-    Carga o actualiza organizaciones y usuarios. Idempotente: correrla dos veces con los mismos datos
+    Carga o actualiza marcas y usuarios. Idempotente: correrla dos veces con los mismos datos
     deja la base igual. Lo que viene en la petición reemplaza lo guardado; lo que NO viene no se toca
     (un usuario ausente en la carga se queda como está). Todo o nada: un error revierte la carga completa.
 
     Params:
-      organizaciones: [ { idOrganizacion, nombre,
+      marcas: [ { idMarca, nombre,
                           zonaHoraria?, horario? (objeto), sfCodigoMarca?, sfCalendario?,
                           salesforceConfig? (objeto, sin secretos), plan?, esActiva?, creadoEn? } ]
       usuarios:       [ { email, idOrigen? (uid de Firebase), nombre?, fotoUrl?,
                           esSuperAdmin?, esActivo?, esDisponible?, estado?, invitadoPor? (idOrigen de quien invitó),
                           ultimoAccesoEn?, creadoEn?,
-                          organizaciones: [ { idOrganizacion,
+                          marcas: [ { idMarca,
                                               agencias?,   ids del API de agencias, por valor (el hub no tiene catálogo)
                                               modulos?: { "<modulo>": { rol, idEquipo? } } } ] } ]
       modulos:        [ "<modulo>" ]   módulos que maneja esta carga (default: todos). Ver "Reemplazo".
       Las tres listas son opcionales.
 
     Reemplazo, por usuario:
-      - organizaciones reemplaza las marcas del usuario; al quitarle una marca se borran sus roles en ella.
+      - marcas reemplaza las marcas del usuario; al quitarle una marca se borran sus roles en ella.
       - En cada marca, los roles de los módulos que maneja la carga (param modulos) se reemplazan por los que vienen;
         los de los demás módulos no se tocan. Así la carga desde Firestore (ventas y servicio) no borra los roles de
         valuación asignados en el editor. Mandar un rol de un módulo que la carga no maneja es CAMPO_INVALIDO.
@@ -29,7 +29,7 @@
     No importa usuarios de sistema: esos se dan de alta en Datos_maestros/usuarios_sistema.sql.
 
     Errores: CAMPO_REQUERIDO / CAMPO_INVALIDO con info.lista e info.indice (base 0) del elemento que falló.
-    Info: { organizaciones: n, usuarios: { creados: n, actualizados: n } }
+    Info: { marcas: n, usuarios: { creados: n, actualizados: n } }
 
     @Acceso Publica (sistema)
 */
@@ -83,28 +83,28 @@ BEGIN
     PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('Módulo desconocido: %s', v_modulo), '{"campo":"modulos"}');
   END IF;
 
-  -- ── Organizaciones ───────────────────────────────────────────────────────────────────────
-  v_lista := 'organizaciones';
-  FOR e, v_indice IN SELECT x, (n - 1)::integer FROM jsonb_array_elements(hub_cleber.param_arreglo(v_params, 'organizaciones', false)) WITH ORDINALITY t(x, n) LOOP
+  -- ── Marcas ───────────────────────────────────────────────────────────────────────
+  v_lista := 'marcas';
+  FOR e, v_indice IN SELECT x, (n - 1)::integer FROM jsonb_array_elements(hub_cleber.param_arreglo(v_params, 'marcas', false)) WITH ORDINALITY t(x, n) LOOP
     BEGIN
       IF jsonb_typeof(e) <> 'object' THEN
-        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'Cada organización debe ser un objeto');
+        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'Cada marca debe ser un objeto');
       END IF;
-      v_id_org := hub_cleber.param_texto(e, 'idOrganizacion');
+      v_id_org := hub_cleber.param_texto(e, 'idMarca');
       IF v_id_org !~ '^[A-Za-z0-9_-]+$' THEN
-        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'idOrganizacion solo admite letras, dígitos, _ y -', '{"campo":"idOrganizacion"}');
+        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'idMarca solo admite letras, dígitos, _ y -', '{"campo":"idMarca"}');
       END IF;
       v_codigo_marca := hub_cleber.param_texto(e, 'sfCodigoMarca', false);
       IF v_codigo_marca IS NOT NULL AND EXISTS (
-           SELECT 1 FROM hub_cleber.organizaciones WHERE sf_codigo_marca = v_codigo_marca AND id_organizacion <> v_id_org) THEN
-        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El código de marca %s ya es de otra organización', v_codigo_marca),
+           SELECT 1 FROM hub_cleber.marcas WHERE sf_codigo_marca = v_codigo_marca AND id_marca <> v_id_org) THEN
+        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El código de marca %s ya es de otra marca', v_codigo_marca),
           '{"campo":"sfCodigoMarca"}');
       END IF;
       IF coalesce(hub_cleber.param_texto(e, 'plan', false), 'free') NOT IN ('free', 'pro', 'enterprise') THEN
         PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'plan debe ser free, pro o enterprise', '{"campo":"plan"}');
       END IF;
 
-      INSERT INTO hub_cleber.organizaciones AS o (id_organizacion, nombre, zona_horaria, horario, sf_codigo_marca, sf_calendario,
+      INSERT INTO hub_cleber.marcas AS o (id_marca, nombre, zona_horaria, horario, sf_codigo_marca, sf_calendario,
                                            salesforce_config, plan, es_activa, creado_en)
       VALUES (v_id_org,
               hub_cleber.param_texto(e, 'nombre'),
@@ -116,7 +116,7 @@ BEGIN
               coalesce(hub_cleber.param_texto(e, 'plan', false), 'free'),
               coalesce(hub_cleber.param_booleano(e, 'esActiva', false), true),
               coalesce(hub_cleber.param_fecha_hora(e, 'creadoEn', false), now()))
-      ON CONFLICT (id_organizacion) DO UPDATE SET
+      ON CONFLICT (id_marca) DO UPDATE SET
         nombre            = EXCLUDED.nombre,
         zona_horaria      = EXCLUDED.zona_horaria,
         horario           = EXCLUDED.horario,
@@ -206,23 +206,23 @@ BEGIN
 
       -- Marcas: reemplaza las del usuario (al quitar una, sus roles se borran en cascada)
       v_orgs_usuario := '{}';
-      FOR m IN SELECT * FROM jsonb_array_elements(hub_cleber.param_arreglo(e, 'organizaciones')) LOOP
+      FOR m IN SELECT * FROM jsonb_array_elements(hub_cleber.param_arreglo(e, 'marcas')) LOOP
         IF jsonb_typeof(m) <> 'object' THEN
-          PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'Cada organización del usuario debe ser un objeto', '{"campo":"organizaciones"}');
+          PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'Cada marca del usuario debe ser un objeto', '{"campo":"marcas"}');
         END IF;
-        v_id_org := hub_cleber.param_texto(m, 'idOrganizacion');
-        IF NOT EXISTS (SELECT 1 FROM hub_cleber.organizaciones WHERE id_organizacion = v_id_org) THEN
-          PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('No existe la organización %s', v_id_org),
-            '{"campo":"organizaciones","causa":"NO_EXISTE"}');
+        v_id_org := hub_cleber.param_texto(m, 'idMarca');
+        IF NOT EXISTS (SELECT 1 FROM hub_cleber.marcas WHERE id_marca = v_id_org) THEN
+          PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('No existe la marca %s', v_id_org),
+            '{"campo":"marcas","causa":"NO_EXISTE"}');
         END IF;
         IF v_id_org = ANY (v_orgs_usuario) THEN
-          PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('Organización repetida: %s', v_id_org), '{"campo":"organizaciones"}');
+          PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('Marca repetida: %s', v_id_org), '{"campo":"marcas"}');
         END IF;
         v_orgs_usuario := v_orgs_usuario || v_id_org;
 
-        INSERT INTO hub_cleber.usuarios_organizaciones (id_usuario, id_organizacion, agencias)
+        INSERT INTO hub_cleber.usuarios_marcas (id_usuario, id_marca, agencias)
         VALUES (v_id_usuario, v_id_org, coalesce(hub_cleber.param_textos(m, 'agencias', false), '{}'))
-        ON CONFLICT (id_usuario, id_organizacion) DO UPDATE SET
+        ON CONFLICT (id_usuario, id_marca) DO UPDATE SET
           agencias       = EXCLUDED.agencias,
           actualizado_en = now();
 
@@ -231,30 +231,30 @@ BEGIN
         FOR v_modulo IN SELECT jsonb_object_keys(v_roles) LOOP
           IF NOT (v_modulo = ANY (v_modulos)) THEN
             PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El módulo %s no está entre los que maneja la carga', v_modulo),
-              jsonb_build_object('campo', 'modulos', 'idOrganizacion', v_id_org));
+              jsonb_build_object('campo', 'modulos', 'idMarca', v_id_org));
           END IF;
           IF jsonb_typeof(v_roles->v_modulo) <> 'object' THEN
             PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('modulos.%s debe ser un objeto { rol, idEquipo? }', v_modulo),
-              jsonb_build_object('campo', 'modulos', 'idOrganizacion', v_id_org));
+              jsonb_build_object('campo', 'modulos', 'idMarca', v_id_org));
           END IF;
           v_rol := hub_cleber.param_texto(v_roles->v_modulo, 'rol');
           IF NOT EXISTS (SELECT 1 FROM hub_cleber.roles_modulo WHERE modulo = v_modulo AND rol = v_rol) THEN
             PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El rol %s no existe en el módulo %s', v_rol, v_modulo),
-              jsonb_build_object('campo', 'modulos', 'idOrganizacion', v_id_org, 'modulo', v_modulo));
+              jsonb_build_object('campo', 'modulos', 'idMarca', v_id_org, 'modulo', v_modulo));
           END IF;
-          INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_organizacion, modulo, rol, id_equipo)
+          INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_marca, modulo, rol, id_equipo)
           VALUES (v_id_usuario, v_id_org, v_modulo, v_rol, hub_cleber.param_texto(v_roles->v_modulo, 'idEquipo', false))
-          ON CONFLICT (id_usuario, id_organizacion, modulo) DO UPDATE SET
+          ON CONFLICT (id_usuario, id_marca, modulo) DO UPDATE SET
             rol            = EXCLUDED.rol,
             id_equipo      = EXCLUDED.id_equipo,
             actualizado_en = now();
         END LOOP;
         DELETE FROM hub_cleber.usuarios_roles_modulo rm
-         WHERE rm.id_usuario = v_id_usuario AND rm.id_organizacion = v_id_org
+         WHERE rm.id_usuario = v_id_usuario AND rm.id_marca = v_id_org
            AND rm.modulo = ANY (v_modulos) AND NOT (v_roles ? rm.modulo);
       END LOOP;
-      DELETE FROM hub_cleber.usuarios_organizaciones
-       WHERE id_usuario = v_id_usuario AND NOT (id_organizacion = ANY (v_orgs_usuario));
+      DELETE FROM hub_cleber.usuarios_marcas
+       WHERE id_usuario = v_id_usuario AND NOT (id_marca = ANY (v_orgs_usuario));
 
       v_invitaciones := v_invitaciones || jsonb_build_object('idUsuario', v_id_usuario, 'invitadoPor', hub_cleber.param_texto(e, 'invitadoPor', false));
     EXCEPTION WHEN SQLSTATE 'HB001' THEN
@@ -272,7 +272,7 @@ BEGIN
    WHERE u.id_usuario = i.id_usuario AND u.invitado_por IS DISTINCT FROM i.id_invito;
 
   RETURN cleber.construye_respuesta_exitosa(jsonb_build_object(
-    'organizaciones', v_n_orgs,
+    'marcas', v_n_orgs,
     'usuarios',       jsonb_build_object('creados', v_creados, 'actualizados', v_actualizados)));
 
 EXCEPTION WHEN OTHERS THEN

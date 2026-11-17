@@ -1,6 +1,6 @@
 /**
  * Consultas del dashboard por módulo. Todas cuentan en el servidor (getCountFromServer) y se acotan por
- * organización y, en un módulo, por `conversations.vertical`. Un agente solo puede consultar su equipo
+ * marca y, en un módulo, por `conversations.vertical`. Un agente solo puede consultar su equipo
  * (lo exigen las reglas de Firestore), así que a él se le agrega `teamId` y no ve métricas históricas.
  */
 import { collection, getCountFromServer, getDocs, limit, query, Timestamp, where, type QueryConstraint } from "firebase/firestore";

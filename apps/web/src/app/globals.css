@@ -601,3 +601,9 @@ a.nav[aria-current="page"] { color: var(--primary-fg); }
 .vfile .grow { flex: 1; min-width: 180px; }
 .vprog { height: 4px; width: 72px; background: var(--mute-bg); border-radius: 99px; margin-top: 4px; overflow: hidden; }
 .vprog i { display: block; height: 100%; background: var(--mod); }
+
+/* ---- Valuación: alta de agencia ---- */
+.vnueva { display: flex; flex-direction: column; gap: 6px; }
+.vnueva .vfl-l { margin-top: 8px; }
+.vnueva .date { width: 100%; }
+.vnueva-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }

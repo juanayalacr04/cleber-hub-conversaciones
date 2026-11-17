@@ -10,6 +10,7 @@ import { MODULES, getModule, getModuleNav, visibleNav, type ModuleDef } from "@/
 import { Icon } from "./icons";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { useDismiss } from "./useDismiss";
+import { rolEnModulo, useUsuarioHub } from "./useUsuarioHub";
 
 /** Módulos que el usuario puede ver: admin y superadmin todos; el resto, el de su equipo. */
 export function allowedModules(userData: ReturnType<typeof useAuth>["userData"]): ModuleDef[] {
@@ -42,7 +43,16 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const mod = getModule(moduleId);
   const allowed = allowedModules(userData);
-  const admin = isAdmin(userData);
+  // Valuación ya vive en PostgreSQL: su menú y la pastilla usan el rol de hub_cleber, el mismo con el que la base da
+  // permisos. Mientras no se conoce (cargando o error) no se muestran opciones de administración. Los demás módulos
+  // siguen con el rol de Firestore.
+  const enHub = mod?.id === "valuacion";
+  const { usuario: usuarioHub, error: errorHub } = useUsuarioHub(enHub);
+  const hub = enHub && usuarioHub ? rolEnModulo(usuarioHub, "valuacion", userData?.organizationId ?? null) : null;
+  const admin = enHub ? !!hub?.admin : isAdmin(userData);
+  const superAdmin = enHub ? !!hub?.superAdmin : !!userData?.isSuperAdmin;
+  const etiquetaRol = !enHub ? (userData?.isSuperAdmin ? "superadmin" : userData?.role)
+    : hub ? hub.etiqueta : errorHub ? "rol no disponible" : "…";
   const section = pathname.split("/")[2] ?? "dashboard";
 
   useEffect(() => {
@@ -116,7 +126,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="nav-wrap" aria-label="Navegación del módulo">
-          {visibleNav(mod, { admin, superAdmin: !!userData?.isSuperAdmin }).map((g) => (
+          {visibleNav(mod, { admin, superAdmin }).map((g) => (
             <div key={g.id} className="nav-group" data-g={g.id}>
               <p className="lbl">{g.label}</p>
               {g.items.map((n) => (
@@ -131,7 +141,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="side-f">
           <div className="me">
             <div className="avatar">{initials}</div>
-            <div className="grow"><b>{userData?.name || user?.displayName || "Usuario"}</b><small>{userData?.isSuperAdmin ? "superadmin" : userData?.role}</small></div>
+            <div className="grow"><b>{userData?.name || user?.displayName || "Usuario"}</b><small title={errorHub ?? undefined}>{etiquetaRol}</small></div>
             <button type="button" className="icon-btn" style={{ marginLeft: 0 }} aria-label="Cerrar sesión" onClick={signOut}><LogOut size={16} /></button>
           </div>
         </div>

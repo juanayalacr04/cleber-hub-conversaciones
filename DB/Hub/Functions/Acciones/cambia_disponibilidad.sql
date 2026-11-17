@@ -31,9 +31,9 @@ BEGIN
   IF v_id <> v_actor.id_usuario THEN
     v_usuario := hub_cleber.usuario_objetivo(v_id, v_actor);
     IF NOT v_actor.es_super_admin AND NOT EXISTS (
-         SELECT 1 FROM hub_cleber.usuarios_organizaciones uo
-          WHERE uo.id_usuario = v_id AND hub_cleber.es_administrador_organizacion(v_actor, uo.id_organizacion)) THEN
-      PERFORM hub_cleber.error_de_aplicacion('SIN_PERMISO', 'No administras ninguna organización de ese usuario');
+         SELECT 1 FROM hub_cleber.usuarios_marcas uo
+          WHERE uo.id_usuario = v_id AND hub_cleber.es_administrador_marca(v_actor, uo.id_marca)) THEN
+      PERFORM hub_cleber.error_de_aplicacion('SIN_PERMISO', 'No administras ninguna marca de ese usuario');
     END IF;
   END IF;
 

@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { db, auth } from "@/lib/firebase";
 import { callHubAction } from "@/lib/hub-actions";
 import { getModule } from "@/lib/modules";
-import { ConfiguracionView } from "@/components/valuacion/ConfiguracionView";
+import { ConfiguracionApiView } from "@/components/valuacion/ConfiguracionApiView";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,11 +42,11 @@ const TIMEZONES = [
   "America/Bogota", "America/Lima", "America/Santiago", "America/Argentina/Buenos_Aires",
 ];
 
-/** Valuación tiene su propia configuración por agencia (prototipo). */
+/** Valuación tiene su propia configuración por agencia, con datos reales del schema `valuacion` (el prototipo queda en /demo). */
 export default function ConfiguracionPage() {
   const { module: moduleId } = useParams<{ module: string }>();
   const mod = getModule(moduleId);
-  if (mod?.id === "valuacion") return <ConfiguracionView mod={mod} />;
+  if (mod?.id === "valuacion") return <ConfiguracionApiView mod={mod} />;
   return <HubConfiguracionPage />;
 }
 
@@ -149,7 +149,7 @@ function HubConfiguracionPage() {
   }
 
   if (!superAdmin) {
-    return <p className="text-muted-foreground">Solo un superadministrador puede ver la configuración de la organización.</p>;
+    return <p className="text-muted-foreground">Solo un superadministrador puede ver la configuración de la marca.</p>;
   }
   if (!loaded) {
     return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -159,12 +159,12 @@ function HubConfiguracionPage() {
     <div className="max-w-2xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Configuración</h1>
-        <p className="text-muted-foreground">Datos de la organización y de su marca en Salesforce</p>
+        <p className="text-muted-foreground">Datos de la marca y de su marca en Salesforce</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Organización</CardTitle>
+          <CardTitle>Marca</CardTitle>
           <CardDescription>Es la marca. Los módulos (Servicio, Ventas) comparten estos datos.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -175,7 +175,7 @@ function HubConfiguracionPage() {
           <div className="space-y-2">
             <Label htmlFor="sfBrandCode">Código de marca en Salesforce</Label>
             <Input id="sfBrandCode" value={sfBrandCode} readOnly />
-            <p className="text-xs text-muted-foreground">Es único por organización y solo lo cambia un superadministrador (en Organizaciones).</p>
+            <p className="text-xs text-muted-foreground">Es único por marca y solo lo cambia un superadministrador (en Marcas).</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="timezone">Zona horaria</Label>

@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Cualquier miembro de la organización puede consultar (los paneles de la bandeja lo usan), pero solo
+    // Cualquier miembro de la marca puede consultar (los paneles de la bandeja lo usan), pero solo
     // lectura: con credenciales globales de Salesforce, una escritura o un `;` sería un riesgo para todas las marcas.
     const denied = await authorizeOrg(authUser.uid, organizationId);
     if (denied) return denied;
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     // Get org's Salesforce config
     const orgDoc = await adminDb.collection("organizations").doc(organizationId).get();
     if (!orgDoc.exists) {
-      return NextResponse.json({ error: "Organizacion no encontrada" }, { status: 404 });
+      return NextResponse.json({ error: "Marca no encontrada" }, { status: 404 });
     }
 
     const sfCreds = getSalesforceCredentials(vertical);

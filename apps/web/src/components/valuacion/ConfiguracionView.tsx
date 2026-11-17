@@ -19,7 +19,7 @@ type NumKey = { [K in keyof AgencyConfig]: AgencyConfig[K] extends number ? K : 
  * sin él, agrupa varios controles (rangos, casillas) bajo la etiqueta.
  * El error se muestra al salir del campo y queda ligado con aria-describedby.
  */
-function Field({ id, label, hint, error, show, htmlFor, onBlur, children }: {
+export function Field({ id, label, hint, error, show, htmlFor, onBlur, children }: {
   id: string; label: string; hint?: string; error?: string; show: boolean; htmlFor?: string; onBlur: () => void; children: ReactNode;
 }) {
   const visible = show && error;
