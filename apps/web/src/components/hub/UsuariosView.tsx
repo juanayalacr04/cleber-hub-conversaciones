@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
 import { collection, getDocs, query, where } from "firebase/firestore";
-import { Building2, Loader2, MoreVertical, Pencil, Plus, Trash2, UserCog, Users } from "lucide-react";
+import { Loader2, MoreVertical, Pencil, Plus, Trash2, UserCog, Users } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
@@ -371,14 +371,6 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
               <Label htmlFor="a-email">Correo</Label>
               <Input id="a-email" type="email" autoFocus value={alta.email} placeholder="correo@ejemplo.com"
                 onChange={(e) => setAlta((a) => ({ ...a, email: e.target.value }))} />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="a-marca">Marca</Label>
-              <div id="a-marca" className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm">
-                <Building2 className="h-4 w-4 text-muted-foreground" />{nombreMarca}
-              </div>
-              <p className="text-xs text-muted-foreground">Es la marca en la que estás. Para dar de alta en otra, cámbiala en el selector de la barra lateral.</p>
             </div>
 
             {/* Módulo: fijo en Ventas, Servicio o Valuación; en General se elige */}
