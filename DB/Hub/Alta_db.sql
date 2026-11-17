@@ -76,6 +76,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Tables/mensajes.sql
 \echo 'Tables/bitacora.sql'
 \i Tables/bitacora.sql
+\echo 'Tables/notas.sql'
+\i Tables/notas.sql
 
 -- 3. Funciones auxiliares (en orden: las funciones LANGUAGE sql validan sus dependencias al crearse)
 \echo '================================================================================'
@@ -146,6 +148,28 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/consulta_conversaciones.sql
 \echo 'Functions/Acciones/consulta_mensajes.sql'
 \i Functions/Acciones/consulta_mensajes.sql
+\echo 'Functions/Acciones/toma_conversacion.sql'
+\i Functions/Acciones/toma_conversacion.sql
+\echo 'Functions/Acciones/asigna_conversacion.sql'
+\i Functions/Acciones/asigna_conversacion.sql
+\echo 'Functions/Acciones/transfiere_equipo.sql'
+\i Functions/Acciones/transfiere_equipo.sql
+\echo 'Functions/Acciones/devuelve_al_bot.sql'
+\i Functions/Acciones/devuelve_al_bot.sql
+\echo 'Functions/Acciones/cierra_conversacion.sql'
+\i Functions/Acciones/cierra_conversacion.sql
+\echo 'Functions/Acciones/reabre_conversacion.sql'
+\i Functions/Acciones/reabre_conversacion.sql
+\echo 'Functions/Acciones/renombra_cliente.sql'
+\i Functions/Acciones/renombra_cliente.sql
+\echo 'Functions/Acciones/agrega_nota.sql'
+\i Functions/Acciones/agrega_nota.sql
+\echo 'Functions/Acciones/consulta_notas.sql'
+\i Functions/Acciones/consulta_notas.sql
+\echo 'Functions/Acciones/autoriza_mensaje_agente.sql'
+\i Functions/Acciones/autoriza_mensaje_agente.sql
+\echo 'Functions/Acciones/registra_mensaje_agente.sql'
+\i Functions/Acciones/registra_mensaje_agente.sql
 
 -- 5. Datos maestros
 \echo '================================================================================'

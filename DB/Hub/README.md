@@ -14,12 +14,13 @@ Diseño: [`Arquitectura/DISENO_MIGRACION_POSTGRES.md`](../../Arquitectura/DISENO
 DB/Hub/
 ├── Alta_db.sql                 Script maestro (una transacción; re-ejecutable)
 ├── Tables/                     log_errores, marcas, usuarios, usuarios_marcas, roles_modulo, usuarios_roles_modulo,
-│                               equipos, bots, numeros, conversaciones, mensajes, bitacora
+│                               equipos, bots, numeros, conversaciones, mensajes, bitacora, notas
 ├── Functions/
 │   ├── Helpers/                errores, peticion, seguridad (identidad y permisos), usuario_json, marca_json, editor_usuarios,
 │   │                           conversaciones (permisos por módulo y equipo, teléfono, forma JSON)
 │   └── Acciones/               consulta_usuario_actual, importa_usuarios, consulta_marcas, guarda_marca, las del editor de usuarios
 │                               y las del núcleo de conversaciones
+├── Migraciones/               cambios de estructura en tablas que ya existen (numerados; re-ejecutables)
 ├── Datos_maestros/             roles_modulo (catálogo), usuarios_sistema (emails de servicio)
 └── Pruebas/                    pruebas_flujo.sql y pruebas_conversaciones.sql (en una transacción con ROLLBACK)
 ```
@@ -154,7 +155,32 @@ Permisos: configurar un módulo = administrador del módulo en la marca (o super
 
 Pruebas: `Pruebas/pruebas_conversaciones.sql` (misma forma que `pruebas_flujo.sql`).
 
-Falta para la rebanada: las operaciones del dashboard sobre una conversación (tomar, transferir, cerrar, responder; las escribe el backend porque también manda el mensaje y publica el aviso), y la FK de `usuarios_roles_modulo.id_equipo` a `equipos` (va en `Migraciones/` cuando los equipos de los usuarios existan en la tabla).
+### Operación del asesor
+
+Las llama el **backend con el token del usuario** (Q21), porque después publica el aviso de tiempo real y, en el caso del mensaje, lo manda al proveedor. Reglas de `core/authz.py`:
+- **Leer**: quien ve la conversación (administrador del módulo: toda la marca; los demás: su equipo).
+- **Escribir**: rol del módulo que no sea `CONSULTA`. Si está `with_agent`, solo su asesor o un administrador del módulo.
+- **Tomar, asignar y transferir de equipo**: administrador del módulo.
+
+Todas aceptan `versionEsperada?` (→ `CONFLICTO_VERSION`), regresan `{ conversacion }` salvo que se diga otra cosa, y dejan su entrada en la bitácora (origen `usuario`). Un estado que no corresponde da `ESTADO_INVALIDO` con `motivo: ESTADO_ACTUAL` y el `estado`.
+
+| Acción | Función | Quién | Params / efecto |
+|--------|---------|-------|-----------------|
+| `Hub.tomaConversacion` | `toma_conversacion` | Administrador | `waiting_agent` → `with_agent` con él; empieza a medir la espera |
+| `Hub.asignaConversacion` | `asigna_conversacion` | Administrador | `idAgente` (activo, rol que escribe, ve la conversación) → `with_agent` |
+| `Hub.transfiereEquipo` | `transfiere_equipo` | Administrador | `idEquipo` (mismo módulo y marca, activo) → `waiting_agent` sin asesor |
+| `Hub.devuelveAlBot` | `devuelve_al_bot` | Escribe | `with_agent` → `bot` sin asesor |
+| `Hub.cierraConversacion` | `cierra_conversacion` | Escribe | `motivo` → `closed`, cierre manual (si el cliente vuelve, se abre otra) |
+| `Hub.reabreConversacion` | `reabre_conversacion` | Escribe | `closed` → `bot`. `ESTADO_INVALIDO` con `CONVERSACION_ABIERTA` si el cliente ya tiene otra abierta en el número |
+| `Hub.renombraCliente` | `renombra_cliente` | Escribe | `nombreCliente` (null lo borra) |
+| `Hub.agregaNota` | `agrega_nota` | Escribe | `texto` → `{ nota }` |
+| `Hub.consultaNotas` | `consulta_notas` | Lee | → `{ notas }` |
+| `Hub.autorizaMensajeAgente` | `autoriza_mensaje_agente` | Escribe | Paso 1, antes de mandar al proveedor → `{ conversacion, numero }` |
+| `Hub.registraMensajeAgente` | `registra_mensaje_agente` | Escribe | Paso 2, ya enviado: `texto?`, `mediaUrl?` (https), `idMensajeProveedor?` → `{ mensaje, conversacion, duplicado }`. Si estaba con el bot o esperando, el asesor la toma; la primera respuesta del ciclo guarda su tiempo en `tiemposRespuesta` |
+
+**Migración** para bases donde `conversaciones` ya existía: `Migraciones/001_conversaciones_operacion.sql` (columnas `motivo_cierre`, `asignada_en`, `espera_desde`, `primera_respuesta_en`, `tiempos_respuesta`). Se corre **antes** de `Alta_db.sql`, que crea `notas` y reemplaza las funciones.
+
+Falta: etiquetas (catálogo `hub_cleber.etiquetas`) y la cita con agente de Ventas, que van con la rebanada de Ventas y Servicio; y la FK de `usuarios_roles_modulo.id_equipo` a `equipos` (en `Migraciones/` cuando los equipos de los usuarios existan en la tabla).
 
 ## Pendientes
 

@@ -76,11 +76,14 @@ DECLARE
   c_ag_a    CONSTANT text := 'agente-a@prueba-conv.invalid';
   c_ag_b    CONSTANT text := 'agente-b@prueba-conv.invalid';
   c_serv    CONSTANT text := 'servicio@prueba-conv.invalid';
+  c_cons    CONSTANT text := 'consulta@prueba-conv.invalid';
   c_marca   CONSTANT text := 'PRUEBACONV';
   v_admin   uuid;
   v_ag_a    uuid;
   v_ag_b    uuid;
   v_serv    uuid;
+  v_cons    uuid;
+  v_conv3   text;
   v_eq_a    text;
   v_eq_b    text;
   v_bot     text;
@@ -100,8 +103,9 @@ BEGIN
   INSERT INTO hub_cleber.usuarios (email, nombre) VALUES (c_ag_a, 'Agente A') RETURNING id_usuario INTO v_ag_a;
   INSERT INTO hub_cleber.usuarios (email, nombre) VALUES (c_ag_b, 'Agente B') RETURNING id_usuario INTO v_ag_b;
   INSERT INTO hub_cleber.usuarios (email, nombre) VALUES (c_serv, 'Solo servicio') RETURNING id_usuario INTO v_serv;
+  INSERT INTO hub_cleber.usuarios (email, nombre) VALUES (c_cons, 'Consulta') RETURNING id_usuario INTO v_cons;
   INSERT INTO hub_cleber.usuarios_marcas (id_usuario, id_marca)
-  SELECT u, c_marca FROM unnest(ARRAY[v_admin, v_ag_a, v_ag_b, v_serv]) u;
+  SELECT u, c_marca FROM unnest(ARRAY[v_admin, v_ag_a, v_ag_b, v_serv, v_cons]) u;
   INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_marca, modulo, rol)
   VALUES (v_admin, c_marca, 'valuacion', 'ADMINISTRADOR'), (v_serv, c_marca, 'servicio', 'AGENTE');
 
@@ -118,7 +122,8 @@ BEGIN
   v_eq_b := i#>>'{equipo,idEquipo}';
 
   INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_marca, modulo, rol, id_equipo)
-  VALUES (v_ag_a, c_marca, 'valuacion', 'VALUADOR', v_eq_a), (v_ag_b, c_marca, 'valuacion', 'VALUADOR', v_eq_b);
+  VALUES (v_ag_a, c_marca, 'valuacion', 'VALUADOR', v_eq_a), (v_ag_b, c_marca, 'valuacion', 'VALUADOR', v_eq_b),
+         (v_cons, c_marca, 'valuacion', 'CONSULTA', v_eq_a);
 
   PERFORM pg_temp.como(c_ag_a);
   PERFORM pg_temp.error(pg_temp.llama('Hub.guardaEquipo', jsonb_build_object('idMarca', c_marca, 'modulo', 'valuacion', 'nombre', 'X')),
@@ -236,6 +241,7 @@ BEGIN
   UPDATE hub_cleber.conversaciones SET ultimo_mensaje_en = now() - interval '25 hours' WHERE id_conversacion = v_conv2;
   i := pg_temp.ok(pg_temp.llama('Hub.obtieneOAbreConversacion', jsonb_build_object('idNumero', v_numero, 'telefonoCliente', '5598765432')),
                   '2.30 El cliente escribe después de 25 h sin mensajes');
+  v_conv3 := i#>>'{conversacion,idConversacion}';
   PERFORM pg_temp.igual((i->>'origen') || '/' || (i#>>'{conversacion,idConversacion}' <> v_conv2)::text || '/'
                         || (SELECT estado FROM hub_cleber.conversaciones WHERE id_conversacion = v_conv2),
                         'nueva/true/closed', '2.31 ... la sesión expirada se cierra y se abre otra');
@@ -314,6 +320,96 @@ BEGIN
   PERFORM pg_temp.como(c_admin);
   PERFORM pg_temp.error(pg_temp.llama('Hub.registraBitacora', jsonb_build_object('idConversacion', v_ext, 'accion', 'x', 'origen', 'usuario')),
                         'SIN_PERMISO', '5.3 Un usuario no escribe la bitácora directo');
+
+  -- ==========================================================================
+  -- 6. Operación del asesor (sobre la conversación de la oferta, equipo A, estado bot)
+  -- ==========================================================================
+  PERFORM pg_temp.como(c_ag_a);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.tomaConversacion', jsonb_build_object('idConversacion', v_ext)),
+                        'SIN_PERMISO', '6.1 Un valuador no toma conversaciones (lo hace un administrador)');
+  PERFORM pg_temp.como(c_admin);
+  i := pg_temp.error(pg_temp.llama('Hub.tomaConversacion', jsonb_build_object('idConversacion', v_ext)),
+                     'ESTADO_INVALIDO', '6.2 Solo se toma una que espera asesor');
+  PERFORM pg_temp.igual((i->>'motivo') || '/' || (i->>'estado'), 'ESTADO_ACTUAL/bot', '6.3 ... con el estado en que está');
+  PERFORM pg_temp.como(c_sistema);
+  PERFORM pg_temp.ok(pg_temp.llama('Hub.actualizaConversacion', jsonb_build_object('idConversacion', v_ext, 'estado', 'waiting_agent')),
+                     '6.4 El bot la escala (espera asesor)');
+  PERFORM pg_temp.como(c_admin);
+  i := pg_temp.ok(pg_temp.llama('Hub.tomaConversacion', jsonb_build_object('idConversacion', v_ext)), '6.5 El administrador la toma');
+  PERFORM pg_temp.igual((i#>>'{conversacion,estado}') || '/' || (i#>>'{conversacion,idAgente}') || '/' || (i#>>'{conversacion,esperaDesde}' IS NOT NULL)::text,
+                        'with_agent/' || v_admin || '/true', '6.6 ... queda con él y empieza a medir la espera');
+
+  PERFORM pg_temp.como(c_ag_a);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.cierraConversacion', jsonb_build_object('idConversacion', v_ext, 'motivo', 'x')),
+                        'SIN_PERMISO', '6.7 Otro asesor no cierra una conversación tomada');
+  PERFORM pg_temp.como(c_admin);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.asignaConversacion', jsonb_build_object('idConversacion', v_ext, 'idAgente', v_ag_b)),
+                        'CAMPO_INVALIDO', '6.8 No se asigna a un asesor de otro equipo');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.asignaConversacion', jsonb_build_object('idConversacion', v_ext, 'idAgente', v_cons)),
+                        'CAMPO_INVALIDO', '6.9 Ni a alguien con rol de consulta');
+  i := pg_temp.ok(pg_temp.llama('Hub.asignaConversacion', jsonb_build_object('idConversacion', v_ext, 'idAgente', v_ag_a)),
+                  '6.10 Se asigna al valuador del equipo');
+  PERFORM pg_temp.igual((i#>>'{conversacion,idAgente}') || '/' || coalesce(i#>>'{conversacion,primeraRespuestaEn}', 'null'),
+                        v_ag_a || '/null', '6.11 ... con su primera respuesta pendiente');
+
+  PERFORM pg_temp.como(c_ag_a);
+  i := pg_temp.ok(pg_temp.llama('Hub.autorizaMensajeAgente', jsonb_build_object('idConversacion', v_ext)), '6.12 El asesor pide enviar un mensaje');
+  PERFORM pg_temp.igual(i#>>'{numero,telefono}', '+525512345678', '6.13 ... y recibe el número por el que sale');
+  i := pg_temp.ok(pg_temp.llama('Hub.registraMensajeAgente', jsonb_build_object('idConversacion', v_ext, 'texto', 'Hola, soy tu asesor',
+                                'idMensajeProveedor', 'SM-agente-1')), '6.14 El mensaje ya enviado se registra');
+  PERFORM pg_temp.igual((i#>>'{mensaje,remitente}') || '/' || (i#>>'{conversacion,ultimoRemitente}') || '/'
+                        || jsonb_array_length(i#>'{conversacion,tiemposRespuesta}')::text,
+                        'agent/agent/1', '6.15 ... como del asesor, con su tiempo de respuesta');
+  i := pg_temp.ok(pg_temp.llama('Hub.registraMensajeAgente', jsonb_build_object('idConversacion', v_ext, 'texto', 'Hola, soy tu asesor',
+                                'idMensajeProveedor', 'SM-agente-1')), '6.16 El mismo mensaje otra vez');
+  PERFORM pg_temp.igual(i->>'duplicado', 'true', '6.17 ... no se duplica');
+
+  i := pg_temp.ok(pg_temp.llama('Hub.agregaNota', jsonb_build_object('idConversacion', v_ext, 'texto', 'Cliente pide más monto')), '6.18 Nota interna');
+  PERFORM pg_temp.igual(i#>>'{nota,nombreAutor}', 'Agente A', '6.19 ... con el nombre del autor');
+  i := pg_temp.ok(pg_temp.llama('Hub.renombraCliente', jsonb_build_object('idConversacion', v_ext, 'nombreCliente', 'Cliente Renombrado')),
+                  '6.20 Cambia el nombre del cliente');
+  PERFORM pg_temp.igual(i#>>'{conversacion,nombreCliente}', 'Cliente Renombrado', '6.21 ... y queda guardado');
+
+  PERFORM pg_temp.como(c_cons);
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaNotas', jsonb_build_object('idConversacion', v_ext)), '6.22 Consulta lee las notas');
+  PERFORM pg_temp.igual(jsonb_array_length(i->'notas')::text, '1', '6.23 ... son 1');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.agregaNota', jsonb_build_object('idConversacion', v_conv3, 'texto', 'x')),
+                        'SIN_PERMISO', '6.24 ... pero no escribe');
+
+  PERFORM pg_temp.como(c_ag_a);
+  i := pg_temp.ok(pg_temp.llama('Hub.devuelveAlBot', jsonb_build_object('idConversacion', v_ext)), '6.25 El asesor la devuelve al bot');
+  v_version := (i#>>'{conversacion,version}')::integer;
+  PERFORM pg_temp.igual((i#>>'{conversacion,estado}') || '/' || coalesce(i#>>'{conversacion,idAgente}', 'null'), 'bot/null', '6.26 ... sin asesor');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.cierraConversacion', jsonb_build_object('idConversacion', v_ext, 'motivo', 'x', 'versionEsperada', v_version - 1)),
+                        'CONFLICTO_VERSION', '6.27 Cerrar con una versión vieja');
+  i := pg_temp.ok(pg_temp.llama('Hub.cierraConversacion', jsonb_build_object('idConversacion', v_ext, 'motivo', 'Cliente no interesado',
+                                'versionEsperada', v_version)), '6.28 Cerrar con la versión al día');
+  PERFORM pg_temp.igual((i#>>'{conversacion,estado}') || '/' || (i#>>'{conversacion,motivoCierre}'), 'closed/Cliente no interesado', '6.29 ... con su motivo');
+  i := pg_temp.ok(pg_temp.llama('Hub.reabreConversacion', jsonb_build_object('idConversacion', v_ext)), '6.30 Se reabre');
+  PERFORM pg_temp.igual((i#>>'{conversacion,estado}') || '/' || coalesce(i#>>'{conversacion,motivoCierre}', 'null'), 'bot/null', '6.31 ... vuelve al bot');
+  i := pg_temp.error(pg_temp.llama('Hub.reabreConversacion', jsonb_build_object('idConversacion', v_conv)),
+                     'ESTADO_INVALIDO', '6.32 No se reabre si el cliente ya tiene otra abierta en el número');
+  PERFORM pg_temp.igual((i->>'motivo') || '/' || (i->>'idConversacion'), 'CONVERSACION_ABIERTA/' || v_conv3, '6.33 ... y dice cuál');
+
+  PERFORM pg_temp.como(c_admin);
+  i := pg_temp.ok(pg_temp.llama('Hub.transfiereEquipo', jsonb_build_object('idConversacion', v_ext, 'idEquipo', v_eq_b)), '6.34 Se transfiere al equipo B');
+  PERFORM pg_temp.igual((i#>>'{conversacion,estado}') || '/' || (i#>>'{conversacion,idEquipo}'), 'waiting_agent/' || v_eq_b, '6.35 ... espera asesor de ese equipo');
+  PERFORM pg_temp.como(c_ag_a);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.consultaNotas', jsonb_build_object('idConversacion', v_ext)),
+                        'CONVERSACION_NO_ENCONTRADA', '6.36 El equipo A ya no la ve');
+  PERFORM pg_temp.como(c_ag_b);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.registraMensajeAgente', jsonb_build_object('idConversacion', v_ext, 'mediaUrl', 'http://x/y.jpg')),
+                        'CAMPO_INVALIDO', '6.37 mediaUrl debe ser https');
+  i := pg_temp.ok(pg_temp.llama('Hub.registraMensajeAgente', jsonb_build_object('idConversacion', v_ext, 'texto', 'Te atiendo yo')),
+                  '6.38 El valuador del equipo B contesta');
+  PERFORM pg_temp.igual((i#>>'{conversacion,estado}') || '/' || (i#>>'{conversacion,idAgente}') || '/'
+                        || jsonb_array_length(i#>'{conversacion,tiemposRespuesta}')::text,
+                        'with_agent/' || v_ag_b || '/2', '6.39 ... la toma al contestar y suma otro tiempo de respuesta');
+
+  PERFORM pg_temp.igual((SELECT string_agg(DISTINCT accion, ',' ORDER BY accion) FROM hub_cleber.bitacora
+                          WHERE id_conversacion = v_ext AND origen = 'usuario'),
+                        'asigna_conversacion,cierra_conversacion,devuelve_al_bot,reabre_conversacion,renombra_cliente,toma_conversacion,transfiere_equipo',
+                        '6.40 Cada operación queda en la bitácora');
 
   RAISE NOTICE '========================================================================';
   RAISE NOTICE 'TODAS LAS PRUEBAS PASARON';

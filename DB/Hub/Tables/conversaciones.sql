@@ -40,7 +40,12 @@ CREATE TABLE IF NOT EXISTS hub_cleber.conversaciones (
   estado_antes_cierre         text,
   agente_antes_cierre         uuid,
   cierre_manual               boolean     NOT NULL DEFAULT false,
-  metadatos                   jsonb       NOT NULL DEFAULT '{}',   -- contexto externo, contexto de campaña, ...
+  motivo_cierre               text,                                -- el que escribe el asesor al cerrar
+  asignada_en                 timestamptz,                         -- cuándo la tomó o se le asignó al asesor actual
+  espera_desde                timestamptz,                         -- desde cuándo esperaba asesor (para el tiempo de respuesta)
+  primera_respuesta_en        timestamptz,                         -- primera respuesta del asesor en este ciclo
+  tiempos_respuesta           integer[]   NOT NULL DEFAULT '{}',   -- segundos de cada ciclo (histórico)
+  metadatos                  jsonb       NOT NULL DEFAULT '{}',   -- contexto externo, contexto de campaña, ...
   cerrada_en                  timestamptz,
   creado_en                   timestamptz NOT NULL DEFAULT now(),
   actualizado_en              timestamptz NOT NULL DEFAULT now(),

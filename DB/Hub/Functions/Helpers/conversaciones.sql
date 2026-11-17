@@ -49,22 +49,6 @@ BEGIN
 END;
 $$;
 
--- Módulo de los params: ventas, servicio o valuacion.
-CREATE OR REPLACE FUNCTION hub_cleber.param_modulo(p_params jsonb, p_campo text DEFAULT 'modulo', p_requerido boolean DEFAULT true)
-RETURNS text
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  v_modulo text := lower(hub_cleber.param_texto(p_params, p_campo, p_requerido));
-BEGIN
-  IF v_modulo IS NOT NULL AND v_modulo NOT IN ('ventas', 'servicio', 'valuacion') THEN
-    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El campo %s debe ser ventas, servicio o valuacion', p_campo),
-      jsonb_build_object('campo', p_campo));
-  END IF;
-  RETURN v_modulo;
-END;
-$$;
-
 -- Texto de un catálogo cerrado (CAMPO_INVALIDO si no está entre los valores).
 CREATE OR REPLACE FUNCTION hub_cleber.param_opcion(p_params jsonb, p_campo text, p_opciones text[], p_requerido boolean DEFAULT true)
 RETURNS text
@@ -219,6 +203,112 @@ END;
 $$;
 
 -- ============================================================================
+-- Operación del asesor (DISENO_BACKEND_AWS.md; reglas de core/authz.py)
+--   Leer:     ve_conversacion.
+--   Escribir: rol del módulo que no sea CONSULTA (o super admin). Si está with_agent, solo su asesor o un
+--             administrador del módulo.
+--   Tomar, asignar y transferir de equipo: administrador del módulo.
+-- ============================================================================
+
+-- ¿Su rol en el módulo de la marca permite escribir? CONSULTA solo lee.
+CREATE OR REPLACE FUNCTION hub_cleber.rol_escribe(p_usuario hub_cleber.usuarios, p_id_marca text, p_modulo text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT coalesce((p_usuario).es_super_admin, false)
+      OR coalesce(hub_cleber.rol_modulo(p_usuario, p_id_marca, p_modulo) <> 'CONSULTA', false);
+$$;
+
+CREATE OR REPLACE FUNCTION hub_cleber.puede_operar(p_usuario hub_cleber.usuarios, p_conv hub_cleber.conversaciones)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT hub_cleber.ve_conversacion(p_usuario, p_conv)
+     AND hub_cleber.rol_escribe(p_usuario, (p_conv).id_marca, (p_conv).modulo)
+     AND (hub_cleber.es_administrador_modulo(p_usuario, (p_conv).id_marca, (p_conv).modulo)
+          OR (p_conv).estado <> 'with_agent'
+          OR (p_conv).id_agente = (p_usuario).id_usuario);
+$$;
+
+CREATE OR REPLACE FUNCTION hub_cleber.exige_operar(p_usuario hub_cleber.usuarios, p_conv hub_cleber.conversaciones)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NOT hub_cleber.puede_operar(p_usuario, p_conv) THEN
+    PERFORM hub_cleber.error_de_aplicacion('SIN_PERMISO',
+      CASE WHEN hub_cleber.rol_escribe(p_usuario, (p_conv).id_marca, (p_conv).modulo)
+           THEN 'La conversación la atiende otro asesor' ELSE 'Tu rol no permite modificar conversaciones' END,
+      jsonb_build_object('idConversacion', (p_conv).id_conversacion));
+  END IF;
+END;
+$$;
+
+-- Estado esperado; ESTADO_INVALIDO con motivo ESTADO_ACTUAL y el estado en que está.
+CREATE OR REPLACE FUNCTION hub_cleber.exige_estado(p_conv hub_cleber.conversaciones, p_estados text[])
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NOT (p_conv).estado = ANY (p_estados) THEN
+    PERFORM hub_cleber.error_de_aplicacion('ESTADO_INVALIDO',
+      format('La conversación está %s; se esperaba %s', (p_conv).estado, array_to_string(p_estados, ' o ')),
+      jsonb_build_object('motivo', 'ESTADO_ACTUAL', 'estado', (p_conv).estado));
+  END IF;
+END;
+$$;
+
+-- versionEsperada opcional de los params: si viene y no coincide → CONFLICTO_VERSION (info.version).
+CREATE OR REPLACE FUNCTION hub_cleber.exige_version(p_conv hub_cleber.conversaciones, p_params jsonb)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_esperada integer := hub_cleber.param_entero(p_params, 'versionEsperada', false, 1, 2147483647);
+BEGIN
+  IF v_esperada IS NOT NULL AND v_esperada <> (p_conv).version THEN
+    PERFORM hub_cleber.error_de_aplicacion('CONFLICTO_VERSION', 'La conversación cambió mientras tanto',
+      jsonb_build_object('version', (p_conv).version));
+  END IF;
+END;
+$$;
+
+-- Conversación de una operación del asesor: existe y la ve (busca_conversacion, bloqueada), versión al día.
+CREATE OR REPLACE FUNCTION hub_cleber.conversacion_para_operar(p_usuario hub_cleber.usuarios, p_params jsonb)
+RETURNS hub_cleber.conversaciones
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_conv hub_cleber.conversaciones := hub_cleber.busca_conversacion(p_usuario, hub_cleber.param_texto(p_params, 'idConversacion'), true);
+BEGIN
+  PERFORM hub_cleber.exige_version(v_conv, p_params);
+  RETURN v_conv;
+END;
+$$;
+
+-- Entrada de bitácora de una operación del asesor (origen usuario).
+CREATE OR REPLACE FUNCTION hub_cleber.bitacora_usuario(p_id_conversacion text, p_accion text, p_usuario hub_cleber.usuarios,
+                                                       p_datos jsonb DEFAULT '{}')
+RETURNS void
+LANGUAGE sql
+AS $$
+  INSERT INTO hub_cleber.bitacora (id_conversacion, accion, origen, id_usuario, datos)
+  VALUES (p_id_conversacion, p_accion, 'usuario', (p_usuario).id_usuario, coalesce(p_datos, '{}'));
+$$;
+
+-- Nota: { idNota, idConversacion, idAutor, nombreAutor, texto, creadoEn }
+CREATE OR REPLACE FUNCTION hub_cleber.nota_json(n hub_cleber.notas)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object('idNota', n.id_nota::text, 'idConversacion', n.id_conversacion, 'idAutor', n.id_autor,
+                            'nombreAutor', n.nombre_autor, 'texto', n.texto, 'creadoEn', n.creado_en);
+$$;
+
+-- ============================================================================
 -- Forma JSON
 -- ============================================================================
 
@@ -280,6 +370,8 @@ AS $$
     'ultimoMensajeEn', c.ultimo_mensaje_en, 'ultimoMensajeTexto', c.ultimo_mensaje_texto,
     'ultimoRemitente', c.ultimo_remitente, 'ultimoMensajeClienteEn', c.ultimo_mensaje_cliente_en,
     'ultimaPlantillaEn', c.ultima_plantilla_en, 'recordatoriosInactividad', c.recordatorios_inactividad,
+    'motivoCierre', c.motivo_cierre, 'asignadaEn', c.asignada_en, 'esperaDesde', c.espera_desde,
+    'primeraRespuestaEn', c.primera_respuesta_en, 'tiemposRespuesta', to_jsonb(c.tiempos_respuesta),
     'metadatos', c.metadatos, 'cerradaEn', c.cerrada_en, 'creadoEn', c.creado_en,
     'actualizadoEn', c.actualizado_en, 'version', c.version);
 $$;
