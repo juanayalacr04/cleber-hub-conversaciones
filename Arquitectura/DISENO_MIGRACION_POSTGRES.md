@@ -14,7 +14,7 @@ Documentos relacionados:
 ## 1. Alcance y principios
 
 1. **Todo se ajusta a las convenciones del template.** Login con NextAuth + Google, identidad del usuario validada en API Gateway, una API key por sistema, PostgreSQL solo vía PostgREST y lógica de estado en plpgsql.
-2. **Excepción aceptada:** el backend del hub (Python) **se queda en Cloud Functions de GCP**. Entra a la plataforma de Cleber como un **cliente máquina** más. Replataformarlo a Lambdas Node.js no es parte de esta migración.
+2. **El backend del hub se muda a AWS** (Q40, 2026-11-17), para tener todo en una plataforma. Se hace junto con la reescritura de su capa de datos a PostgreSQL, para no pasar dos veces por los mismos módulos. Las decisiones que dependían de que se quedara en GCP (Q1, Q5, Q11, Q12, Q21, §3, §4.3, §4.4) se revisan con esa mudanza.
 3. **El hub no está en producción.** Lo productivo son `cleber-bot-platform` (Servicio) y `cleber-bot-platform-comercial` (Comercial). Por eso esta "migración" no mueve datos vivos del hub: **se reescribe su capa de datos sobre PostgreSQL antes de la primera marca**. No hay doble escritura, corte ni rollback del hub.
 4. **Firestore se queda solo para lo que exige tiempo real**: un documento de aviso por conversación y la copia de permisos que leen sus reglas. Ningún dato vive solo en Firestore.
 5. **Una base PostgreSQL** con tres schemas: `hub_cleber`, `clientes` y `valuacion`. Sin FKs entre schemas (§5.1).
@@ -35,7 +35,8 @@ Documentos relacionados:
 | Q37 | Catálogo de roles | **`hub_cleber.roles_modulo`**: qué roles existen en cada módulo, para el editor y para validar. Qué permite cada rol lo define el módulo (valuación: `valuacion.roles_permisos`). Códigos en mayúsculas: ventas y servicio `ADMINISTRADOR`/`AGENTE`/`CONSULTA`; valuación `ADMINISTRADOR`/`GERENTE`/`VALUADOR`/`CONSULTA`. `SISTEMA` no está en el catálogo: cada módulo reconoce su email de servicio |
 | Q38 | Equipo y agencias | **Equipo por marca y módulo** (junto al rol: alguien puede estar en un equipo de ventas y en otro de servicio de la misma marca). **Agencias por marca**, las mismas para todos sus módulos |
 | Q39 | Quién edita a quién | Super admin: todo. **Administrador de un módulo en una marca** (rol con `es_administrador` en el catálogo): los roles y equipos de ese módulo en esa marca. Agencias de un usuario en una marca: cualquier administrador de algún módulo de la marca. Invitar = dar el primer rol en un módulo de una marca |
-| Q5 | Backend del hub | Se queda en GCP como cliente máquina (excepción, §1) |
+| Q5 | Backend del hub | ~~Se queda en GCP como cliente máquina~~ → **revertida por Q40** |
+| Q40 | Plataforma del backend | **AWS** (2026-11-17): Lambdas detrás del API Gateway de Cleber, cola SQS, EventBridge y Secrets Manager. Ya no hace falta la federación GCP→AWS de Q11. **Python 3.12** (excepción a Node 22, se conserva el código). **El tiempo real también sale de Firestore** a un reemplazo en AWS (WebSockets de API Gateway o AppSync, por decidir), lo que deja sin efecto Q2 (sesión de Firebase), Q8/Q24 (`accesos`) y §6.1. Diseño: [`DISENO_BACKEND_AWS.md`](DISENO_BACKEND_AWS.md) |
 | Q6 | Dónde vive el DDL | **Provisional:** `DB/Hub/` de este repo. Se mueve cuando se decida la ubicación final (candidato: `GitLab/api`, el repo central `api-cleber`) |
 | Q7 | Conversaciones y mensajes | **A PostgreSQL.** Firestore queda como **canal de aviso** (§6.1) |
 | Q8, Q24 | Permisos en Firestore | Copia mínima derivada **`accesos/{email}`**; las reglas usan `request.auth.token.email` con `email_verified`. Sin custom claims |
