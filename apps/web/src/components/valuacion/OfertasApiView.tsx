@@ -12,10 +12,11 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
+import Link from "next/link";
 import { toast } from "sonner";
 import {
   ArrowDown, ArrowUp, Ban, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Lock, MessageSquareReply,
-  Minus, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Search, Send, X,
+  MessageSquare, Minus, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Search, Send, X,
 } from "lucide-react";
 import { PageHead } from "@/components/shell/Shell";
 import type { ModuleDef } from "@/lib/modules";
@@ -344,6 +345,7 @@ function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
     o.puede.descartar && { tipo: "descartar" as const, label: "Descartar", icono: <Ban size={14} /> },
     o.puede.cerrar && { tipo: "cerrar" as const, label: "Cerrar oferta", icono: <Lock size={14} /> },
   ].filter(Boolean) as { tipo: TipoDialogo; label: string; icono: React.ReactNode }[];
+  const conversacion = o.envio.idConversacion;
 
   return (
     <div className="vacts">
@@ -354,12 +356,18 @@ function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
       )}
       {principal === "respuesta" && <button type="button" className="btn" disabled={deshabilitado} onClick={() => onAbre("respuesta")}><MessageSquareReply size={14} />Respuesta</button>}
       {principal === "retomar" && <button type="button" className="btn" disabled={deshabilitado} onClick={() => onAbre("retomar")}><RotateCcw size={14} />Retomar</button>}
-      {menu.length > 0 && (
+      {(menu.length > 0 || conversacion) && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" className="btn oicon" disabled={deshabilitado} aria-label="Más acciones" title="Más acciones"><MoreHorizontal size={16} /></button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {conversacion && (
+              <DropdownMenuItem asChild>
+                <Link href={rutaConversacion(conversacion)}><MessageSquare size={14} />Ver conversación</Link>
+              </DropdownMenuItem>
+            )}
+            {conversacion && menu.length > 0 && <DropdownMenuSeparator />}
             {menu.map((m, i) => (
               <Fragment key={m.tipo}>
                 {m.tipo === "cerrar" && i > 0 && <DropdownMenuSeparator />}
@@ -463,6 +471,9 @@ function FichaOferta({ oferta: o, deshabilitado, onCalibra }: { oferta: Oferta; 
             {o.etiqueta && <><dt>Respuesta</dt><dd>{o.etiqueta.nombre}</dd></>}
             {o.etiqueta?.motivo && <><dt>Motivo</dt><dd>{o.etiqueta.motivo}</dd></>}
             {o.envio.enviadaEn && <><dt>Enviada</dt><dd>{fechaHora(o.envio.enviadaEn)}</dd></>}
+            {o.envio.idConversacion && (
+              <><dt>Conversación</dt><dd><Link href={rutaConversacion(o.envio.idConversacion)} className="vlink">Ver conversación</Link></dd></>
+            )}
             {o.cierre && <><dt>Cerrada</dt><dd>{fechaHora(o.cierre.cerradaEn)}</dd></>}
           </dl>
         </section>
@@ -470,6 +481,9 @@ function FichaOferta({ oferta: o, deshabilitado, onCalibra }: { oferta: Oferta; 
     </div>
   );
 }
+
+/** Conversación de WhatsApp de la oferta en hub_cleber (la abrió el envío). */
+const rutaConversacion = (id: string) => `/valuacion/conversacion/${encodeURIComponent(id)}`;
 
 const km = (n: number | null | undefined) => (n == null ? "—" : fmtKm(Number(n)));
 
