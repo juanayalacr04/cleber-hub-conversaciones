@@ -41,6 +41,7 @@ python dev/carga_usuarios_hub.py --salida <fuera del repo>/carga_hub.sql
 psql -h <host> -p <puerto> -U <usuario> -d <database> -f <fuera del repo>/carga_hub.sql
 ```
 
+- El id de cada marca en el hub es su **código** (`sfBrandCode` de Firestore, en mayúsculas: `TO`, `HO`…). Una marca sin `sfBrandCode` no se carga, ni las membresías de sus usuarios (salen en los avisos).
 - El rol de Firestore (`role`, uno por usuario) se carga como rol de **ventas y servicio** en cada marca del usuario: `admin` → `ADMINISTRADOR`, `agent` → `AGENTE`, `viewer` → `CONSULTA`. El equipo de la marca va al módulo de su vertical.
 - La carga maneja solo ventas y servicio (`modulos`): **no toca los roles de valuación**. Esos se asignan en el editor de usuarios (mientras no exista, a mano en dev).
 - De agencias se copian los ids de `orgAgencies` si existen (hoy no existen en Firestore, así que quedan vacías).
@@ -120,7 +121,7 @@ Objeto `UsuarioEnMarca` (una marca): `idUsuario`, `email`, `nombre`, `fotoUrl`, 
 ## Pendientes
 
 - **Valuación** (`toma-unidades-en-taller`): adaptar `valuacion.contexto_usuario` y los permisos al nuevo `usuarios_contexto` (rol por marca: el permiso se evalúa con la marca de la oferta), y definir en `valuacion.roles_permisos` los permisos de `GERENTE`.
-- Catálogo de agencias: es `Cleber.catalogoQuiterWorkshopsDealersWarehouses` (repo api, `DB/Cleber`), filtrado por `sf_codigo_marca`; el hub guarda su `id` como texto. Falta que `valuacion.configuraciones_agencias.id_agencia` use los mismos ids.
+- Catálogo de agencias: es `Cleber.catalogoQuiterWorkshopsDealersWarehouses` (repo api, `DB/Cleber`), filtrado por `id_marca` (el código de la marca); el hub guarda su `id` como texto. Falta que `valuacion.configuraciones_agencias.id_agencia` use los mismos ids.
 - Editor de usuarios: la pantalla ya existe (Agentes en Ventas/Servicio/General, Usuarios en Valuación; `apps/web/src/components/hub/UsuariosView.tsx`) y llama las acciones con el token del usuario desde Server Actions (`apps/web/src/lib/hub/usuarios.ts`). Las agencias se eligen del catálogo (`apps/web/src/lib/hub/agencias.ts`): el super admin, todas las de la marca; los demás, solo las suyas (regla solo en la pantalla). Falta: validar agencias en la base, mandar el correo de invitación y escribir `accesos/{email}`.
 - Bitácora de cambios de usuarios (`hub_cleber.bitacora`, Fase 4).
 - Que un email de servicio solo valga por `/internal` depende de API Gateway; plpgsql no ve la ruta (diseño §4.3).

@@ -9,8 +9,8 @@
     Params: ninguno
     Info: {
       usuario: Usuario,
-      marcasVisibles: [ { idMarca, nombre, sfCodigoMarca } ]   super admin: todas las activas; los demás: las suyas.
-                                                 sfCodigoMarca filtra el catálogo de agencias de Cleber (marcas)
+      marcasVisibles: [ { idMarca, nombre } ]   super admin: todas las activas; los demás: las suyas.
+                                                 idMarca es el código de la marca (filtra el catálogo de agencias)
     }
 
     @Acceso Publica
@@ -29,7 +29,7 @@ BEGIN
   RETURN cleber.construye_respuesta_exitosa(jsonb_build_object(
     'usuario', hub_cleber.usuario_json(v_usuario.id_usuario),
     'marcasVisibles', coalesce((
-        SELECT jsonb_agg(jsonb_build_object('idMarca', o.id_marca, 'nombre', o.nombre, 'sfCodigoMarca', o.sf_codigo_marca)
+        SELECT jsonb_agg(jsonb_build_object('idMarca', o.id_marca, 'nombre', o.nombre)
                          ORDER BY o.nombre, o.id_marca)
           FROM hub_cleber.marcas o
          WHERE o.es_activa

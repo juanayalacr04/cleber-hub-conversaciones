@@ -182,7 +182,7 @@ Ids: los documentos migrados conservan su id de Firestore como `id_origen` (úni
 
 | Tabla | Sale de (Firestore) | Columnas clave | Notas |
 |-------|---------------------|----------------|-------|
-| `marcas` | `organizations` | `id_marca text` PK (= `organizationId`, se conserva), `nombre`, `zona_horaria`, `horario` jsonb, `sf_codigo_marca` **UNIQUE**, `sf_calendario`, `salesforce_config` jsonb (no secretos), `plan` | Los secretos de Salesforce van a Secret Manager (`DECISIONES_UNIFICACION.md`) |
+| `marcas` | `organizations` | `id_marca text` PK (= código de la marca, el `sfBrandCode` de Firestore: TO, HO…), `nombre`, `horario` jsonb, `sf_calendario`, `salesforce_config` jsonb (no secretos) | Los secretos de Salesforce van a Secret Manager (`DECISIONES_UNIFICACION.md`) |
 | `usuarios` | `users` | `id_usuario`, `email` **UNIQUE** (citext), `nombre`, `foto_url`, `es_super_admin`, `es_sistema`, `es_disponible`, `estado`, `invitado_por`, `ultimo_acceso_en` | El email es la identidad (authorizer). Sin rol global (Q36) |
 | `usuarios_marcas` | `users.organizationIds`, `orgAgencies` | (`id_usuario`, `id_marca`) PK, `agencias text[]` | Marcas del usuario. Agencias por valor, las mismas para todos los módulos de la marca: el catálogo viene de un API (Q34, Q38) |
 | `roles_modulo` | nueva | (`modulo`, `rol`) PK, `nombre`, `descripcion`, `es_administrador`, `orden` | Catálogo de roles de cada módulo (Q37) |

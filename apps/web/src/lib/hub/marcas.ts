@@ -5,12 +5,10 @@
 import { api } from "@/lib/api";
 
 export interface Marca {
+  /** Código de la marca (TO, HO...) */
   idMarca: string;
   nombre: string;
-  zonaHoraria: string;
-  sfCodigoMarca: string | null;
   sfCalendario: string | null;
-  plan: string;
   esActiva: boolean;
   creadoEn: string;
   actualizadoEn: string;
@@ -19,9 +17,6 @@ export interface Marca {
 export interface GuardaMarca {
   idMarca: string;
   nombre?: string;
-  zonaHoraria?: string;
-  /** "" quita el código */
-  sfCodigoMarca?: string;
   esActiva?: boolean;
 }
 

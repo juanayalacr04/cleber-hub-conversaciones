@@ -3,9 +3,10 @@
 /**
  * Marcas del hub (hub_cleber.marcas en PostgreSQL), solo super admin.
  *
- * El selector de marca de la barra lateral y las pantallas de Ventas y Servicio toman la lista de aquí (vía
- * Hub.consultaUsuarioActual); la configuración propia de cada marca en esos módulos (WhatsApp, Salesforce) sigue en
- * Firestore (organizations/{idMarca}).
+ * El id de la marca es su código (TO, HO...): filtra el catálogo de agencias de Cleber. El selector de marca de la
+ * barra lateral y las pantallas toman la lista de aquí (vía Hub.consultaUsuarioActual). La configuración propia de cada
+ * marca en Ventas y Servicio (WhatsApp, Salesforce) sigue en Firestore, en el documento de organizations con ese
+ * sfBrandCode.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -20,19 +21,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const ZONAS = [
-  "America/Mexico_City", "America/Monterrey", "America/Tijuana", "America/Cancun", "America/Chihuahua",
-  "America/Bogota", "America/Lima", "America/Santiago", "America/Argentina/Buenos_Aires",
-];
-
-/** "Toyota Cumbres" → "toyota-cumbres" (sin acentos; solo letras, números y guiones). */
-const aId = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim()
-  .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-
-interface Form { idMarca: string; nombre: string; zonaHoraria: string; sfCodigoMarca: string; esActiva: boolean }
-const VACIO: Form = { idMarca: "", nombre: "", zonaHoraria: "America/Mexico_City", sfCodigoMarca: "", esActiva: true };
+/** idMarca es el código de la marca (TO, HO...): filtra el catálogo de agencias y no cambia después del alta. */
+interface Form { idMarca: string; nombre: string; esActiva: boolean }
+const VACIO: Form = { idMarca: "", nombre: "", esActiva: true };
 
 export default function MarcasPage() {
   const { userData, refreshOrganizations } = useAuth();
@@ -41,7 +33,6 @@ export default function MarcasPage() {
   const [abierto, setAbierto] = useState(false);
   const [editando, setEditando] = useState<Marca | null>(null);
   const [form, setForm] = useState<Form>(VACIO);
-  const [idTocado, setIdTocado] = useState(false);
   const [errorCampo, setErrorCampo] = useState<{ campo: string; mensaje: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
 
@@ -55,28 +46,23 @@ export default function MarcasPage() {
 
   useEffect(() => { carga(); }, [carga]);
 
-  const nueva = () => { setEditando(null); setForm(VACIO); setIdTocado(false); setErrorCampo(null); setAbierto(true); };
+  const nueva = () => { setEditando(null); setForm(VACIO); setErrorCampo(null); setAbierto(true); };
   const edita = (m: Marca) => {
     setEditando(m);
-    setForm({ idMarca: m.idMarca, nombre: m.nombre, zonaHoraria: m.zonaHoraria, sfCodigoMarca: m.sfCodigoMarca ?? "", esActiva: m.esActiva });
+    setForm({ idMarca: m.idMarca, nombre: m.nombre, esActiva: m.esActiva });
     setErrorCampo(null);
     setAbierto(true);
   };
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
     setErrorCampo(null);
-    setForm((f) => {
-      const n = { ...f, [k]: v };
-      // En el alta el id se propone a partir del nombre hasta que se edita a mano
-      if (k === "nombre" && !editando && !idTocado) n.idMarca = aId(String(v));
-      return n;
-    });
+    setForm((f) => ({ ...f, [k]: v }));
   };
 
   const guarda = async () => {
     setGuardando(true);
     const r = await guardaMarca({
-      idMarca: form.idMarca.trim(), nombre: form.nombre.trim(), zonaHoraria: form.zonaHoraria,
-      sfCodigoMarca: form.sfCodigoMarca.trim().toUpperCase(), esActiva: form.esActiva,
+      idMarca: form.idMarca.trim().toUpperCase(), nombre: form.nombre.trim(),
+      esActiva: form.esActiva,
     });
     setGuardando(false);
     if (r.successful) {
@@ -130,11 +116,10 @@ export default function MarcasPage() {
                   </div>
                   <div className="min-w-0">
                     <h3 className="font-semibold truncate">{m.nombre}</h3>
-                    <p className="text-xs text-muted-foreground font-mono">{m.idMarca} · {m.zonaHoraria}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {m.sfCodigoMarca && <Badge variant="outline" className="text-xs font-mono">{m.sfCodigoMarca}</Badge>}
+                  <Badge variant="outline" className="text-xs font-mono">{m.idMarca}</Badge>
                   {!m.esActiva && <Badge variant="outline" className="text-xs">Inactiva</Badge>}
                   <Button variant="ghost" size="sm" onClick={() => edita(m)} aria-label={`Editar ${m.nombre}`}><Pencil className="h-4 w-4" /></Button>
                 </div>
@@ -149,7 +134,7 @@ export default function MarcasPage() {
           <DialogHeader>
             <DialogTitle>{editando ? `Editar ${editando.nombre}` : "Nueva marca"}</DialogTitle>
             <DialogDescription>
-              {editando ? "El id no se puede cambiar: lo guardan por valor las agencias, las ofertas y los clientes." : "El id se propone a partir del nombre; revísalo, después no se puede cambiar."}
+              {editando ? `Código ${editando.idMarca}. No se cambia: lo guardan por valor las agencias, las ofertas y los clientes.` : "El código de la marca filtra su catálogo de agencias y después no se puede cambiar."}
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); guarda(); }}>
@@ -158,32 +143,17 @@ export default function MarcasPage() {
               <Input id="m-nombre" value={form.nombre} onChange={(e) => set("nombre", e.target.value)} placeholder="Ej. Toyota" autoFocus />
               {err("nombre")}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="m-id">Id</Label>
-              <Input
-                id="m-id" className="font-mono" value={form.idMarca} readOnly={!!editando} placeholder="toyota"
-                onChange={(e) => { setIdTocado(true); set("idMarca", e.target.value); }}
-              />
-              <p className="text-xs text-muted-foreground">Letras, números, guion y guion bajo.</p>
-              {err("idMarca")}
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            {!editando && (
               <div className="space-y-2">
-                <Label htmlFor="m-zona">Zona horaria</Label>
-                <Select value={form.zonaHoraria} onValueChange={(v) => set("zonaHoraria", v)}>
-                  <SelectTrigger id="m-zona"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {(ZONAS.includes(form.zonaHoraria) ? ZONAS : [form.zonaHoraria, ...ZONAS]).map((z) => <SelectItem key={z} value={z}>{z}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                {err("zonaHoraria")}
+                <Label htmlFor="m-id">Código de la marca</Label>
+                <Input
+                  id="m-id" className="font-mono uppercase" value={form.idMarca} placeholder="Ej. TO"
+                  onChange={(e) => set("idMarca", e.target.value.toUpperCase())}
+                />
+                <p className="text-xs text-muted-foreground">El mismo del catálogo de agencias de Cleber. Letras, números, guion y guion bajo.</p>
+                {err("idMarca")}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="m-sf">Código de marca en Salesforce</Label>
-                <Input id="m-sf" className="font-mono" value={form.sfCodigoMarca} onChange={(e) => set("sfCodigoMarca", e.target.value)} placeholder="Ej. TO" />
-                {err("sfCodigoMarca")}
-              </div>
-            </div>
+            )}
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.esActiva} onChange={(e) => set("esActiva", e.target.checked)} />
               Marca activa

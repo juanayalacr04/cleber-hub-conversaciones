@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { signOut as cierraSesion } from "next-auth/react";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, getDocs, limit, query, where } from "firebase/firestore";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -39,11 +39,6 @@ const EMPTY_SF: SalesforceBrandForm = {
   rrFlowName: "", seminuevoOwnerId: "", seminuevoRecordTypeId: "", defaultTemplateId: "", situationMap: "",
 };
 
-const TIMEZONES = [
-  "America/Mexico_City", "America/Monterrey", "America/Tijuana", "America/Cancun", "America/Chihuahua",
-  "America/Bogota", "America/Lima", "America/Santiago", "America/Argentina/Buenos_Aires",
-];
-
 /** Valuación tiene su propia configuración por agencia, con datos reales del schema `valuacion` (el prototipo queda en /demo). */
 export default function ConfiguracionPage() {
   const { module: moduleId } = useParams<{ module: string }>();
@@ -53,9 +48,9 @@ export default function ConfiguracionPage() {
 }
 
 /**
- * Nombre, zona horaria y código de Salesforce son de la marca en PostgreSQL (Hub.consultaMarcas / Hub.guardaMarca).
- * La configuración de Salesforce de la marca sigue en Firestore (organizations/{idMarca}); al guardar se copian ahí
- * también el nombre y la zona horaria, que el bot todavía lee de ese documento.
+ * El nombre es de la marca en PostgreSQL (Hub.consultaMarcas / Hub.guardaMarca); el id de la marca es su código.
+ * La configuración de Salesforce sigue en Firestore, en el documento de organizations con sfBrandCode = id de la marca; al guardar se copia ahí
+ * también el nombre, que el bot todavía lee de ese documento.
  */
 function HubConfiguracionPage() {
   const { userData, user, refreshOrganizations } = useAuth();
@@ -66,11 +61,11 @@ function HubConfiguracionPage() {
 
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /** La marca tiene documento en Firestore: sin él no hay dónde guardar la configuración de Salesforce. */
-  const [hasFirestoreDoc, setHasFirestoreDoc] = useState(false);
+  /** Documento de la marca en Firestore (organizations con sfBrandCode = idMarca): sin él no hay dónde guardar la
+   *  configuración de Salesforce. */
+  const [firestoreOrgId, setFirestoreOrgId] = useState<string | null>(null);
+  const hasFirestoreDoc = !!firestoreOrgId;
   const [orgName, setOrgName] = useState("");
-  const [sfBrandCode, setSfBrandCode] = useState("");
-  const [timezone, setTimezone] = useState("America/Mexico_City");
   const [sf, setSf] = useState<SalesforceBrandForm>(EMPTY_SF);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -80,7 +75,11 @@ function HubConfiguracionPage() {
     if (!orgId) return;
     setLoaded(false);
     setLoadError(null);
-    const [r, snap] = await Promise.all([consultaMarcas(), getDoc(doc(db, "organizations", orgId)).catch(() => null)]);
+    // El id de la marca es su código; en Firestore el documento tiene otro id y guarda el código en sfBrandCode
+    const [r, snaps] = await Promise.all([
+      consultaMarcas(),
+      getDocs(query(collection(db, "organizations"), where("sfBrandCode", "==", orgId), limit(1))).catch(() => null),
+    ]);
     if (!r.successful) {
       if (r.errorCode === "SESION_EXPIRADA") { cierraSesion({ redirectTo: "/login" }); return; }
       setLoadError(r.errorMessage || "No se pudo cargar la marca");
@@ -89,11 +88,10 @@ function HubConfiguracionPage() {
     const marca = r.info.marcas.find((m) => m.idMarca === orgId);
     if (!marca) { setLoadError(`La marca ${orgId} no existe en el hub`); return; }
     setOrgName(marca.nombre);
-    setSfBrandCode(marca.sfCodigoMarca ?? "");
-    setTimezone(marca.zonaHoraria);
 
-    const d = snap?.exists() ? snap.data() : null;
-    setHasFirestoreDoc(!!d);
+    const snap = snaps?.docs[0] ?? null;
+    const d = snap ? snap.data() : null;
+    setFirestoreOrgId(snap?.id ?? null);
     const c = d?.salesforceConfig ?? {};
     setSf({
       marcaRR: c.marcaRR ?? "", ownerId: c.ownerId ?? "", bdcFallbackOwnerId: c.bdcFallbackOwnerId ?? "",
@@ -127,7 +125,7 @@ function HubConfiguracionPage() {
     }
     setSaving(true);
     try {
-      const r = await guardaMarca({ idMarca: orgId, nombre: orgName.trim(), zonaHoraria: timezone });
+      const r = await guardaMarca({ idMarca: orgId, nombre: orgName.trim() });
       if (!r.successful) {
         if (r.errorCode === "SESION_EXPIRADA") { cierraSesion({ redirectTo: "/login" }); return; }
         toast.error(r.errorMessage || "No se pudo guardar la marca");
@@ -138,10 +136,9 @@ function HubConfiguracionPage() {
       // Solo config por marca, nunca credenciales: esas viven en variables de entorno del servidor
       const clean = (v: string) => v.trim() || null;
       await callHubAction(user, "organization.update", {
-        id: orgId,
+        id: firestoreOrgId,
         set: {
           name: orgName.trim(),
-          "settings.timezone": timezone,
           salesforceConfig: {
             marcaRR: clean(sf.marcaRR), ownerId: clean(sf.ownerId), bdcFallbackOwnerId: clean(sf.bdcFallbackOwnerId),
             vehicleType: sf.vehicleType, leadCreationEnabled: sf.leadCreationEnabled,
@@ -168,7 +165,7 @@ function HubConfiguracionPage() {
       const res = await fetch("/api/test-salesforce", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ organizationId: orgId, vertical }),
+        body: JSON.stringify({ organizationId: firestoreOrgId, vertical }),
       });
       const data = await res.json();
       setTestResult(res.ok ? { ok: true, message: "Conexión exitosa" } : { ok: false, message: data.error || "Error desconocido" });
@@ -205,21 +202,6 @@ function HubConfiguracionPage() {
           <div className="space-y-2">
             <Label htmlFor="orgName">Nombre</Label>
             <Input id="orgName" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="sfBrandCode">Código de marca en Salesforce</Label>
-            <Input id="sfBrandCode" value={sfBrandCode} readOnly />
-            <p className="text-xs text-muted-foreground">Es único por marca y solo lo cambia un superadministrador (en Marcas).</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="timezone">Zona horaria</Label>
-            <Select value={timezone} onValueChange={setTimezone}>
-              <SelectTrigger id="timezone"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES]).map((z) => <SelectItem key={z} value={z}>{z}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">La usan las citas y los recontactos que programa el bot.</p>
           </div>
         </CardContent>
       </Card>

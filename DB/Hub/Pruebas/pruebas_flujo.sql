@@ -127,7 +127,7 @@ BEGIN
 
   v_carga := jsonb_build_object(
     'marcas', jsonb_build_array(
-      jsonb_build_object('idMarca', 'prueba-hub-a', 'nombre', 'Marca A (prueba)', 'sfCodigoMarca', 'PRUEBAHA', 'plan', 'enterprise',
+      jsonb_build_object('idMarca', 'prueba-hub-a', 'nombre', 'Marca A (prueba)',
                          'horario', jsonb_build_object('businessHours', jsonb_build_object('start', '09:00', 'end', '19:00')),
                          'salesforceConfig', jsonb_build_object('marcaRR', 'HA')),
       jsonb_build_object('idMarca', 'prueba-hub-b', 'nombre', 'Marca B (prueba)')),
@@ -243,9 +243,6 @@ BEGIN
   PERFORM pg_temp.error(pg_temp.llama('Hub.importaUsuarios', jsonb_build_object('usuarios', jsonb_build_array(
          jsonb_build_object('email', 'sin-orgs@prueba-hub.invalid')))),
        'CAMPO_REQUERIDO', '3.14 marcas es obligatorio por usuario');
-  PERFORM pg_temp.error(pg_temp.llama('Hub.importaUsuarios', jsonb_build_object('marcas', jsonb_build_array(
-         jsonb_build_object('idMarca', 'prueba-hub-b', 'nombre', 'B', 'sfCodigoMarca', 'PRUEBAHA')))),
-       'CAMPO_INVALIDO', '3.15 Código de marca de Salesforce repetido');
   PERFORM pg_temp.como(c_admin);
   PERFORM pg_temp.error(pg_temp.llama('Hub.importaUsuarios', v_carga), 'SIN_PERMISO', '3.16 Un admin humano no importa');
 

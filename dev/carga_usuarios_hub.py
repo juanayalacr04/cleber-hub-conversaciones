@@ -38,7 +38,6 @@ EMAIL_SISTEMA = "sistema@hub-conversaciones.internal"
 # Rol de Firestore → rol del catálogo hub_cleber.roles_modulo, igual en ventas y en servicio
 ROL_MODULO = {"admin": "ADMINISTRADOR", "agent": "AGENTE", "viewer": "CONSULTA"}
 ESTADOS = {"online", "away", "offline"}
-PLANES = {"free", "pro", "enterprise"}
 MODULOS_CARGA = ["ventas", "servicio"]   # los únicos módulos cuyos roles reemplaza esta carga
 # Las credenciales de Salesforce son globales (variables de entorno / Secret Manager); nunca pasan a PostgreSQL.
 LLAVES_SECRETAS = {"clientid", "clientsecret", "username", "password", "securitytoken"}
@@ -69,21 +68,28 @@ def es_secreta(llave: str) -> bool:
     return llave in LLAVES_SECRETAS or "secret" in llave or "password" in llave or "token" in llave
 
 
-def mapea_marca(doc_id: str, data: dict) -> dict:
+def mapea_marca(doc_id: str, data: dict, avisos: list[str] | None = None) -> dict | None:
+    """Marca de Firestore al formato de Hub.importaUsuarios. El id en el hub es el código de la marca (sfBrandCode, en
+    mayúsculas); sin código no se carga (None, con el motivo en `avisos`)."""
+    codigo = (_texto(data.get("sfBrandCode")) or "").upper()
+    if not codigo:
+        if avisos is not None:
+            avisos.append(f"organizations/{doc_id}: sin sfBrandCode (código de la marca), no se carga")
+        return None
     settings = dict(data.get("settings") or {})
-    zona = _texto(settings.pop("timezone", None))
+    settings.pop("timezone", None)   # el hub no guarda zona horaria por marca
     salesforce = {k: v for k, v in (data.get("salesforceConfig") or {}).items() if not es_secreta(k)}
-    org = {"idMarca": doc_id, "nombre": _texto(data.get("name")) or doc_id, "horario": settings,
-           "salesforceConfig": salesforce, "sfCodigoMarca": _texto(data.get("sfBrandCode")),
-           "sfCalendario": _texto(data.get("sfCalendario")), "plan": data.get("plan") if data.get("plan") in PLANES else "free",
+    org = {"idMarca": codigo, "nombre": _texto(data.get("name")) or doc_id, "horario": settings,
+           "salesforceConfig": salesforce,
+           "sfCalendario": _texto(data.get("sfCalendario")),
            "creadoEn": _fecha(data.get("createdAt"))}
-    if zona:
-        org["zonaHoraria"] = zona
     return {k: v for k, v in org.items() if v is not None}
 
 
-def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str], verticales: dict | None = None):
+def mapea_usuario(doc_id: str, data: dict, orgs: dict[str, str], avisos: list[str], verticales: dict | None = None):
     """Usuario de Firestore al formato de Hub.importaUsuarios, o None si no se puede cargar (con el motivo en `avisos`).
+
+    `orgs`: {id del documento de organizations: código de la marca en el hub}. Las membresías van con el código.
 
     `verticales`: {id de equipo: vertical} de la colección `teams`, para saber a qué módulo va el equipo de cada marca.
     """
@@ -104,10 +110,15 @@ def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str], ve
     equipos = data.get("orgTeams") or {}
     agencias = data.get("orgAgencies") or {}
     membresias = []
+    codigos_vistos = set()
     for org in dict.fromkeys(org_ids):
         if org not in orgs:
-            avisos.append(f"users/{doc_id} ({email}): la marca {org!r} no existe, se omite esa membresía")
+            avisos.append(f"users/{doc_id} ({email}): la marca {org!r} no existe o no tiene código, se omite esa membresía")
             continue
+        codigo = orgs[org]
+        if codigo in codigos_vistos:
+            continue
+        codigos_vistos.add(codigo)
         modulos = {modulo: {"rol": rol} for modulo in MODULOS_CARGA}
         equipo = equipos.get(org)
         if equipo:
@@ -117,7 +128,7 @@ def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str], ve
             else:
                 avisos.append(f"users/{doc_id} ({email}): el equipo {equipo!r} de {org!r} no es de ventas ni de servicio "
                               f"(vertical {vertical!r}), se omite")
-        membresias.append({"idMarca": org, "agencias": list(agencias.get(org) or []), "modulos": modulos})
+        membresias.append({"idMarca": codigo, "agencias": list(agencias.get(org) or []), "modulos": modulos})
 
     if data.get("moduleRoles"):
         avisos.append(f"users/{doc_id} ({email}): moduleRoles no se copia; asigna esos roles en el editor de usuarios")
@@ -132,8 +143,16 @@ def mapea_usuario(doc_id: str, data: dict, orgs: set[str], avisos: list[str], ve
 
 def construye_carga(marcas, usuarios, avisos: list[str], equipos=()) -> dict:
     """`marcas`, `usuarios` y `equipos` son pares (id, datos) de Firestore."""
-    orgs = [mapea_marca(i, d) for i, d in marcas]
-    ids = {o["idMarca"] for o in orgs}
+    orgs, ids = [], {}   # ids: {id de Firestore: código de la marca}
+    for i, d in marcas:
+        o = mapea_marca(i, d, avisos)
+        if o is None:
+            continue
+        if o["idMarca"] in ids.values():
+            avisos.append(f"organizations/{i}: el código {o['idMarca']} ya es de otra marca, se cargan sus usuarios en esa")
+        else:
+            orgs.append(o)
+        ids[i] = o["idMarca"]
     verticales = {i: d.get("vertical") for i, d in equipos}
     vistos, lista = set(), []
     for i, d in usuarios:

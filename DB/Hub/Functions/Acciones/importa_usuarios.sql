@@ -6,9 +6,9 @@
     (un usuario ausente en la carga se queda como está). Todo o nada: un error revierte la carga completa.
 
     Params:
-      marcas: [ { idMarca, nombre,
-                          zonaHoraria?, horario? (objeto), sfCodigoMarca?, sfCalendario?,
-                          salesforceConfig? (objeto, sin secretos), plan?, esActiva?, creadoEn? } ]
+      marcas: [ { idMarca (código de la marca), nombre,
+                          horario? (objeto), sfCalendario?,
+                          salesforceConfig? (objeto, sin secretos), esActiva?, creadoEn? } ]
       usuarios:       [ { email, idOrigen? (uid de Firebase), nombre?, fotoUrl?,
                           esSuperAdmin?, esActivo?, esDisponible?, estado?, invitadoPor? (idOrigen de quien invitó),
                           ultimoAccesoEn?, creadoEn?,
@@ -57,7 +57,6 @@ DECLARE
   e               jsonb;
   m               jsonb;
   v_id_org        text;
-  v_codigo_marca  text;
   v_email         text;
   v_origen        text;
   v_id_usuario    uuid;
@@ -94,36 +93,21 @@ BEGIN
       IF v_id_org !~ '^[A-Za-z0-9_-]+$' THEN
         PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'idMarca solo admite letras, dígitos, _ y -', '{"campo":"idMarca"}');
       END IF;
-      v_codigo_marca := hub_cleber.param_texto(e, 'sfCodigoMarca', false);
-      IF v_codigo_marca IS NOT NULL AND EXISTS (
-           SELECT 1 FROM hub_cleber.marcas WHERE sf_codigo_marca = v_codigo_marca AND id_marca <> v_id_org) THEN
-        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El código de marca %s ya es de otra marca', v_codigo_marca),
-          '{"campo":"sfCodigoMarca"}');
-      END IF;
-      IF coalesce(hub_cleber.param_texto(e, 'plan', false), 'free') NOT IN ('free', 'pro', 'enterprise') THEN
-        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'plan debe ser free, pro o enterprise', '{"campo":"plan"}');
-      END IF;
 
-      INSERT INTO hub_cleber.marcas AS o (id_marca, nombre, zona_horaria, horario, sf_codigo_marca, sf_calendario,
-                                           salesforce_config, plan, es_activa, creado_en)
+      INSERT INTO hub_cleber.marcas AS o (id_marca, nombre, horario, sf_calendario,
+                                           salesforce_config, es_activa, creado_en)
       VALUES (v_id_org,
               hub_cleber.param_texto(e, 'nombre'),
-              coalesce(hub_cleber.param_texto(e, 'zonaHoraria', false), 'America/Mexico_City'),
               coalesce(hub_cleber.param_objeto(e, 'horario', false), '{}'),
-              v_codigo_marca,
               hub_cleber.param_texto(e, 'sfCalendario', false),
               coalesce(hub_cleber.param_objeto(e, 'salesforceConfig', false), '{}'),
-              coalesce(hub_cleber.param_texto(e, 'plan', false), 'free'),
               coalesce(hub_cleber.param_booleano(e, 'esActiva', false), true),
               coalesce(hub_cleber.param_fecha_hora(e, 'creadoEn', false), now()))
       ON CONFLICT (id_marca) DO UPDATE SET
         nombre            = EXCLUDED.nombre,
-        zona_horaria      = EXCLUDED.zona_horaria,
         horario           = EXCLUDED.horario,
-        sf_codigo_marca   = EXCLUDED.sf_codigo_marca,
         sf_calendario     = EXCLUDED.sf_calendario,
         salesforce_config = EXCLUDED.salesforce_config,
-        plan              = EXCLUDED.plan,
         es_activa         = EXCLUDED.es_activa,
         actualizado_en    = now();
       v_n_orgs := v_n_orgs + 1;

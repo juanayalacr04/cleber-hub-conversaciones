@@ -1,7 +1,7 @@
 /**
     Objeto Marca.
 
-    { idMarca, nombre, zonaHoraria, sfCodigoMarca, sfCalendario, plan, esActiva, creadoEn, actualizadoEn }
+    { idMarca, nombre, sfCalendario, esActiva, creadoEn, actualizadoEn }   idMarca = código de la marca
 
     El horario y la configuración de Salesforce no van aquí: los edita su propia pantalla.
 
@@ -15,10 +15,7 @@ AS $$
   SELECT jsonb_build_object(
     'idMarca',       m.id_marca,
     'nombre',        m.nombre,
-    'zonaHoraria',   m.zona_horaria,
-    'sfCodigoMarca', m.sf_codigo_marca,
     'sfCalendario',  m.sf_calendario,
-    'plan',          m.plan,
     'esActiva',      m.es_activa,
     'creadoEn',      m.creado_en,
     'actualizadoEn', m.actualizado_en

@@ -4,8 +4,8 @@
  * Catálogo de agencias de Cleber: cleber.catalogo_quiter_workshops_dealers_warehouses (repo api, DB/Cleber), por la ruta
  * /interno/api-db del gateway con su propia API key (CLEBER_API_DB_URL / CLEBER_API_DB_KEY). SOLO SERVIDOR.
  *
- * Se filtra por el código de la marca (hub_cleber.marcas.sf_codigo_marca, p. ej. "TO"), que se toma de las marcas que
- * el usuario puede ver (Hub.consultaUsuarioActual): así nadie consulta agencias de una marca que no es suya.
+ * Se filtra por el id de la marca, que es su código (p. ej. "TO"). Antes se revisa que esté entre las marcas que el
+ * usuario puede ver (Hub.consultaUsuarioActual): así nadie consulta agencias de una marca que no es suya.
  * El hub guarda las agencias por valor como texto: el id numérico del catálogo (107 → "107").
  */
 
@@ -45,14 +45,6 @@ export async function consultaAgenciasMarca(idMarca: string): Promise<ApiRespons
   if (!yo.successful) return yo;
   const marca = yo.info.marcasVisibles.find((m) => m.idMarca === idMarca);
   if (!marca) return { successful: false, errorCode: "SIN_PERMISO", errorMessage: "No tienes acceso a esta marca" };
-  if (marca.sfCodigoMarca === undefined) {
-    // La base tiene una versión de Hub.consultaUsuarioActual anterior a sfCodigoMarca
-    return { successful: false, errorCode: "CONFIGURACION",
-      errorMessage: "La base no devuelve el código de marca: falta cargar DB/Hub/Functions/Acciones/consulta_usuario_actual.sql" };
-  }
-  if (!marca.sfCodigoMarca) {
-    return { successful: false, errorCode: "SIN_CODIGO_MARCA", errorMessage: `La marca ${marca.nombre} no tiene código de marca: captúralo en Marcas` };
-  }
 
   let res: Response;
   try {
@@ -61,7 +53,7 @@ export async function consultaAgenciasMarca(idMarca: string): Promise<ApiRespons
       headers: { "Content-Type": "application/json", "Content-Profile": "cleber", Prefer: "params=single-object", "x-api-key": key },
       body: JSON.stringify({
         action: "Cleber.catalogoQuiterWorkshopsDealersWarehouses",
-        params: { estados: [], municipios: [], agencias: [], marcas: [marca.sfCodigoMarca], workshops: [], warehouses: [], empresas: [] },
+        params: { estados: [], municipios: [], agencias: [], marcas: [marca.idMarca], workshops: [], warehouses: [], empresas: [] },
       }),
       cache: "no-store",
     });
