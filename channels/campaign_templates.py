@@ -6,12 +6,15 @@ Portado de `api/broadcasts/[id]/send|test-send|retry|check-status`, que repetía
     send(number, broadcast, recipient, phone, ...)  → id del mensaje; lanza `TemplateError(FAILED, detalle)`
     delivery_statuses(number, ids, sf_config)       → {id: {"state": delivered|read|failed, "message": ...}} solo de los que ya
                                                       llegaron a un estado final (lo demás sigue en tránsito)
+    render_text(number, template, variables)        → el texto que recibió el cliente (cuerpo con sus variables y botones), o None
 """
 import base64
 import copy
 import json
 import logging
 import os
+import re
+import time
 import urllib.parse
 
 from channels.meta_wa import GRAPH_VERSION
@@ -127,6 +130,55 @@ def send(number: dict, broadcast: dict, recipient: dict, phone: str, sf_config: 
     if provider == "valuetext":
         return _send_valuetext(number, broadcast, recipient, phone, sf_config or {})
     return _send_twilio(number, broadcast, recipient, phone, track)
+
+
+# --------------------------------------------------------------------------- texto de la plantilla
+
+CONTENT_TTL = 600          # una plantilla aprobada no cambia: 10 min de caché por Content SID
+_content_cache: dict[str, dict] = {}
+
+
+def _twilio_content(number: dict, content_sid: str) -> dict | None:
+    """La plantilla de la Content API de Twilio (types: {"twilio/quick-reply": {"body", "actions"}, ...}), con caché."""
+    hit = _content_cache.get(content_sid)
+    if hit and time.time() < hit["expires"]:
+        return hit["content"]
+    headers = {"Authorization": "Basic " + base64.b64encode(f"{number['twilioAccountSid']}:{number['twilioAuthToken']}".encode()).decode()}
+    _, body = http.request(f"https://content.twilio.com/v1/Content/{content_sid}", None, headers, method="GET", timeout=10)
+    content = json.loads(body)
+    _content_cache[content_sid] = {"content": content, "expires": time.time() + CONTENT_TTL}
+    return content
+
+
+def fill_variables(text: str, variables: dict | None) -> str:
+    """{{1}}, {{2}}… con los valores del envío; las que no vienen se dejan como están."""
+    return re.sub(r"\{\{\s*(\w+)\s*\}\}", lambda m: str((variables or {}).get(m.group(1), m.group(0))), text or "")
+
+
+def render_text(number: dict, template: dict, variables: dict | None = None) -> str | None:
+    """El texto que recibió el cliente: cuerpo de la plantilla con sus variables y, si tiene, los botones al final.
+
+    Hoy solo Twilio (Content API). Meta y ValueText regresan None: el que llama usa su texto capturado o un marcador.
+    Nunca lanza: si no se puede leer la plantilla, regresa None (el envío ya salió; esto es solo para mostrarlo).
+    """
+    try:
+        if number.get("provider", "twilio") != "twilio" or not template.get("contentSid"):
+            return None
+        if not (number.get("twilioAccountSid") and number.get("twilioAuthToken")):
+            return None
+        content = _twilio_content(number, template["contentSid"]) or {}
+        for kind, data in (content.get("types") or {}).items():
+            if not isinstance(data, dict) or not data.get("body"):
+                continue
+            text = fill_variables(data["body"], variables)
+            titles = [a.get("title") for a in (data.get("actions") or []) if isinstance(a, dict) and a.get("title")]
+            if titles:
+                text += "\n\n" + "  ".join(f"[{fill_variables(t, variables)}]" for t in titles)
+            return text
+        return None
+    except Exception as e:
+        log.warning("No se pudo leer el texto de la plantilla %s: %s", template.get("contentSid"), e)
+        return None
 
 
 def _valuetext_states(sf_config: dict, ids: list[str]) -> dict:

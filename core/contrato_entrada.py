@@ -158,9 +158,13 @@ def _abre(fuente: str, preparar: Preparador, params: dict) -> dict:
     id_proveedor = outbound.send_campaign(numero, envio.plantilla, {"variables": envio.variables}, conv["telefonoCliente"],
                                           sf_config=sf_config, track=True)
 
+    # Lo que se ve en el chat: el texto capturado en el número; si no hay, el de la plantilla del proveedor (lo que le llegó
+    # al cliente, con sus variables y botones); si tampoco se puede leer, un marcador
+    texto = (envio.texto or outbound.render_template(numero, envio.plantilla, envio.variables)
+             or f"[Plantilla: {envio.plantilla.get('templateName') or envio.plantilla.get('contentSid')}]")
     guardado = postgrest.llama("Hub.guardaMensaje", {
         "idConversacion": conv["idConversacion"], "remitente": "bot", "esPlantilla": True,
-        "texto": envio.texto or f"[Plantilla: {envio.plantilla.get('templateName') or envio.plantilla.get('contentSid')}]",
+        "texto": texto,
         "idMensajeProveedor": id_proveedor,
     })
     conv = postgrest.llama("Hub.actualizaConversacion", {

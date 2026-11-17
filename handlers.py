@@ -15,8 +15,8 @@ Entorno de todas (además de lo de core/postgrest.py):
 import logging
 
 import modules  # noqa: F401  registra los handlers de cada módulo (y las fuentes del contrato ①) contra el núcleo
-from channels import (check_campaign_ready, delivery_statuses, send_campaign_template, send_handoff_template,
-                      send_whatsapp_message)
+from channels import (check_campaign_ready, delivery_statuses, render_template_text, send_campaign_template,
+                      send_handoff_template, send_whatsapp_message)
 from core import contrato_entrada as contrato, entorno, http_lambda, outbound
 
 logging.getLogger().setLevel(logging.INFO)
@@ -28,7 +28,8 @@ def _prepara() -> None:
     entorno.carga_secretos()
     if not outbound.is_configured("campaign"):
         outbound.configure(send_text=send_whatsapp_message, send_template=send_handoff_template, send_campaign=send_campaign_template,
-                           check_campaign=check_campaign_ready, delivery_statuses=delivery_statuses)
+                           check_campaign=check_campaign_ready, delivery_statuses=delivery_statuses,
+                           render_template=render_template_text)
 
 
 def entry_point(event, context=None):

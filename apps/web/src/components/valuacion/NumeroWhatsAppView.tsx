@@ -441,7 +441,12 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
               <div className="space-y-2">
                 <Label htmlFor="wa-texto">Texto en el chat</Label>
                 <Textarea id="wa-texto" rows={4} placeholder="Hola {{1}}, gracias por agendar el servicio de tu {{2}}…" value={f.texto} onChange={(e) => edita({ texto: e.target.value })} />
-                <p className="text-xs text-gray-500">Cómo se ve el mensaje en el dashboard; usa {"{{1}}"}, {"{{2}}"}… para las variables.</p>
+                <p className="text-xs text-gray-500">
+                  {f.proveedor === "twilio"
+                    ? <>Opcional: si lo dejas vacío, el chat muestra el texto de la plantilla tal como lo tiene Twilio, con sus variables y botones. </>
+                    : <>Cómo se ve el mensaje en el dashboard. </>}
+                  Usa {"{{1}}"}, {"{{2}}"}… para las variables.
+                </p>
                 {f.texto.trim() && (
                   <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground whitespace-pre-wrap">{vistaPrevia(f)}</div>
                 )}
