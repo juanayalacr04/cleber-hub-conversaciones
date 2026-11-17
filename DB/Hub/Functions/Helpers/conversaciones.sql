@@ -1,0 +1,298 @@
+/**
+    Helpers de configuración (equipos, números, bots) y conversaciones: parámetros, permisos por módulo y forma JSON.
+
+    Permisos por módulo (mismo criterio que canAccessTeam de las reglas de Firestore, ahora por marca y módulo):
+      - Super admin y sistema: todo.
+      - Con rol de administrador del módulo en la marca: todas las conversaciones del módulo en la marca.
+      - Con otro rol del módulo: solo las conversaciones de su equipo en ese módulo.
+      - Sin rol en el módulo de la marca: nada.
+
+    @Acceso No-Publica
+*/
+
+-- Teléfono en E.164. Los de México con la regla de clientes.normaliza_telefono (+52 + 10 dígitos);
+-- otros países se aceptan si ya vienen con 8 a 15 dígitos. Quita el prefijo "whatsapp:". NULL si no se puede.
+CREATE OR REPLACE FUNCTION hub_cleber.telefono_e164(p_telefono text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_limpio  text := regexp_replace(coalesce(p_telefono, ''), '^\s*whatsapp:', '', 'i');
+  v_mx      text := clientes.normaliza_telefono(v_limpio);
+  v_digitos text := regexp_replace(v_limpio, '\D', '', 'g');
+BEGIN
+  IF v_mx IS NOT NULL THEN
+    RETURN v_mx;
+  END IF;
+  IF btrim(v_limpio) ~ '^\+[0-9 ()-]+$' AND length(v_digitos) BETWEEN 8 AND 15 THEN
+    RETURN '+' || v_digitos;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+-- Teléfono requerido u opcional de los params, en E.164.
+CREATE OR REPLACE FUNCTION hub_cleber.param_telefono(p_params jsonb, p_campo text, p_requerido boolean DEFAULT true)
+RETURNS text
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_texto    text := hub_cleber.param_texto(p_params, p_campo, p_requerido);
+  v_telefono text := hub_cleber.telefono_e164(v_texto);
+BEGIN
+  IF v_texto IS NOT NULL AND v_telefono IS NULL THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El campo %s debe ser un teléfono (10 dígitos o +código de país)', p_campo),
+      jsonb_build_object('campo', p_campo));
+  END IF;
+  RETURN v_telefono;
+END;
+$$;
+
+-- Módulo de los params: ventas, servicio o valuacion.
+CREATE OR REPLACE FUNCTION hub_cleber.param_modulo(p_params jsonb, p_campo text DEFAULT 'modulo', p_requerido boolean DEFAULT true)
+RETURNS text
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_modulo text := lower(hub_cleber.param_texto(p_params, p_campo, p_requerido));
+BEGIN
+  IF v_modulo IS NOT NULL AND v_modulo NOT IN ('ventas', 'servicio', 'valuacion') THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El campo %s debe ser ventas, servicio o valuacion', p_campo),
+      jsonb_build_object('campo', p_campo));
+  END IF;
+  RETURN v_modulo;
+END;
+$$;
+
+-- Texto de un catálogo cerrado (CAMPO_INVALIDO si no está entre los valores).
+CREATE OR REPLACE FUNCTION hub_cleber.param_opcion(p_params jsonb, p_campo text, p_opciones text[], p_requerido boolean DEFAULT true)
+RETURNS text
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_valor text := hub_cleber.param_texto(p_params, p_campo, p_requerido);
+BEGIN
+  IF v_valor IS NOT NULL AND NOT v_valor = ANY (p_opciones) THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El campo %s debe ser uno de: %s', p_campo, array_to_string(p_opciones, ', ')),
+      jsonb_build_object('campo', p_campo));
+  END IF;
+  RETURN v_valor;
+END;
+$$;
+
+-- ¿Un objeto de configuración trae credenciales? Van en Secrets Manager, nunca en la base.
+CREATE OR REPLACE FUNCTION hub_cleber.contiene_secretos(p_config jsonb)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT coalesce(p_config::text, '') ~* '"(deploymentToken|apiKey|authToken|accessToken|twilioAuthToken|metaAccessToken|metaWebhookVerifyToken|password|secret)"\s*:';
+$$;
+
+CREATE OR REPLACE FUNCTION hub_cleber.exige_sin_secretos(p_config jsonb, p_campo text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF hub_cleber.contiene_secretos(p_config) THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO',
+      format('El campo %s trae credenciales; se guardan aparte (Secrets Manager)', p_campo), jsonb_build_object('campo', p_campo));
+  END IF;
+END;
+$$;
+
+-- ¿Tiene algún rol en el módulo de la marca? Super admin y sistema: sí.
+CREATE OR REPLACE FUNCTION hub_cleber.tiene_modulo(p_usuario hub_cleber.usuarios, p_id_marca text, p_modulo text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT coalesce((p_usuario).es_super_admin, false)
+      OR coalesce((p_usuario).es_sistema, false)
+      OR hub_cleber.rol_modulo(p_usuario, p_id_marca, p_modulo) IS NOT NULL;
+$$;
+
+CREATE OR REPLACE FUNCTION hub_cleber.exige_modulo(p_usuario hub_cleber.usuarios, p_id_marca text, p_modulo text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NOT hub_cleber.tiene_modulo(p_usuario, p_id_marca, p_modulo) THEN
+    PERFORM hub_cleber.error_de_aplicacion('SIN_PERMISO', format('Sin acceso al módulo %s en la marca %s', p_modulo, p_id_marca),
+      jsonb_build_object('idMarca', p_id_marca, 'modulo', p_modulo));
+  END IF;
+END;
+$$;
+
+-- Administrar la configuración de un módulo: administrador del módulo en la marca o super admin. El sistema también
+-- (importación).
+CREATE OR REPLACE FUNCTION hub_cleber.exige_configurar_modulo(p_usuario hub_cleber.usuarios, p_id_marca text, p_modulo text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NOT coalesce((p_usuario).es_sistema, false) THEN
+    PERFORM hub_cleber.exige_administrador_modulo(p_usuario, p_id_marca, p_modulo);
+  END IF;
+END;
+$$;
+
+-- Equipos cuyas conversaciones ve el usuario en el módulo de la marca. NULL = todas (super admin, sistema,
+-- administrador del módulo); '{}' = ninguna.
+CREATE OR REPLACE FUNCTION hub_cleber.equipos_visibles(p_usuario hub_cleber.usuarios, p_id_marca text, p_modulo text)
+RETURNS text[]
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT CASE
+    WHEN coalesce((p_usuario).es_sistema, false) OR hub_cleber.es_administrador_modulo(p_usuario, p_id_marca, p_modulo) THEN NULL
+    ELSE coalesce((SELECT ARRAY[rm.id_equipo] FROM hub_cleber.usuarios_roles_modulo rm
+                    WHERE rm.id_usuario = (p_usuario).id_usuario AND rm.id_marca = p_id_marca
+                      AND rm.modulo = p_modulo AND rm.id_equipo IS NOT NULL), '{}')
+  END;
+$$;
+
+CREATE OR REPLACE FUNCTION hub_cleber.ve_conversacion(p_usuario hub_cleber.usuarios, p_conv hub_cleber.conversaciones)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT hub_cleber.tiene_modulo(p_usuario, (p_conv).id_marca, (p_conv).modulo)
+     AND (hub_cleber.equipos_visibles(p_usuario, (p_conv).id_marca, (p_conv).modulo) IS NULL
+          OR (p_conv).id_equipo = ANY (hub_cleber.equipos_visibles(p_usuario, (p_conv).id_marca, (p_conv).modulo)));
+$$;
+
+-- Conversación por id, bloqueada para escribir si p_para_escribir. CONVERSACION_NO_ENCONTRADA si no existe o el
+-- usuario no la ve (no se distingue, para no revelar que existe).
+CREATE OR REPLACE FUNCTION hub_cleber.busca_conversacion(p_usuario hub_cleber.usuarios, p_id text, p_para_escribir boolean DEFAULT false)
+RETURNS hub_cleber.conversaciones
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_conv hub_cleber.conversaciones;
+BEGIN
+  IF p_para_escribir THEN
+    SELECT * INTO v_conv FROM hub_cleber.conversaciones WHERE id_conversacion = p_id FOR UPDATE;
+  ELSE
+    SELECT * INTO v_conv FROM hub_cleber.conversaciones WHERE id_conversacion = p_id;
+  END IF;
+  IF v_conv.id_conversacion IS NULL OR NOT hub_cleber.ve_conversacion(p_usuario, v_conv) THEN
+    PERFORM hub_cleber.error_de_aplicacion('CONVERSACION_NO_ENCONTRADA', 'La conversación no existe o no tienes acceso',
+      jsonb_build_object('idConversacion', p_id));
+  END IF;
+  RETURN v_conv;
+END;
+$$;
+
+-- Serializa las operaciones sobre un número + cliente (abrir, reabrir, contrato ①) dentro de la transacción.
+CREATE OR REPLACE FUNCTION hub_cleber.bloquea_cliente_numero(p_id_numero text, p_telefono text)
+RETURNS void
+LANGUAGE sql
+AS $$
+  SELECT pg_advisory_xact_lock(hashtextextended('hub_cleber.conversacion:' || p_id_numero || ':' || p_telefono, 0));
+$$;
+
+-- Lo que valida una referencia a equipo o bot: que exista y sea de la misma marca y módulo.
+CREATE OR REPLACE FUNCTION hub_cleber.valida_equipo(p_id_equipo text, p_id_marca text, p_modulo text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF p_id_equipo IS NOT NULL AND NOT EXISTS (SELECT 1 FROM hub_cleber.equipos
+                                              WHERE id_equipo = p_id_equipo AND id_marca = p_id_marca AND modulo = p_modulo) THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'El equipo no existe en ese módulo de la marca', '{"campo":"idEquipo"}');
+  END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION hub_cleber.valida_bot(p_id_bot text, p_id_marca text, p_modulo text, p_campo text DEFAULT 'idBot')
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF p_id_bot IS NOT NULL AND NOT EXISTS (SELECT 1 FROM hub_cleber.bots
+                                           WHERE id_bot = p_id_bot AND id_marca = p_id_marca AND modulo = p_modulo) THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'El bot no existe en ese módulo de la marca', jsonb_build_object('campo', p_campo));
+  END IF;
+END;
+$$;
+
+-- ============================================================================
+-- Forma JSON
+-- ============================================================================
+
+-- Equipo: { idEquipo, idMarca, modulo, nombre, modoAsignacion, maxConversacionesAgente, accionOptOut,
+--           umbralesSemaforo, esActivo, creadoEn, actualizadoEn }
+CREATE OR REPLACE FUNCTION hub_cleber.equipo_json(e hub_cleber.equipos)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'idEquipo', e.id_equipo, 'idMarca', e.id_marca, 'modulo', e.modulo, 'nombre', e.nombre,
+    'modoAsignacion', e.modo_asignacion, 'maxConversacionesAgente', e.max_conversaciones_agente,
+    'accionOptOut', e.accion_opt_out, 'umbralesSemaforo', e.umbrales_semaforo, 'esActivo', e.es_activo,
+    'creadoEn', e.creado_en, 'actualizadoEn', e.actualizado_en);
+$$;
+
+-- Bot: { idBot, idMarca, modulo, nombre, tipo, categoria, config, secretosConfigurados, esActivo, creadoEn, actualizadoEn }
+CREATE OR REPLACE FUNCTION hub_cleber.bot_json(b hub_cleber.bots)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'idBot', b.id_bot, 'idMarca', b.id_marca, 'modulo', b.modulo, 'nombre', b.nombre, 'tipo', b.tipo,
+    'categoria', b.categoria, 'config', b.config, 'secretosConfigurados', to_jsonb(b.secretos_configurados),
+    'esActivo', b.es_activo, 'creadoEn', b.creado_en, 'actualizadoEn', b.actualizado_en);
+$$;
+
+-- Número: { idNumero, idMarca, modulo, telefono, nombre, proveedor, idEquipo, idBotDefault, ventanaReaperturaHoras,
+--           horasCierreInactividad, webhookCierreUrl, plantillas, configProveedor, secretosConfigurados, esActivo, ... }
+CREATE OR REPLACE FUNCTION hub_cleber.numero_json(n hub_cleber.numeros)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'idNumero', n.id_numero, 'idMarca', n.id_marca, 'modulo', n.modulo, 'telefono', n.telefono, 'nombre', n.nombre,
+    'proveedor', n.proveedor, 'idEquipo', n.id_equipo, 'idBotDefault', n.id_bot_default,
+    'ventanaReaperturaHoras', n.ventana_reapertura_horas, 'horasCierreInactividad', n.horas_cierre_inactividad,
+    'webhookCierreUrl', n.webhook_cierre_url, 'plantillas', n.plantillas, 'configProveedor', n.config_proveedor,
+    'secretosConfigurados', to_jsonb(n.secretos_configurados), 'esActivo', n.es_activo,
+    'creadoEn', n.creado_en, 'actualizadoEn', n.actualizado_en);
+$$;
+
+-- Conversación (lo que muestran la bandeja y el chat, y lo que necesita el pipeline).
+CREATE OR REPLACE FUNCTION hub_cleber.conversacion_json(c hub_cleber.conversaciones)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'idConversacion', c.id_conversacion, 'idMarca', c.id_marca, 'modulo', c.modulo, 'idNumero', c.id_numero,
+    'idEquipo', c.id_equipo, 'idBot', c.id_bot, 'canal', c.canal, 'direccion', c.direccion,
+    'telefonoCliente', c.telefono_cliente, 'nombreCliente', c.nombre_cliente, 'claveCliente', c.clave_cliente,
+    'estado', c.estado, 'idAgente', c.id_agente, 'prioridad', c.prioridad, 'etiquetas', to_jsonb(c.etiquetas),
+    'fuente', c.fuente, 'idExterno', c.id_externo, 'resultado', c.resultado, 'resultadoEn', c.resultado_en,
+    'motivoHandoff', c.motivo_handoff, 'idSesionBot', c.id_sesion_bot,
+    'ultimoMensajeEn', c.ultimo_mensaje_en, 'ultimoMensajeTexto', c.ultimo_mensaje_texto,
+    'ultimoRemitente', c.ultimo_remitente, 'ultimoMensajeClienteEn', c.ultimo_mensaje_cliente_en,
+    'ultimaPlantillaEn', c.ultima_plantilla_en, 'recordatoriosInactividad', c.recordatorios_inactividad,
+    'metadatos', c.metadatos, 'cerradaEn', c.cerrada_en, 'creadoEn', c.creado_en,
+    'actualizadoEn', c.actualizado_en, 'version', c.version);
+$$;
+
+-- Mensaje: { idMensaje, idConversacion, remitente, idAgente, texto, mediaUrl, esPlantilla, idMensajeProveedor, creadoEn }
+-- idMensaje va como texto (bigint no cabe siempre en un número de JavaScript).
+CREATE OR REPLACE FUNCTION hub_cleber.mensaje_json(m hub_cleber.mensajes)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'idMensaje', m.id_mensaje::text, 'idConversacion', m.id_conversacion, 'remitente', m.remitente,
+    'idAgente', m.id_agente, 'texto', m.texto, 'mediaUrl', m.media_url, 'esPlantilla', m.es_plantilla,
+    'idMensajeProveedor', m.id_mensaje_proveedor, 'creadoEn', m.creado_en);
+$$;

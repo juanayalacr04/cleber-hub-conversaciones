@@ -151,7 +151,7 @@ BEGIN
   RAISE NOTICE '--- 2. importaUsuarios ------------------------------------------------';
   PERFORM pg_temp.como(c_sistema);
   i := pg_temp.ok(pg_temp.llama('Hub.importaUsuarios', v_carga), '2.1 Carga inicial');
-  PERFORM pg_temp.igual(i::text, '{"usuarios": {"creados": 4, "actualizados": 0}, "marcas": 2}', '2.2 Conteos');
+  PERFORM pg_temp.igual(i::text, '{"usuarios": {"creados": 4, "actualizados": 0}, "marcas": 2}'::jsonb::text, '2.2 Conteos');
   PERFORM pg_temp.igual((SELECT email FROM hub_cleber.usuarios WHERE id_origen = 'uid-valuador'), c_valuador, '2.3 Email en minúsculas y sin espacios');
   PERFORM pg_temp.igual((SELECT agencias::text FROM hub_cleber.usuarios_marcas uo JOIN hub_cleber.usuarios u USING (id_usuario)
                           WHERE u.email = c_valuador), '{prueba-ag-a1,prueba-ag-a2}', '2.4 Agencias sin duplicados y ordenadas');

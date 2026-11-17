@@ -1,4 +1,4 @@
-# DB — schema `hub_cleber` (adelanto de identidad)
+# DB — schema `hub_cleber`
 
 Usuarios y marcas del hub en PostgreSQL. Es el **adelanto de la Fase 3** del plan de valuación (`toma-unidades-en-taller/docs/plan-de-trabajo.md`): valuación deja de recibir `X-User-Contexto` y obtiene el rol y las agencias del usuario con `hub_cleber.usuarios_contexto`.
 
@@ -13,22 +13,26 @@ Diseño: [`Arquitectura/DISENO_MIGRACION_POSTGRES.md`](../../Arquitectura/DISENO
 ```
 DB/Hub/
 ├── Alta_db.sql                 Script maestro (una transacción; re-ejecutable)
-├── Tables/                     log_errores, marcas, usuarios, usuarios_marcas, roles_modulo, usuarios_roles_modulo
+├── Tables/                     log_errores, marcas, usuarios, usuarios_marcas, roles_modulo, usuarios_roles_modulo,
+│                               equipos, bots, numeros, conversaciones, mensajes, bitacora
 ├── Functions/
-│   ├── Helpers/                errores, peticion, seguridad (identidad y permisos), usuario_json, marca_json, editor_usuarios
-│   └── Acciones/               consulta_usuario_actual, importa_usuarios, consulta_marcas, guarda_marca y las del editor de usuarios
+│   ├── Helpers/                errores, peticion, seguridad (identidad y permisos), usuario_json, marca_json, editor_usuarios,
+│   │                           conversaciones (permisos por módulo y equipo, teléfono, forma JSON)
+│   └── Acciones/               consulta_usuario_actual, importa_usuarios, consulta_marcas, guarda_marca, las del editor de usuarios
+│                               y las del núcleo de conversaciones
 ├── Datos_maestros/             roles_modulo (catálogo), usuarios_sistema (emails de servicio)
-└── Pruebas/                    pruebas_flujo.sql (en una transacción con ROLLBACK)
+└── Pruebas/                    pruebas_flujo.sql y pruebas_conversaciones.sql (en una transacción con ROLLBACK)
 ```
 
 ## Alta, pruebas y carga (solo desarrollo/QA)
 
-Requiere el schema `cleber` del repo `api`. Desde una base de desarrollo:
+Requiere el schema `cleber` del repo `api` y `clientes.normaliza_telefono` (`DB/Clientes` de `toma-unidades-en-taller`). Desde una base de desarrollo:
 
 ```
 cd <ruta del repo>/DB/Hub
 psql -h <host> -p <puerto> -U <usuario> -d <database> -f Alta_db.sql -q
 psql -h <host> -p <puerto> -U <usuario> -d <database> -f Pruebas/pruebas_flujo.sql -q
+psql -h <host> -p <puerto> -U <usuario> -d <database> -f Pruebas/pruebas_conversaciones.sql -q
 ```
 
 `Alta_db.sql` crea las tablas con `IF NOT EXISTS`, así que **no cambia la estructura de una tabla que ya existe**. No hay migraciones: una base con la estructura anterior (`organizaciones`, `usuarios_organizaciones` o `usuarios.rol`) se da de alta de nuevo y se vuelve a correr la carga.
@@ -118,10 +122,43 @@ Objeto `UsuarioEnMarca` (una marca): `idUsuario`, `email`, `nombre`, `fotoUrl`, 
 - **`es_activo`** (nuevo) separa "puede entrar" de `estado`, que sigue siendo la presencia (`online` / `away` / `offline`).
 - La acción es **`Hub.consultaUsuarioActual`** (no `usuarioActual`) para no chocar con el helper `hub_cleber.usuario_actual()`.
 
+## Núcleo de conversaciones (rebanada 1 de la mudanza a AWS)
+
+Equipos, bots, números, conversaciones, mensajes y bitácora, con las acciones que usa el backend del hub en AWS (pipeline, contrato ①) y las del dashboard (configuración, bandeja, chat). Diseño: [`Arquitectura/DISENO_BACKEND_AWS.md`](../../Arquitectura/DISENO_BACKEND_AWS.md). Requiere `clientes.normaliza_telefono` (`DB/Clientes` de `toma-unidades-en-taller`).
+
+Reglas:
+- **Un número por módulo y marca** (A8): a lo más uno activo por (marca, módulo), y un teléfono activo en un solo número.
+- **Una conversación abierta por número + cliente**. El número dice la marca y el módulo; `id_bot` es el bot que contesta ahora.
+- Ids `text` en equipos, bots, números y conversaciones: lo importado de Firestore conserva su id (sin traducir referencias); lo nuevo recibe un UUID en texto. Mensajes y bitácora: `bigint` (en JSON van como texto).
+- Teléfonos en E.164 (`+52` + 10 dígitos con la regla de `clientes`; otros países si ya traen `+`).
+- **Ninguna credencial en la base**: `config` de bots y `configProveedor` / `plantillas` de números rechazan llaves de credenciales; van en Secrets Manager y `secretos_configurados` solo dice cuáles están puestas.
+- Cada cambio de una conversación sube `version` (el aviso de tiempo real la lleva).
+
+Permisos: configurar un módulo = administrador del módulo en la marca (o super admin; el sistema para importar). Ver conversaciones: el administrador del módulo ve todas las de la marca; los demás roles, solo las de su equipo en ese módulo (como `canAccessTeam` de las reglas de Firestore).
+
+| Acción | Función | Quién | Params → Info |
+|--------|---------|-------|---------------|
+| `Hub.guardaEquipo` | `guarda_equipo` | Administrador del módulo / sistema | `idEquipo?`, `idMarca`, `modulo`, `nombre`, `modoAsignacion?`, `maxConversacionesAgente?`, `accionOptOut?`, `umbralesSemaforo?`, `esActivo?` → `{ equipo, creado }` |
+| `Hub.guardaBot` | `guarda_bot` | Administrador del módulo / sistema | `idBot?`, `idMarca`, `modulo`, `nombre`, `tipo?`, `categoria?`, `config?`, `esActivo?` → `{ bot, creado }` |
+| `Hub.guardaNumero` | `guarda_numero` | Administrador del módulo / sistema | `idNumero?`, `idMarca`, `modulo`, `telefono`, `nombre`, `proveedor`, `idEquipo?`, `idBotDefault?`, `ventanaReaperturaHoras?`, `horasCierreInactividad?`, `webhookCierreUrl?`, `plantillas?`, `configProveedor?`, `esActivo?` → `{ numero, creado }`. `ESTADO_INVALIDO`: `TELEFONO_EN_USO`, `NUMERO_EXISTENTE` |
+| `Hub.marcaSecretosConfigurados` | `marca_secretos_configurados` | Sistema | `tipo` (numero/bot), `id`, `secretos[]` → `{ numero }` o `{ bot }` |
+| `Hub.consultaConfiguracionModulo` | `consulta_configuracion_modulo` | Cualquier rol del módulo / sistema | `idMarca`, `modulo` → `{ equipos, numeros, bots, puedeEditar }` |
+| `Hub.resuelveNumero` | `resuelve_numero` | Sistema | `telefono` o `metaPhoneNumberId` o `idMarca` + `modulo` → `{ numero, botDefault, equipo, marca }` |
+| `Hub.obtieneOAbreConversacion` | `obtiene_o_abre_conversacion` | Sistema | `idNumero`, `telefonoCliente`, `nombreCliente?`, `claveCliente?`, `horasSesion?` (24), `limiteHistorial?` (40) → `{ conversacion, origen: abierta/reabierta/nueva, historial }` |
+| `Hub.guardaMensaje` | `guarda_mensaje` | Sistema | `idConversacion`, `remitente`, `texto?`, `mediaUrl?`, `idMensajeProveedor?`, `idAgente?`, `esPlantilla?` → `{ mensaje, conversacion, duplicado }`. Idempotente por `idMensajeProveedor` |
+| `Hub.actualizaConversacion` | `actualiza_conversacion` | Sistema | `idConversacion` + los campos que cambian (estado, agente, equipo, bot, sesión del bot, resultado, metadatos…), `versionEsperada?` → `{ conversacion, anterior }`. `CONFLICTO_VERSION`; `ESTADO_INVALIDO`: `CONVERSACION_ABIERTA` |
+| `Hub.abreConversacionExterna` | `abre_conversacion_externa` | Sistema (contrato ①) | `fuente`, `idExterno`, `idMarca`, `modulo`, `telefono`, `nombreCliente?`, `claveCliente?`, `contexto?` → `{ conversacion, numero, creada }`. Idempotente por `fuente` + `idExterno`. `ESTADO_INVALIDO`: `SIN_NUMERO`, `CONVERSACION_ABIERTA` |
+| `Hub.registraBitacora` | `registra_bitacora` | Sistema | `idConversacion`, `accion`, `origen`, `idUsuario?`, `idTurno?`, `datos?` → `{ idBitacora }` |
+| `Hub.consultaConversaciones` | `consulta_conversaciones` | Rol del módulo (por equipo) / sistema | `idMarca`, `modulo`, `estados?`, `idEquipo?`, `idAgente?`, `busqueda?`, `antesDe?`, `limite?` → `{ conversaciones, hayMas }` |
+| `Hub.consultaMensajes` | `consulta_mensajes` | Quien ve la conversación / sistema | `idConversacion`, `desdeIdMensaje?` o `antesDeIdMensaje?`, `limite?`, `incluyeSistema?` → `{ conversacion, mensajes, hayMas }` |
+
+Pruebas: `Pruebas/pruebas_conversaciones.sql` (misma forma que `pruebas_flujo.sql`).
+
+Falta para la rebanada: las operaciones del dashboard sobre una conversación (tomar, transferir, cerrar, responder; las escribe el backend porque también manda el mensaje y publica el aviso), y la FK de `usuarios_roles_modulo.id_equipo` a `equipos` (va en `Migraciones/` cuando los equipos de los usuarios existan en la tabla).
+
 ## Pendientes
 
-- **Valuación** (`toma-unidades-en-taller`): adaptar `valuacion.contexto_usuario` y los permisos al nuevo `usuarios_contexto` (rol por marca: el permiso se evalúa con la marca de la oferta), y definir en `valuacion.roles_permisos` los permisos de `GERENTE`.
-- Catálogo de agencias: es `Cleber.catalogoQuiterWorkshopsDealersWarehouses` (repo api, `DB/Cleber`), filtrado por `id_marca` (el código de la marca); el hub guarda su `id` como texto. Falta que `valuacion.configuraciones_agencias.id_agencia` use los mismos ids.
-- Editor de usuarios: la pantalla ya existe (Agentes en Ventas/Servicio/General, Usuarios en Valuación; `apps/web/src/components/hub/UsuariosView.tsx`) y llama las acciones con el token del usuario desde Server Actions (`apps/web/src/lib/hub/usuarios.ts`). Las agencias se eligen del catálogo (`apps/web/src/lib/hub/agencias.ts`): quien administra la marca (o el super admin) asigna cualquiera de su catálogo. Falta: validar en la base que las agencias existan en el catálogo, mandar el correo de invitación y escribir `accesos/{email}`.
-- Bitácora de cambios de usuarios (`hub_cleber.bitacora`, Fase 4).
+- **Valuación** (`toma-unidades-en-taller`): definir en `valuacion.roles_permisos` los permisos de `GERENTE`.
+- Editor de usuarios: falta mandar el **correo de invitación** al dar de alta a alguien (la pantalla es `apps/web/src/components/hub/UsuariosView.tsx`; las acciones, `apps/web/src/lib/hub/usuarios.ts`).
+- Bitácora de cambios de usuarios (la tabla `hub_cleber.bitacora` ya existe, pero es por conversación).
 - Que un email de servicio solo valga por `/internal` depende de API Gateway; plpgsql no ve la ruta (diseño §4.3).

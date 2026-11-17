@@ -2,12 +2,12 @@
  * Alta_db.sql — schema hub_cleber (adelanto de la Fase 3: identidad)
  * Script maestro: ejecuta todo el paquete en orden, dentro de una transacción; se detiene al primer error.
  *
- * Este adelanto crea solo lo que necesita valuación para saber quién es el usuario: marcas, usuarios,
- * sus marcas (con sus agencias por valor), el catálogo de roles de cada módulo y el rol del usuario en cada módulo
- * de cada marca, los helpers de identidad y hub_cleber.usuarios_contexto.
+ * Identidad: marcas, usuarios, sus marcas (con sus agencias por valor), el catálogo de roles de cada módulo y el rol
+ * del usuario en cada módulo de cada marca, los helpers de identidad y hub_cleber.usuarios_contexto.
+ * Núcleo de conversaciones (rebanada 1 de la mudanza a AWS): equipos, bots, números, conversaciones, mensajes y
+ * bitácora, con las acciones del pipeline, del contrato ① y de la bandeja.
  * El catálogo de agencias NO vive en el hub: viene de un API externo.
- * El resto del schema (equipos, números, bots, conversaciones, ...) entra en la Fase 4.
- * Diseño: Arquitectura/DISENO_MIGRACION_POSTGRES.md §4.2 y §5.
+ * Diseño: Arquitectura/DISENO_MIGRACION_POSTGRES.md §4.2 y §5, y Arquitectura/DISENO_BACKEND_AWS.md.
  *
  * Es re-ejecutable: tablas con IF NOT EXISTS, funciones con CREATE OR REPLACE y datos maestros idempotentes.
  * Un cambio de estructura en una tabla que ya existe NO se aplica aquí: va en Migraciones/ (ver README).
@@ -15,6 +15,7 @@
  * Requisitos:
  *   - PostgreSQL 13+ (gen_random_uuid nativo)
  *   - Schema cleber instalado (cleber.construye_respuesta_exitosa / construye_respuesta_fallida), repo api → DB/Cleber
+ *   - Schema clientes instalado (clientes.normaliza_telefono), toma-unidades-en-taller → DB/Clientes
  *
  * Ejecución (solo desarrollo/QA; producción requiere aprobación explícita):
  *   1.- cd <ruta>/DB/Hub
@@ -36,6 +37,9 @@ BEGIN
   IF to_regprocedure('cleber.construye_respuesta_exitosa(jsonb)') IS NULL
      OR to_regprocedure('cleber.construye_respuesta_fallida(text,text,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'Falta el schema cleber (construye_respuesta_exitosa / construye_respuesta_fallida). Instalar DB/Cleber del repo api.';
+  END IF;
+  IF to_regprocedure('clientes.normaliza_telefono(text)') IS NULL THEN
+    RAISE EXCEPTION 'Falta clientes.normaliza_telefono. Instalar DB/Clientes de toma-unidades-en-taller.';
   END IF;
 END;
 $$;
@@ -60,6 +64,18 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Tables/roles_modulo.sql
 \echo 'Tables/usuarios_roles_modulo.sql'
 \i Tables/usuarios_roles_modulo.sql
+\echo 'Tables/equipos.sql'
+\i Tables/equipos.sql
+\echo 'Tables/bots.sql'
+\i Tables/bots.sql
+\echo 'Tables/numeros.sql'
+\i Tables/numeros.sql
+\echo 'Tables/conversaciones.sql'
+\i Tables/conversaciones.sql
+\echo 'Tables/mensajes.sql'
+\i Tables/mensajes.sql
+\echo 'Tables/bitacora.sql'
+\i Tables/bitacora.sql
 
 -- 3. Funciones auxiliares (en orden: las funciones LANGUAGE sql validan sus dependencias al crearse)
 \echo '================================================================================'
@@ -76,6 +92,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Helpers/editor_usuarios.sql
 \echo 'Functions/Helpers/marca_json.sql'
 \i Functions/Helpers/marca_json.sql
+\echo 'Functions/Helpers/conversaciones.sql'
+\i Functions/Helpers/conversaciones.sql
 
 -- 4. Funciones de acciones
 \echo '================================================================================'
@@ -102,6 +120,32 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/consulta_marcas.sql
 \echo 'Functions/Acciones/guarda_marca.sql'
 \i Functions/Acciones/guarda_marca.sql
+\echo 'Functions/Acciones/guarda_equipo.sql'
+\i Functions/Acciones/guarda_equipo.sql
+\echo 'Functions/Acciones/guarda_bot.sql'
+\i Functions/Acciones/guarda_bot.sql
+\echo 'Functions/Acciones/guarda_numero.sql'
+\i Functions/Acciones/guarda_numero.sql
+\echo 'Functions/Acciones/marca_secretos_configurados.sql'
+\i Functions/Acciones/marca_secretos_configurados.sql
+\echo 'Functions/Acciones/consulta_configuracion_modulo.sql'
+\i Functions/Acciones/consulta_configuracion_modulo.sql
+\echo 'Functions/Acciones/resuelve_numero.sql'
+\i Functions/Acciones/resuelve_numero.sql
+\echo 'Functions/Acciones/obtiene_o_abre_conversacion.sql'
+\i Functions/Acciones/obtiene_o_abre_conversacion.sql
+\echo 'Functions/Acciones/guarda_mensaje.sql'
+\i Functions/Acciones/guarda_mensaje.sql
+\echo 'Functions/Acciones/actualiza_conversacion.sql'
+\i Functions/Acciones/actualiza_conversacion.sql
+\echo 'Functions/Acciones/abre_conversacion_externa.sql'
+\i Functions/Acciones/abre_conversacion_externa.sql
+\echo 'Functions/Acciones/registra_bitacora.sql'
+\i Functions/Acciones/registra_bitacora.sql
+\echo 'Functions/Acciones/consulta_conversaciones.sql'
+\i Functions/Acciones/consulta_conversaciones.sql
+\echo 'Functions/Acciones/consulta_mensajes.sql'
+\i Functions/Acciones/consulta_mensajes.sql
 
 -- 5. Datos maestros
 \echo '================================================================================'
