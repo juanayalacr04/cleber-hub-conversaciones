@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { signOut as cierraSesion } from "next-auth/react";
 import { doc, getDoc } from "firebase/firestore";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { db, auth } from "@/lib/firebase";
 import { callHubAction } from "@/lib/hub-actions";
+import { consultaMarcas, guardaMarca } from "@/lib/hub/marcas";
 import { getModule } from "@/lib/modules";
 import { ConfiguracionApiView } from "@/components/valuacion/ConfiguracionApiView";
 import { Button } from "@/components/ui/button";
@@ -50,14 +52,22 @@ export default function ConfiguracionPage() {
   return <HubConfiguracionPage />;
 }
 
+/**
+ * Nombre, zona horaria y código de Salesforce son de la marca en PostgreSQL (Hub.consultaMarcas / Hub.guardaMarca).
+ * La configuración de Salesforce de la marca sigue en Firestore (organizations/{idMarca}); al guardar se copian ahí
+ * también el nombre y la zona horaria, que el bot todavía lee de ese documento.
+ */
 function HubConfiguracionPage() {
-  const { userData, user } = useAuth();
+  const { userData, user, refreshOrganizations } = useAuth();
   const { module: moduleId } = useParams<{ module: string }>();
   const vertical = getModule(moduleId)?.vertical ?? null;
   const superAdmin = !!userData?.isSuperAdmin;
   const orgId = userData?.organizationId ?? null;
 
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** La marca tiene documento en Firestore: sin él no hay dónde guardar la configuración de Salesforce. */
+  const [hasFirestoreDoc, setHasFirestoreDoc] = useState(false);
   const [orgName, setOrgName] = useState("");
   const [sfBrandCode, setSfBrandCode] = useState("");
   const [timezone, setTimezone] = useState("America/Mexico_City");
@@ -66,32 +76,45 @@ function HubConfiguracionPage() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  useEffect(() => {
-    if (!orgId || !superAdmin) return;
-    getDoc(doc(db, "organizations", orgId)).then((snap) => {
-      const d = snap.data();
-      if (d) {
-        setOrgName(d.name ?? "");
-        setSfBrandCode(d.sfBrandCode ?? "");
-        setTimezone(d.settings?.timezone ?? "America/Mexico_City");
-        const c = d.salesforceConfig ?? {};
-        setSf({
-          marcaRR: c.marcaRR ?? "", ownerId: c.ownerId ?? "", bdcFallbackOwnerId: c.bdcFallbackOwnerId ?? "",
-          vehicleType: c.vehicleType === "seminuevo" ? "seminuevo" : "nuevo",
-          leadCreationEnabled: c.leadCreationEnabled ?? true,
-          rrFlowName: c.rrFlowName ?? "", seminuevoOwnerId: c.seminuevoOwnerId ?? "",
-          seminuevoRecordTypeId: c.seminuevoRecordTypeId ?? "", defaultTemplateId: c.defaultTemplateId ?? "",
-          situationMap: c.situationMap ? JSON.stringify(c.situationMap, null, 2) : "",
-        });
-      }
-      setLoaded(true);
+  const load = useCallback(async () => {
+    if (!orgId) return;
+    setLoaded(false);
+    setLoadError(null);
+    const [r, snap] = await Promise.all([consultaMarcas(), getDoc(doc(db, "organizations", orgId)).catch(() => null)]);
+    if (!r.successful) {
+      if (r.errorCode === "SESION_EXPIRADA") { cierraSesion({ redirectTo: "/login" }); return; }
+      setLoadError(r.errorMessage || "No se pudo cargar la marca");
+      return;
+    }
+    const marca = r.info.marcas.find((m) => m.idMarca === orgId);
+    if (!marca) { setLoadError(`La marca ${orgId} no existe en el hub`); return; }
+    setOrgName(marca.nombre);
+    setSfBrandCode(marca.sfCodigoMarca ?? "");
+    setTimezone(marca.zonaHoraria);
+
+    const d = snap?.exists() ? snap.data() : null;
+    setHasFirestoreDoc(!!d);
+    const c = d?.salesforceConfig ?? {};
+    setSf({
+      marcaRR: c.marcaRR ?? "", ownerId: c.ownerId ?? "", bdcFallbackOwnerId: c.bdcFallbackOwnerId ?? "",
+      vehicleType: c.vehicleType === "seminuevo" ? "seminuevo" : "nuevo",
+      leadCreationEnabled: c.leadCreationEnabled ?? true,
+      rrFlowName: c.rrFlowName ?? "", seminuevoOwnerId: c.seminuevoOwnerId ?? "",
+      seminuevoRecordTypeId: c.seminuevoRecordTypeId ?? "", defaultTemplateId: c.defaultTemplateId ?? "",
+      situationMap: c.situationMap ? JSON.stringify(c.situationMap, null, 2) : "",
     });
-  }, [orgId, superAdmin]);
+    setLoaded(true);
+  }, [orgId]);
+
+  useEffect(() => {
+    if (superAdmin) load();
+  }, [superAdmin, load]);
 
   const set = <K extends keyof SalesforceBrandForm>(k: K, v: SalesforceBrandForm[K]) => setSf((p) => ({ ...p, [k]: v }));
 
   async function save() {
     if (!orgId) return;
+    if (!orgName.trim()) { toast.error("El nombre no puede quedar vacío"); return; }
     let situationMap: unknown = null;
     if (sf.situationMap.trim()) {
       try {
@@ -104,6 +127,14 @@ function HubConfiguracionPage() {
     }
     setSaving(true);
     try {
+      const r = await guardaMarca({ idMarca: orgId, nombre: orgName.trim(), zonaHoraria: timezone });
+      if (!r.successful) {
+        if (r.errorCode === "SESION_EXPIRADA") { cierraSesion({ redirectTo: "/login" }); return; }
+        toast.error(r.errorMessage || "No se pudo guardar la marca");
+        return;
+      }
+      refreshOrganizations();
+      if (!hasFirestoreDoc) { toast.success("Configuración guardada"); return; }
       // Solo config por marca, nunca credenciales: esas viven en variables de entorno del servidor
       const clean = (v: string) => v.trim() || null;
       await callHubAction(user, "organization.update", {
@@ -150,6 +181,9 @@ function HubConfiguracionPage() {
 
   if (!superAdmin) {
     return <p className="text-muted-foreground">Solo un superadministrador puede ver la configuración de la marca.</p>;
+  }
+  if (loadError) {
+    return <p className="text-destructive">{loadError}</p>;
   }
   if (!loaded) {
     return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -198,6 +232,11 @@ function HubConfiguracionPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {!hasFirestoreDoc ? (
+            <p className="text-sm text-muted-foreground">
+              Esta marca todavía no tiene configuración de Salesforce para Ventas y Servicio (no existe en Firestore).
+            </p>
+          ) : (<>
           <div className="flex items-center gap-3">
             <Button type="button" variant="outline" onClick={testConnection} disabled={testing}>
               {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -264,6 +303,7 @@ function HubConfiguracionPage() {
             />
             <p className="text-xs text-muted-foreground">Cómo se descarta el Lead por cada situación: status, validacion y razon. Sin esto se usan los valores por defecto.</p>
           </div>
+          </>)}
         </CardContent>
       </Card>
 

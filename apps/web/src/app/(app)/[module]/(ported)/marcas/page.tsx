@@ -3,9 +3,9 @@
 /**
  * Marcas del hub (hub_cleber.marcas en PostgreSQL), solo super admin.
  *
- * Ojo: el selector de marca de la barra lateral y los módulos de Ventas y Servicio todavía leen las marcas de Firestore
- * (organizations); una marca creada aquí existe para valuación y para el editor de usuarios, pero no aparece ahí hasta
- * que esos módulos pasen a PostgreSQL.
+ * El selector de marca de la barra lateral y las pantallas de Ventas y Servicio toman la lista de aquí (vía
+ * Hub.consultaUsuarioActual); la configuración propia de cada marca en esos módulos (WhatsApp, Salesforce) sigue en
+ * Firestore (organizations/{idMarca}).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -35,7 +35,7 @@ interface Form { idMarca: string; nombre: string; zonaHoraria: string; sfCodigoM
 const VACIO: Form = { idMarca: "", nombre: "", zonaHoraria: "America/Mexico_City", sfCodigoMarca: "", esActiva: true };
 
 export default function MarcasPage() {
-  const { userData } = useAuth();
+  const { userData, refreshOrganizations } = useAuth();
   const [marcas, setMarcas] = useState<Marca[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [abierto, setAbierto] = useState(false);
@@ -83,6 +83,7 @@ export default function MarcasPage() {
       toast.success(r.info.creada ? `Marca ${r.info.marca.nombre} creada` : `Marca ${r.info.marca.nombre} guardada`);
       setAbierto(false);
       carga();
+      refreshOrganizations();
       return;
     }
     if (r.errorCode === "SESION_EXPIRADA") { signOut({ redirectTo: "/login" }); return; }

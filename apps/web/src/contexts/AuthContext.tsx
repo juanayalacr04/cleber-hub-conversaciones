@@ -8,10 +8,11 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from "firebase/auth";
-import { doc, getDoc, collection, query, getDocs, orderBy } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { signIn as nextAuthSignIn, signOut as nextAuthSignOut, useSession } from "next-auth/react";
 import { auth, db } from "@/lib/firebase";
 import { callHubAction, HubActionError } from "@/lib/hub-actions";
+import { consultaUsuarioActual } from "@/lib/hub/usuario";
 
 export interface UserData {
   id: string;
@@ -46,7 +47,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   organizations: OrgOption[];
   setSelectedOrgId: (orgId: string) => void;
-  /** Vuelve a leer la lista de marcas (el superadmin la necesita tras crear o renombrar una). */
+  /** Vuelve a leer la lista de marcas (tras crear, renombrar o desactivar una). */
   refreshOrganizations: () => Promise<void>;
   currentOrgName: string | null;
 }
@@ -86,8 +87,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { ...rawUserData, organizationId: selectedOrgId };
         }
         const orgIds = rawUserData.organizationIds || [];
-        // Multi-org: derivar org y team activos desde el selector
-        if (orgIds.length > 1 && selectedOrgId && orgIds.includes(selectedOrgId)) {
+        // Varias marcas: la activa es la elegida en el selector, si está entre las que puede ver (hub_cleber)
+        if (organizations.length > 1 && selectedOrgId && organizations.some((o) => o.id === selectedOrgId)) {
           return {
             ...rawUserData,
             organizationId: selectedOrgId,
@@ -198,12 +199,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  // Todas las marcas, para el superadmin. Trabaja con la que tenía elegida; si no hay (primer inicio de sesión, o la guardada
-  // en el navegador ya no existe, p. ej. de otro proyecto) usa su marca principal y, si tampoco, la primera de la lista.
-  const loadSuperadminOrgs = async (primaryOrgId: string | null) => {
+  // Marcas que el usuario puede ver, de PostgreSQL (Hub.consultaUsuarioActual → marcasVisibles): todas las activas para el
+  // superadmin, las suyas para los demás. Trabaja con la que tenía elegida; si ya no está (primer inicio de sesión, marca
+  // desactivada, o la guardada en el navegador es de otro proyecto) usa su marca principal y, si tampoco, la primera.
+  const loadOrganizations = async (primaryOrgId: string | null) => {
     try {
-      const orgsSnap = await getDocs(query(collection(db, "organizations"), orderBy("name")));
-      const orgs = orgsSnap.docs.map((d) => ({ id: d.id, name: d.data().name as string }));
+      const r = await consultaUsuarioActual();
+      if (!r.successful) {
+        console.error("Hub.consultaUsuarioActual falló al cargar las marcas:", r.errorCode, r.errorMessage);
+        setOrganizations([]);
+        return;
+      }
+      const orgs = r.info.marcasVisibles.map((m) => ({ id: m.idMarca, name: m.nombre }));
       setOrganizations(orgs);
       const exists = (id: string | null) => !!id && orgs.some((o) => o.id === id);
       const next = exists(selectedOrgId) ? selectedOrgId : exists(primaryOrgId) ? primaryOrgId : orgs[0]?.id ?? null;
@@ -214,34 +221,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshOrganizations = async () => {
-    if (rawUserData?.isSuperAdmin) await loadSuperadminOrgs(rawUserData.organizationId);
+    if (rawUserData) await loadOrganizations(rawUserData.organizationId);
   };
 
-  // Fetch organizations: todas para superadmin, solo las propias para usuario multi-org
   useEffect(() => {
-    if (rawUserData?.isSuperAdmin) {
-      loadSuperadminOrgs(rawUserData.organizationId);
+    if (!rawUserData) {
+      setOrganizations([]);
       return;
     }
-
-    const orgIds = rawUserData?.organizationIds || [];
-    if (orgIds.length > 1) {
-      const fetchUserOrgs = async () => {
-        const orgDocs = await Promise.all(orgIds.map((id) => getDoc(doc(db, "organizations", id))));
-        const orgs = orgDocs
-          .filter((d) => d.exists())
-          .map((d) => ({ id: d.id, name: d.data()!.name as string }));
-        setOrganizations(orgs);
-        if (!selectedOrgId || !orgIds.includes(selectedOrgId)) {
-          setSelectedOrgId(orgIds[0]);
-        }
-      };
-      fetchUserOrgs();
-      return;
-    }
-
-    setOrganizations([]);
-  }, [rawUserData?.isSuperAdmin, rawUserData?.organizationIds?.join(",")]);
+    loadOrganizations(rawUserData.organizationId);
+  }, [user?.uid, !!rawUserData]);
 
   // Nombre de la org activa (para el título de la pestaña). Superadmin y multi-org ya lo
   // tienen en `organizations`; los usuarios de una sola org requieren leer el doc.
