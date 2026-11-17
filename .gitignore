@@ -25,3 +25,6 @@ carga_hub*.sql
 
 # Zips generados por los deploy.ps1 de infra/
 infra/**/*.zip
+
+# Paquetes de dev/deploy_aws.ps1
+/hub-*.zip

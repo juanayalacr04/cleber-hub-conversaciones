@@ -1,0 +1,4 @@
+# Dependencias de las Lambdas del hub (dev/deploy_aws.ps1). boto3 ya viene en el runtime python3.12 de Lambda.
+# google-cloud-firestore sigue mientras Ventas y Servicio no se muden (import modules arrastra su código); se quita con la
+# rebanada 2 (DISENO_BACKEND_AWS.md §8).
+google-cloud-firestore
