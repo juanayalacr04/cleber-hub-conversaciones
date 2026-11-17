@@ -12,10 +12,14 @@ import { OrgSwitcher } from "./OrgSwitcher";
 import { useDismiss } from "./useDismiss";
 import { rolEnModulo, useUsuarioHub } from "./useUsuarioHub";
 
-/** Módulos que el usuario puede ver: admin y superadmin todos; el resto, el de su equipo. */
+/**
+ * Módulos que el usuario puede ver en la marca activa: el superadmin, todos; los demás, aquellos donde tienen rol
+ * (hub_cleber), más General si administran algún módulo de la marca.
+ */
 export function allowedModules(userData: ReturnType<typeof useAuth>["userData"]): ModuleDef[] {
-  if (isAdmin(userData)) return MODULES;
-  return MODULES.filter((m) => m.vertical && m.vertical === userData?.vertical);
+  if (!userData) return [];
+  if (userData.isSuperAdmin) return MODULES;
+  return MODULES.filter((m) => (userData.modulos as string[]).includes(m.id) || (m.id === "general" && isAdmin(userData)));
 }
 
 const SIDEBAR_KEY = "hub_sidebar_collapsed";
@@ -43,22 +47,21 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const mod = getModule(moduleId);
   const allowed = allowedModules(userData);
-  // Valuación ya vive en PostgreSQL: su menú y la pastilla usan el rol de hub_cleber, el mismo con el que la base da
-  // permisos. Mientras no se conoce (cargando o error) no se muestran opciones de administración. Los demás módulos
-  // siguen con el rol de Firestore.
-  const enHub = mod?.id === "valuacion";
-  const { usuario: usuarioHub, error: errorHub } = useUsuarioHub(enHub);
-  const hub = enHub && usuarioHub ? rolEnModulo(usuarioHub, "valuacion", userData?.organizationId ?? null) : null;
-  const admin = enHub ? !!hub?.admin : isAdmin(userData);
-  const superAdmin = enHub ? !!hub?.superAdmin : !!userData?.isSuperAdmin;
-  const etiquetaRol = !enHub ? (userData?.isSuperAdmin ? "superadmin" : userData?.role)
+  // Menú y pastilla con el rol de hub_cleber en el módulo (el mismo con el que la base da permisos). En General, el
+  // resumen de la marca activa.
+  const enModulo = mod?.id === "ventas" || mod?.id === "servicio" || mod?.id === "valuacion";
+  const { usuario: usuarioHub, error: errorHub } = useUsuarioHub();
+  const hub = enModulo && usuarioHub ? rolEnModulo(usuarioHub, mod.id, userData?.organizationId ?? null) : null;
+  const admin = enModulo ? !!hub?.admin : isAdmin(userData);
+  const superAdmin = !!userData?.isSuperAdmin;
+  const etiquetaRol = !enModulo ? (userData?.isSuperAdmin ? "superadmin" : userData?.role === "admin" ? "Administrador" : "Usuario")
     : hub ? hub.etiqueta : errorHub ? "rol no disponible" : "…";
   const section = pathname.split("/")[2] ?? "dashboard";
 
   useEffect(() => {
     if (!userData) return;
     if (!mod || !allowed.some((m) => m.id === mod.id)) {
-      router.replace(allowed.length ? `/${allowed[0].id}/dashboard` : "/login");
+      router.replace(allowed.length ? `/${allowed[0].id}/dashboard` : "/");
     }
   }, [userData, mod, allowed, router]);
 

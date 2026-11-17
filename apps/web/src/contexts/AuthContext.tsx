@@ -1,35 +1,48 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
-import {
-  User,
-  GoogleAuthProvider,
-  signInWithCredential,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-} from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+/**
+ * Sesión del dashboard. La identidad es la de hub_cleber (PostgreSQL):
+ *   1. Login con NextAuth + Google (lib/auth.ts).
+ *   2. Hub.registraInicioSesion: registra el acceso. SIN_PERMISO = el correo no está dado de alta en el hub (o está
+ *      inactivo) → acceso negado. Ya no se lee users/{uid} de Firestore ni se reclama la invitación ahí.
+ *   3. Hub.consultaUsuarioActual: marcas que puede ver y su rol por marca y módulo. De ahí sale `userData`.
+ * Con el id_token se abre además la sesión de Firebase (signInWithCredential), solo para lo que todavía lee Firestore
+ * (Ventas y Servicio); si falla, el dashboard sigue funcionando sin ella.
+ */
+
+import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from "react";
+import { User, GoogleAuthProvider, signInWithCredential, signOut as firebaseSignOut, onAuthStateChanged } from "firebase/auth";
 import { signIn as nextAuthSignIn, signOut as nextAuthSignOut, useSession } from "next-auth/react";
-import { auth, db } from "@/lib/firebase";
-import { callHubAction, HubActionError } from "@/lib/hub-actions";
-import { consultaUsuarioActual } from "@/lib/hub/usuario";
+import { auth } from "@/lib/firebase";
+import { consultaUsuarioActual, registraInicioSesion, type UsuarioHub } from "@/lib/hub/usuario";
+
+export type ModuloHub = "ventas" | "servicio" | "valuacion";
 
 export interface UserData {
+  /** uid de Firebase si hay sesión de Firebase (lo usan las pantallas que leen Firestore); si no, idUsuario del hub */
   id: string;
+  idUsuario: string;
   email: string;
   name: string;
   photoURL: string | null;
+  /** Rol en la marca activa, resumido de sus roles por módulo: ADMINISTRADOR → admin; sin rol operativo → viewer */
   role: "admin" | "agent" | "viewer";
+  /** Marca activa */
   organizationId: string | null;
+  /** Marcas del usuario */
   organizationIds: string[];
+  /** Equipo de ventas/servicio por marca */
   orgTeams: { [orgId: string]: string };
   isSuperAdmin?: boolean;
+  /** Equipo (ventas o servicio) en la marca activa */
   teamId: string | null;
   status: "online" | "away" | "offline";
   createdAt: Date;
   lastLoginAt: Date | null;
-  /** Módulo del equipo activo (teams.vertical). Lo resuelve el contexto, no se guarda en users. */
+  /** Módulo de ventas/servicio donde tiene rol en la marca activa (ventas primero) */
   vertical?: "servicio" | "ventas" | null;
+  /** Módulos donde tiene rol en la marca activa */
+  modulos: ModuloHub[];
 }
 
 interface OrgOption {
@@ -40,6 +53,8 @@ interface OrgOption {
 interface AuthContextType {
   user: User | null;
   userData: UserData | null;
+  /** Usuario de hub_cleber (rol por marca y módulo); null mientras carga o si falló */
+  usuarioHub: UsuarioHub | null;
   loading: boolean;
   accessDenied: boolean;
   userDataError: boolean;
@@ -47,270 +62,184 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   organizations: OrgOption[];
   setSelectedOrgId: (orgId: string) => void;
-  /** Vuelve a leer la lista de marcas (tras crear, renombrar o desactivar una). */
+  /** Vuelve a leer el usuario y sus marcas (tras crear, renombrar o desactivar una marca, o cambiar roles propios). */
   refreshOrganizations: () => Promise<void>;
   currentOrgName: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const MARCA_KEY = "superadmin_selected_org";
+const ROLES_OPERATIVOS = ["AGENTE", "VALUADOR", "GERENTE"];
+
+/** userData de la marca activa a partir del usuario del hub. */
+function construyeUserData(u: UsuarioHub, idMarca: string | null, uidFirebase: string | null): UserData {
+  const marca = u.marcas.find((m) => m.idMarca === idMarca) ?? null;
+  const roles = Object.values(marca?.modulos ?? {}).map((r) => r.rol);
+  const modulos = (Object.keys(marca?.modulos ?? {}) as ModuloHub[]).filter((m) => ["ventas", "servicio", "valuacion"].includes(m));
+  const vertical = marca?.modulos.ventas ? "ventas" : marca?.modulos.servicio ? "servicio" : null;
+  const orgTeams: Record<string, string> = {};
+  for (const m of u.marcas) {
+    const equipo = m.modulos.ventas?.idEquipo ?? m.modulos.servicio?.idEquipo;
+    if (equipo) orgTeams[m.idMarca] = equipo;
+  }
+  return {
+    id: uidFirebase ?? u.idUsuario,
+    idUsuario: u.idUsuario,
+    email: u.email,
+    name: u.nombre || u.email,
+    photoURL: u.fotoUrl,
+    role: u.esSuperAdmin || roles.includes("ADMINISTRADOR") ? "admin" : roles.some((r) => ROLES_OPERATIVOS.includes(r)) ? "agent" : "viewer",
+    organizationId: idMarca,
+    organizationIds: u.marcas.map((m) => m.idMarca),
+    orgTeams,
+    isSuperAdmin: u.esSuperAdmin,
+    teamId: vertical ? marca?.modulos[vertical]?.idEquipo ?? null : null,
+    status: u.estado,
+    createdAt: new Date(u.creadoEn),
+    lastLoginAt: u.ultimoAccesoEn ? new Date(u.ultimoAccesoEn) : null,
+    vertical,
+    modulos,
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Login: NextAuth + Google (lib/auth.ts). Con el id_token de la sesión se abre además la de Firebase
-  // (signInWithCredential), que sigue siendo la que lee Firestore y la que usan las acciones del backend.
   const { data: session, status: sessionStatus } = useSession();
-  const [bridging, setBridging] = useState(false);
-  const bridgeDenied = useRef(false);   // no reintentar el puente en esta sesión después de negar el acceso
   const [user, setUser] = useState<User | null>(null);
-  const [rawUserData, setRawUserData] = useState<UserData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [bridging, setBridging] = useState(false);
+  const [usuarioHub, setUsuarioHub] = useState<UsuarioHub | null>(null);
+  const [perfilPendiente, setPerfilPendiente] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
   const [userDataError, setUserDataError] = useState(false);
+  const denegado = useRef(false);   // no reintentar en esta sesión después de negar el acceso
   const [organizations, setOrganizations] = useState<OrgOption[]>([]);
-  const [fetchedOrg, setFetchedOrg] = useState<{ id: string; name: string } | null>(null);
   const [selectedOrgId, setSelectedOrgIdState] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("superadmin_selected_org");
-    }
-    return null;
+    if (typeof window === "undefined") return null;
+    try { return localStorage.getItem(MARCA_KEY); } catch { return null; }
   });
 
-  const setSelectedOrgId = (orgId: string) => {
+  const setSelectedOrgId = useCallback((orgId: string) => {
     setSelectedOrgIdState(orgId);
-    localStorage.setItem("superadmin_selected_org", orgId);
-  };
-
-  // Derive organizationId and teamId based on selected org
-  const baseUserData: UserData | null = rawUserData
-    ? (() => {
-        // Superadmin: override con org seleccionada (igual que antes)
-        if (rawUserData.isSuperAdmin && selectedOrgId) {
-          return { ...rawUserData, organizationId: selectedOrgId };
-        }
-        const orgIds = rawUserData.organizationIds || [];
-        // Varias marcas: la activa es la elegida en el selector, si está entre las que puede ver (hub_cleber)
-        if (organizations.length > 1 && selectedOrgId && organizations.some((o) => o.id === selectedOrgId)) {
-          return {
-            ...rawUserData,
-            organizationId: selectedOrgId,
-            // Fallback al teamId legacy si la org seleccionada es la org principal del usuario
-            // (cubre el caso donde orgTeams no fue migrado aún para esa org)
-            teamId: rawUserData.orgTeams?.[selectedOrgId] ??
-              (selectedOrgId === rawUserData.organizationId ? rawUserData.teamId ?? null : null),
-          };
-        }
-        // Si organizationId es null pero tiene orgs en el array, usar la primera
-        if (!rawUserData.organizationId && orgIds.length > 0) {
-          const firstOrg = orgIds[0];
-          return {
-            ...rawUserData,
-            organizationId: firstOrg,
-            teamId: rawUserData.orgTeams?.[firstOrg] ?? rawUserData.teamId ?? null,
-          };
-        }
-        // Single-org: derive teamId from orgTeams[organizationId] in case only orgTeams was set
-        // (handleChangeTeam only updates orgTeams, not the global teamId)
-        const orgId = rawUserData.organizationId;
-        if (orgId) {
-          const derivedTeamId = rawUserData.orgTeams?.[orgId] ?? rawUserData.teamId ?? null;
-          if (derivedTeamId !== rawUserData.teamId) {
-            return { ...rawUserData, teamId: derivedTeamId };
-          }
-        }
-        return rawUserData;
-      })()
-    : null;
-
-  // Módulo del usuario: la vertical de su equipo activo
-  const [teamVertical, setTeamVertical] = useState<{ teamId: string; vertical: UserData["vertical"] } | null>(null);
-  const activeTeamId = baseUserData?.teamId ?? null;
-  useEffect(() => {
-    if (!activeTeamId) return;
-    let cancelled = false;
-    getDoc(doc(db, "teams", activeTeamId))
-      .then((snap) => !cancelled && setTeamVertical({ teamId: activeTeamId, vertical: (snap.data()?.vertical ?? null) as UserData["vertical"] }))
-      .catch(() => !cancelled && setTeamVertical({ teamId: activeTeamId, vertical: null }));
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTeamId]);
-  const verticalPending = !!activeTeamId && teamVertical?.teamId !== activeTeamId;
-  const userData: UserData | null = baseUserData
-    ? { ...baseUserData, vertical: activeTeamId && teamVertical?.teamId === activeTeamId ? teamVertical.vertical : null }
-    : null;
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-
-      if (!firebaseUser) {
-        setRawUserData(null);
-        setUserDataError(false);
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const userRef = doc(db, "users", firebaseUser.uid);
-        let userSnap = await getDoc(userRef);
-        let justClaimed = false;
-
-        if (!userSnap.exists()) {
-          // Primer inicio de sesión de alguien invitado: la función 2 convierte el documento pre-registrado
-          // por email en users/{uid} (rol, marcas y equipo salen de la invitación, no del cliente)
-          try {
-            await callHubAction(firebaseUser, "me.claim_invite");
-            userSnap = await getDoc(userRef);
-            justClaimed = true;
-          } catch (claimError) {
-            if (!(claimError instanceof HubActionError && claimError.code === "no_autorizado")) throw claimError;
-          }
-        }
-
-        if (userSnap.exists()) {
-          // La última conexión y el estado los escribe la función 2; si falla no se bloquea el acceso
-          if (!justClaimed) {
-            await callHubAction(firebaseUser, "me.sign_in").catch((e) => console.error("No se pudo registrar el inicio de sesión:", e));
-          }
-          const data = userSnap.data();
-
-          // Sin migración lazy de organizationIds/orgTeams: en el hub nacen completos (alta o migración de datos)
-          const updated = { ...data, teamId: data.teamId || null, lastLoginAt: new Date(), status: "online" } as UserData;
-          setRawUserData(updated);
-        } else {
-          // Not invited — deny access and sign out (también de NextAuth: si no, el puente volvería a entrar)
-          setAccessDenied(true);
-          bridgeDenied.current = true;
-          await firebaseSignOut(auth);
-          await nextAuthSignOut({ redirect: false });
-          setUser(null);
-          setRawUserData(null);
-        }
-      } catch (error) {
-        // Sin este catch un fallo (típicamente permisos de Firestore en el primer login
-        // de un invitado) dejaba userData en null con loading ya en false, y el dashboard
-        // renderizaba con los fallbacks del Sidebar ("Usuario" / "viewer") sin señal alguna.
-        console.error("Error cargando el perfil del usuario:", error);
-        setUserDataError(true);
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    return () => unsubscribe();
+    try { localStorage.setItem(MARCA_KEY, orgId); } catch { /* sin storage */ }
   }, []);
 
-  // Marcas que el usuario puede ver, de PostgreSQL (Hub.consultaUsuarioActual → marcasVisibles): todas las activas para el
-  // superadmin, las suyas para los demás. Trabaja con la que tenía elegida; si ya no está (primer inicio de sesión, marca
-  // desactivada, o la guardada en el navegador es de otro proyecto) usa su marca principal y, si tampoco, la primera.
-  const loadOrganizations = async (primaryOrgId: string | null) => {
-    try {
-      const r = await consultaUsuarioActual();
-      if (!r.successful) {
-        console.error("Hub.consultaUsuarioActual falló al cargar las marcas:", r.errorCode, r.errorMessage);
-        setOrganizations([]);
-        return;
-      }
-      const orgs = r.info.marcasVisibles.map((m) => ({ id: m.idMarca, name: m.nombre }));
-      setOrganizations(orgs);
-      const exists = (id: string | null) => !!id && orgs.some((o) => o.id === id);
-      const next = exists(selectedOrgId) ? selectedOrgId : exists(primaryOrgId) ? primaryOrgId : orgs[0]?.id ?? null;
-      if (next && next !== selectedOrgId) setSelectedOrgId(next);
-    } catch (error) {
-      console.error("Error cargando las marcas:", error);
+  // Marca activa: la elegida si la puede ver; si no, la primera de las suyas o de las visibles
+  const idMarca = (() => {
+    if (!usuarioHub) return null;
+    if (selectedOrgId && organizations.some((o) => o.id === selectedOrgId)) return selectedOrgId;
+    return usuarioHub.marcas[0]?.idMarca ?? organizations[0]?.id ?? null;
+  })();
+  const userData = usuarioHub ? construyeUserData(usuarioHub, idMarca, user?.uid ?? null) : null;
+
+  /** Usuario y marcas visibles (Hub.consultaUsuarioActual). */
+  const cargaUsuario = useCallback(async () => {
+    const r = await consultaUsuarioActual();
+    if (!r.successful) {
+      console.error("Hub.consultaUsuarioActual falló:", r.errorCode, r.errorMessage);
+      return r;
     }
-  };
+    setUsuarioHub(r.info.usuario);
+    setOrganizations(r.info.marcasVisibles.map((m) => ({ id: m.idMarca, name: m.nombre })));
+    return r;
+  }, []);
 
-  const refreshOrganizations = async () => {
-    if (rawUserData) await loadOrganizations(rawUserData.organizationId);
-  };
+  const niegaAcceso = useCallback(async () => {
+    denegado.current = true;
+    setAccessDenied(true);
+    setUsuarioHub(null);
+    await firebaseSignOut(auth).catch(() => {});
+    await nextAuthSignOut({ redirect: false });
+  }, []);
 
+  // Al tener sesión de NextAuth: registra el acceso en el hub y carga el usuario
+  const email = session?.user?.email ?? null;
   useEffect(() => {
-    if (!rawUserData) {
-      setOrganizations([]);
-      return;
-    }
-    loadOrganizations(rawUserData.organizationId);
-  }, [user?.uid, !!rawUserData]);
-
-  // Nombre de la org activa (para el título de la pestaña). Superadmin y multi-org ya lo
-  // tienen en `organizations`; los usuarios de una sola org requieren leer el doc.
-  const activeOrgId = userData?.organizationId ?? null;
-  const orgNameFromList = organizations.find((o) => o.id === activeOrgId)?.name ?? null;
-  const currentOrgName = orgNameFromList ?? (fetchedOrg?.id === activeOrgId ? fetchedOrg.name : null);
-
-  useEffect(() => {
-    if (!activeOrgId || orgNameFromList) return;
-
-    let cancelled = false;
-    getDoc(doc(db, "organizations", activeOrgId))
-      .then((snap) => {
-        if (!cancelled && snap.exists()) {
-          setFetchedOrg({ id: activeOrgId, name: snap.data().name as string });
+    if (sessionStatus !== "authenticated" || !session?.idToken || session.error || denegado.current) return;
+    let vivo = true;
+    setPerfilPendiente(true);
+    setUserDataError(false);
+    (async () => {
+      try {
+        const r = await registraInicioSesion({ nombre: session.user?.name, fotoUrl: session.user?.image });
+        if (!vivo) return;
+        if (!r.successful) {
+          if (r.errorCode === "SIN_PERMISO") return niegaAcceso();
+          if (r.errorCode === "SESION_EXPIRADA") return nextAuthSignOut({ redirectTo: "/login" });
+          console.error("Hub.registraInicioSesion falló:", r.errorCode, r.errorMessage);
+          setUserDataError(true);
+          return;
         }
-      })
-      .catch(() => {});
+        const c = await cargaUsuario();
+        if (vivo && !c.successful) setUserDataError(true);
+      } catch (e) {
+        console.error("No se pudo cargar el perfil del hub:", e);
+        if (vivo) setUserDataError(true);
+      } finally {
+        if (vivo) setPerfilPendiente(false);
+      }
+    })();
+    return () => { vivo = false; };
+    // Una vez por cuenta: el id_token se renueva y no hace falta volver a registrar el acceso
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionStatus, email]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [activeOrgId, orgNameFromList]);
+  useEffect(() => {
+    if (sessionStatus === "unauthenticated") {
+      setUsuarioHub(null);
+      setOrganizations([]);
+    }
+  }, [sessionStatus]);
 
-  // Puente NextAuth → Firebase. La sesión de NextAuth manda: sin ella no hay sesión de Firebase.
+  const refreshOrganizations = useCallback(async () => { await cargaUsuario(); }, [cargaUsuario]);
+
+  // Recuerda la marca efectiva (p. ej. la primera, si la guardada ya no se puede ver)
+  useEffect(() => {
+    if (idMarca && idMarca !== selectedOrgId) setSelectedOrgId(idMarca);
+  }, [idMarca, selectedOrgId, setSelectedOrgId]);
+
+  const currentOrgName = organizations.find((o) => o.id === idMarca)?.name
+    ?? usuarioHub?.marcas.find((m) => m.idMarca === idMarca)?.nombre ?? null;
+
+  // Sesión de Firebase (solo lectura de Firestore). La de NextAuth manda.
+  useEffect(() => onAuthStateChanged(auth, setUser), []);
   useEffect(() => {
     if (sessionStatus === "loading") return;
     if (sessionStatus === "unauthenticated") {
-      bridgeDenied.current = false;
-      if (auth.currentUser) firebaseSignOut(auth).catch(() => {});   // p. ej. una sesión vieja de signInWithPopup
+      denegado.current = false;
+      if (auth.currentUser) firebaseSignOut(auth).catch(() => {});
       return;
     }
     if (session?.error === "RENOVACION_FALLIDA") {
-      // El id_token venció y no se pudo renovar: hay que volver a entrar
       firebaseSignOut(auth).finally(() => nextAuthSignOut({ redirectTo: "/login" }));
       return;
     }
     const idToken = session?.idToken;
-    if (!idToken || bridgeDenied.current || auth.currentUser) return;
-
-    let cancelled = false;
+    if (!idToken || denegado.current || auth.currentUser) return;
+    let vivo = true;
     setBridging(true);
     signInWithCredential(auth, GoogleAuthProvider.credential(idToken))
-      .catch((error) => {
-        console.error("No se pudo abrir la sesión de Firebase con el token de Google:", error);
-        if (!cancelled) setUserDataError(true);
-      })
-      .finally(() => !cancelled && setBridging(false));
-    return () => {
-      cancelled = true;
-    };
+      .catch((e) => console.error("No se pudo abrir la sesión de Firebase (lo que lee Firestore no estará disponible):", e))
+      .finally(() => vivo && setBridging(false));
+    return () => { vivo = false; };
   }, [sessionStatus, session?.idToken, session?.error]);
 
   const signInWithGoogle = async () => {
     setAccessDenied(false);
-    bridgeDenied.current = false;
-    // Redirige a Google; al volver, el puente abre la sesión de Firebase
+    denegado.current = false;
     await nextAuthSignIn("google", { redirectTo: "/" });
   };
 
   const signOut = async () => {
-    try {
-      // Estado offline antes de cerrar sesión (la función 2 lo escribe); si falla, la sesión se cierra igual
-      if (user) {
-        await callHubAction(user, "me.sign_out").catch((e) => console.error("No se pudo marcar offline:", e));
-      }
-      await firebaseSignOut(auth);
-      await nextAuthSignOut({ redirectTo: "/login" });
-    } catch (error) {
-      console.error("Error signing out:", error);
-      throw error;
-    }
+    await firebaseSignOut(auth).catch(() => {});
+    await nextAuthSignOut({ redirectTo: "/login" });
   };
 
-  const sessionPending = sessionStatus === "loading" || bridging
-    || (sessionStatus === "authenticated" && !!session?.idToken && !user && !bridgeDenied.current && !userDataError);
+  const loading = sessionStatus === "loading" || perfilPendiente || bridging
+    || (sessionStatus === "authenticated" && !usuarioHub && !accessDenied && !userDataError && !session?.error);
 
   return (
     <AuthContext.Provider
-      value={{ user, userData, loading: loading || verticalPending || sessionPending, accessDenied, userDataError, signInWithGoogle, signOut, organizations, setSelectedOrgId, refreshOrganizations, currentOrgName }}
+      value={{ user, userData, usuarioHub, loading, accessDenied, userDataError, signInWithGoogle, signOut, organizations, setSelectedOrgId, refreshOrganizations, currentOrgName }}
     >
       {children}
     </AuthContext.Provider>
@@ -325,7 +254,7 @@ export function useAuth() {
   return context;
 }
 
-/** Administrador de la marca o superadmin. */
+/** Administrador en la marca activa (de algún módulo) o superadmin. */
 export function isAdmin(u: UserData | null): boolean {
   return !!u && (u.role === "admin" || u.isSuperAdmin === true);
 }

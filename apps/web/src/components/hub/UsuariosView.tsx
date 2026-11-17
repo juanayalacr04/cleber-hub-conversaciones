@@ -79,7 +79,7 @@ function SelectorAgencias({ opciones, valor, onChange, nombre, errorCatalogo }: 
 
 /** `modulo`: el del menú (filtra la lista y es el módulo del rol al invitar); null = General, se elige el módulo. */
 export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
-  const { userData, currentOrgName } = useAuth();
+  const { userData, currentOrgName, refreshOrganizations } = useAuth();
   const idMarca = userData?.organizationId ?? null;
   const miEmail = userData?.email?.toLowerCase() ?? "";
 
@@ -221,6 +221,7 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
       });
       if (!r.successful) { fallo(r, "No se pudo guardar"); return; }
       toast.success(`${editando.nombre || editando.email} actualizado`);
+      if (editando.email === miEmail) refreshOrganizations();   // sus propios roles: menú y módulos
       setEditando(null);
       carga();
     } finally {

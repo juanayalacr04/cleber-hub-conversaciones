@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { consultaUsuarioActual, type UsuarioHub } from "@/lib/hub/usuario";
+import { useAuth } from "@/contexts/AuthContext";
+import type { UsuarioHub } from "@/lib/hub/usuario";
 
 /** Roles de cada módulo con es_administrador (Datos_maestros/roles_modulo.sql). */
 const ROLES_ADMINISTRADOR = ["ADMINISTRADOR"];
@@ -11,27 +11,10 @@ const NOMBRE_ROL: Record<string, string> = {
   ADMINISTRADOR: "Administrador", GERENTE: "Gerente", VALUADOR: "Valuador", CONSULTA: "Consulta", AGENTE: "Agente",
 };
 
-/**
- * Usuario de hub_cleber, pedido una vez por carga de página. `usuario` es null mientras carga o si falla; `error`
- * dice por qué falló (se escribe también en la consola del navegador).
- */
-export function useUsuarioHub(activo: boolean) {
-  const [usuario, setUsuario] = useState<UsuarioHub | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!activo) return;
-    let vivo = true;
-    consultaUsuarioActual()
-      .then((r) => {
-        if (!vivo) return;
-        if (r.successful) { setUsuario(r.info.usuario); setError(null); return; }
-        console.error("Hub.consultaUsuarioActual falló:", r.errorCode, r.errorMessage, r.info ?? "");
-        setError(`${r.errorCode}: ${r.errorMessage}`);
-      })
-      .catch((e) => { console.error("Hub.consultaUsuarioActual falló:", e); if (vivo) setError(String(e)); });
-    return () => { vivo = false; };
-  }, [activo]);
-  return { usuario, error };
+/** Usuario de hub_cleber de la sesión (lo carga AuthContext al entrar). `error` si no se pudo cargar. */
+export function useUsuarioHub() {
+  const { usuarioHub, userDataError } = useAuth();
+  return { usuario: usuarioHub, error: userDataError ? "No se pudo cargar el usuario del hub" : null };
 }
 
 /**
