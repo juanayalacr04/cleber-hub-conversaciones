@@ -5,8 +5,8 @@
  * el administrador de un módulo cambia roles y equipos de ese módulo; cualquier administrador de la marca, sus agencias;
  * el super admin, todo. `permisos` de Hub.consultaUsuarios dice qué módulos puede editar quien consulta.
  *
- * Alta: correo, rol y agencias. La marca es la de la pantalla y no se cambia. Agencias asignables: el super admin, todas
- * las de la marca (catálogo de Cleber, lib/hub/agencias.ts); los demás, solo las que ellos mismos tienen en la marca.
+ * Alta: correo, rol y agencias. La marca es la de la pantalla y no se cambia. Quien administra la marca (o el super admin)
+ * asigna cualquier agencia de su catálogo (catálogo de Cleber, lib/hub/agencias.ts).
  *
  * Los equipos (idEquipo) siguen en Firestore (teams) hasta la Fase 4; valuación no usa equipos.
  */
@@ -19,7 +19,6 @@ import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { useUsuarioHub } from "@/components/shell/useUsuarioHub";
 import { db } from "@/lib/firebase";
 import { consultaAgenciasMarca } from "@/lib/hub/agencias";
 import {
@@ -49,14 +48,14 @@ type Asignacion = { rol: string; idEquipo: string };
 const iniciales = (u: UsuarioEnMarca) => (u.nombre || u.email).split(/[\s@.]+/).filter(Boolean).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-/** Casillas de agencias. Las asignadas que quien edita no puede asignar se muestran fijas y se conservan. */
+/** Casillas de agencias del catálogo. Las asignadas que ya no están en el catálogo se muestran aparte y se pueden quitar. */
 function SelectorAgencias({ opciones, valor, onChange, nombre, errorCatalogo }: {
   opciones: Agencia[]; valor: string[]; onChange: (v: string[]) => void; nombre: (id: string) => string; errorCatalogo: string | null;
 }) {
   const fuera = valor.filter((id) => !opciones.some((o) => o.id === id));
   const cambia = (id: string, on: boolean) => onChange(on ? [...valor, id].sort() : valor.filter((x) => x !== id));
   if (opciones.length === 0 && fuera.length === 0) {
-    return <p className="text-sm text-muted-foreground">{errorCatalogo ?? "No hay agencias que puedas asignar en esta marca."}</p>;
+    return <p className="text-sm text-muted-foreground">{errorCatalogo ?? "El catálogo no tiene agencias para esta marca."}</p>;
   }
   return (
     <div className="max-h-56 overflow-y-auto rounded-md border divide-y">
@@ -68,10 +67,10 @@ function SelectorAgencias({ opciones, valor, onChange, nombre, errorCatalogo }: 
         </label>
       ))}
       {fuera.map((id) => (
-        <label key={id} className="flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground">
-          <input type="checkbox" checked disabled />
+        <label key={id} className="flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground cursor-pointer hover:bg-muted/50">
+          <input type="checkbox" checked onChange={() => cambia(id, false)} />
           <span className="grow">{nombre(id)}</span>
-          <span className="text-xs">fuera de las que puedes asignar</span>
+          <span className="text-xs">no está en el catálogo</span>
         </label>
       ))}
     </div>
@@ -83,8 +82,6 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
   const { userData, currentOrgName } = useAuth();
   const idMarca = userData?.organizationId ?? null;
   const miEmail = userData?.email?.toLowerCase() ?? "";
-  const { usuario: yoHub } = useUsuarioHub(true);
-  const soySuper = !!yoHub?.esSuperAdmin;
 
   const [datos, setDatos] = useState<ConsultaUsuarios | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -162,13 +159,6 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
   const modulosEditables = useMemo(
     () => (modulo && editables.includes(modulo) ? [modulo, ...editables.filter((m) => m !== modulo)] : editables),
     [editables, modulo]);
-
-  // Agencias que quien invita/edita puede asignar: super admin, todas las de la marca; los demás, las suyas en la marca
-  const agenciasAsignables = useMemo<Agencia[]>(() => {
-    if (soySuper) return catalogo;
-    const mias = yoHub?.marcas.find((m) => m.idMarca === idMarca)?.agencias ?? [];
-    return mias.map((id) => catalogo.find((a) => a.id === id) ?? { id, nombre: id }).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
-  }, [soySuper, catalogo, yoHub, idMarca]);
 
   // ---- Alta
   const moduloAlta: ModuloHub | "" = modulo && editables.includes(modulo) ? modulo : alta.modulo;
@@ -403,9 +393,8 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
 
             <div className="space-y-2">
               <Label>Agencias a las que tiene acceso</Label>
-              <SelectorAgencias opciones={agenciasAsignables} valor={alta.agencias} nombre={nombreAgencia} errorCatalogo={errorCatalogo}
+              <SelectorAgencias opciones={catalogo} valor={alta.agencias} nombre={nombreAgencia} errorCatalogo={errorCatalogo}
                 onChange={(v) => setAlta((a) => ({ ...a, agencias: v }))} />
-              {!soySuper && <p className="text-xs text-muted-foreground">Solo puedes asignar agencias que tú tienes en esta marca.</p>}
             </div>
 
             <div className="flex justify-end gap-2">
@@ -468,7 +457,7 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
                 {puedeAgencias && (
                   <div className="space-y-2">
                     <Label>Agencias a las que tiene acceso</Label>
-                    <SelectorAgencias opciones={agenciasAsignables} valor={agenciasEdit} onChange={setAgenciasEdit} nombre={nombreAgencia} errorCatalogo={errorCatalogo} />
+                    <SelectorAgencias opciones={catalogo} valor={agenciasEdit} onChange={setAgenciasEdit} nombre={nombreAgencia} errorCatalogo={errorCatalogo} />
                   </div>
                 )}
 
