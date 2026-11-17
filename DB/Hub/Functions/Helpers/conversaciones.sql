@@ -32,7 +32,49 @@ BEGIN
 END;
 $$;
 
--- Teléfono requerido u opcional de los params, en E.164.
+-- Teléfono de un NÚMERO propio (el remitente de WhatsApp), tal como está registrado en el proveedor: no se le aplica la
+-- regla de México de clientes.normaliza_telefono, que quita el 1 de +521… (Twilio rechaza el envío si el From no es
+-- exactamente el remitente registrado: error 63007). Quita "whatsapp:", espacios, guiones y paréntesis.
+--   +5215512345678 → +5215512345678 · 5512345678 → +525512345678 · 5215512345678 → +5215512345678
+CREATE OR REPLACE FUNCTION hub_cleber.telefono_numero(p_telefono text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_limpio  text := btrim(regexp_replace(coalesce(p_telefono, ''), '^\s*whatsapp:', '', 'i'));
+  v_digitos text := regexp_replace(v_limpio, '\D', '', 'g');
+BEGIN
+  IF v_limpio !~ '^\+?[0-9 ()-]+$' THEN
+    RETURN NULL;
+  END IF;
+  IF left(v_limpio, 1) <> '+' AND length(v_digitos) = 10 THEN
+    RETURN '+52' || v_digitos;              -- 10 dígitos sin código de país: México
+  END IF;
+  IF length(v_digitos) BETWEEN 8 AND 15 THEN
+    RETURN '+' || v_digitos;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION hub_cleber.param_telefono_numero(p_params jsonb, p_campo text, p_requerido boolean DEFAULT true)
+RETURNS text
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_texto    text := hub_cleber.param_texto(p_params, p_campo, p_requerido);
+  v_telefono text := hub_cleber.telefono_numero(v_texto);
+BEGIN
+  IF v_texto IS NOT NULL AND v_telefono IS NULL THEN
+    PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('El campo %s debe ser un teléfono (+código de país y número)', p_campo),
+      jsonb_build_object('campo', p_campo));
+  END IF;
+  RETURN v_telefono;
+END;
+$$;
+
+-- Teléfono de un CLIENTE, requerido u opcional, en E.164 (regla de México de clientes).
 CREATE OR REPLACE FUNCTION hub_cleber.param_telefono(p_params jsonb, p_campo text, p_requerido boolean DEFAULT true)
 RETURNS text
 LANGUAGE plpgsql

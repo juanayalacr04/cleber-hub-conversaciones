@@ -148,6 +148,9 @@ BEGIN
   i := pg_temp.error(pg_temp.llama('Hub.guardaNumero', jsonb_build_object('idMarca', c_marca, 'modulo', 'valuacion', 'telefono', '5500000001',
                                    'nombre', 'Otro', 'proveedor', 'meta')), 'ESTADO_INVALIDO', '1.12 Un segundo número activo del módulo se rechaza');
   PERFORM pg_temp.igual(i->>'motivo', 'NUMERO_EXISTENTE', '1.13 ... con motivo NUMERO_EXISTENTE');
+  PERFORM pg_temp.igual(hub_cleber.telefono_numero('whatsapp:+52 1 55 9999 0000') || '/' || hub_cleber.telefono_numero('5599990000')
+                        || '/' || clientes.normaliza_telefono('+5215599990000'),
+                        '+5215599990000/+525599990000/+525599990000', '1.11b El número propio conserva el 1 (+521); el del cliente no');
   i := pg_temp.error(pg_temp.llama('Hub.guardaNumero', jsonb_build_object('idNumero', v_numero, 'idEquipo', 'no-existe')),
                      'CAMPO_INVALIDO', '1.14 Un equipo que no es del módulo se rechaza');
 

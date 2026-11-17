@@ -31,7 +31,7 @@ BEGIN
   v_actor  := hub_cleber.usuario_actual();
   PERFORM hub_cleber.exige_sistema(v_actor);
 
-  v_telefono := hub_cleber.param_telefono(v_params, 'telefono', false);
+  v_telefono := hub_cleber.param_telefono_numero(v_params, 'telefono', false);
   v_meta     := hub_cleber.param_texto(v_params, 'metaPhoneNumberId', false);
   v_marca    := upper(hub_cleber.param_texto(v_params, 'idMarca', false));
   v_modulo   := hub_cleber.param_modulo(v_params, 'modulo', false);

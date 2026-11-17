@@ -2,7 +2,8 @@
 --
 -- Cada módulo tiene su propio número en cada marca (decisión A8, 2026-11-17): a lo más un número activo por
 -- (marca, módulo), y un teléfono no puede estar activo en dos números.
--- telefono en E.164 (+52...), sin el prefijo "whatsapp:".
+-- telefono en E.164 tal como está registrado en el proveedor (en México puede ser +521...), sin "whatsapp:";
+-- hub_cleber.telefono_numero, no la regla de clientes (que quita el 1).
 -- config_proveedor: ids no secretos del proveedor (twilioAccountSid, metaPhoneNumberId, valuetextSenderId).
 -- plantillas: plantillas por uso (handoff de servicio, cierre por inactividad, situación, oferta de valuación...).
 -- Los tokens (Twilio, Meta, token de verificación del webhook de Meta) van en Secrets Manager; secretos_configurados

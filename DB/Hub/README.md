@@ -131,7 +131,7 @@ Reglas:
 - **Un número por módulo y marca** (A8): a lo más uno activo por (marca, módulo), y un teléfono activo en un solo número.
 - **Una conversación abierta por número + cliente**. El número dice la marca y el módulo; `id_bot` es el bot que contesta ahora.
 - Ids `text` en equipos, bots, números y conversaciones: lo importado de Firestore conserva su id (sin traducir referencias); lo nuevo recibe un UUID en texto. Mensajes y bitácora: `bigint` (en JSON van como texto).
-- Teléfonos en E.164 (`+52` + 10 dígitos con la regla de `clientes`; otros países si ya traen `+`).
+- Teléfonos en E.164. Los de **clientes** con la regla de `clientes.normaliza_telefono` (`+52` + 10 dígitos; quita el 1 de `+521…`). Los de los **números propios** (remitentes) tal como están registrados en el proveedor (`hub_cleber.telefono_numero`): Twilio rechaza el envío (63007) si el `From` no es exactamente el remitente, y en México suele estar registrado como `+521…`.
 - **Ninguna credencial en la base**: `config` de bots y `configProveedor` / `plantillas` de números rechazan llaves de credenciales; van en Secrets Manager y `secretos_configurados` solo dice cuáles están puestas.
 - Cada cambio de una conversación sube `version` (el aviso de tiempo real la lleva).
 

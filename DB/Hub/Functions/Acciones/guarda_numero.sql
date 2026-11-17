@@ -8,7 +8,8 @@
     Params:
       idNumero? (string)
       idMarca, modulo (string)          requeridos en el alta
-      telefono (string)                 requerido en el alta; se guarda en E.164 (+52...)
+      telefono (string)                 requerido en el alta; tal como está registrado en el proveedor (+521... se conserva;
+                                        10 dígitos sin código → +52)
       nombre (string)                   requerido en el alta
       proveedor (string)                requerido en el alta: twilio / meta / valuetext
       idEquipo?, idBotDefault? (string) del mismo módulo y marca; null los quita
@@ -53,7 +54,7 @@ BEGIN
   v_actor  := hub_cleber.usuario_actual();
 
   v_id         := hub_cleber.param_texto(v_params, 'idNumero', false);
-  v_telefono   := hub_cleber.param_telefono(v_params, 'telefono', false);
+  v_telefono   := hub_cleber.param_telefono_numero(v_params, 'telefono', false);
   v_nombre     := hub_cleber.param_texto(v_params, 'nombre', false);
   v_proveedor  := hub_cleber.param_opcion(v_params, 'proveedor', ARRAY['twilio', 'meta', 'valuetext'], false);
   v_equipo     := hub_cleber.param_texto(v_params, 'idEquipo', false);
