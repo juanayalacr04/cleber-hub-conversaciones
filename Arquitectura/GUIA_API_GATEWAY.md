@@ -1,5 +1,7 @@
 # Guía — API Gateway para el hub y valuación
 
+> **Nota (2026-11-18):** el hub pasa a tener su propio API, `API CLEBER - Hub Conversaciones`, en la cuenta 807746362931: ver [`GUIA_API_HUB_CONVERSACIONES.md`](GUIA_API_HUB_CONVERSACIONES.md). Esta guía describe las rutas en el API compartido y sigue sirviendo de referencia para el authorizer y PostgREST. En dev, el API compartido de esa cuenta es `api-cleber` (`hcd3skw782`), con el authorizer `google-id-token-dev` → Lambda `authorizer-google-dev`; `z66x2zyooj` está en otra cuenta.
+
 Configura en el **API Gateway REST v1 de Cleber** (`z66x2zyooj`, stage `v3`, `us-east-1`) lo que necesita el dashboard para llegar a PostgreSQL con la identidad del usuario:
 
 ```
@@ -143,6 +145,22 @@ Acepta el permiso para que API Gateway invoque la Lambda.
 ## Paso 4 — Ruta `/hub-cleber/{proxy+}`
 
 Igual que el paso 3, con el recurso `hub-cleber` (así se llama en dev; `lib/api.ts` lo usa para la ruta lógica `hub`) y `Content-Profile` / `Accept-Profile` = `'hub_cleber'`.
+
+## Paso 4b — Ruta `/toma-unidades-acciones` (Lambda de valuación)
+
+Para las acciones de valuación que no son plpgsql sino de su Lambda (hoy `TomaUnidades.enviaOferta`, el botón **Enviar** de Ofertas). `lib/api.ts` la llama con `api.lambda("toma-unidades-acciones", ...)`.
+
+1. *Resources → `/` → Create Resource*: `toma-unidades-acciones` (sin proxy resource).
+2. En `/toma-unidades-acciones` crea **POST**:
+   - Integration type: **Lambda Function**, **Use Lambda Proxy integration** activado.
+   - Lambda Function: `toma-unidades-en-taller-api-dev`. Acepta el permiso para que API Gateway la invoque.
+3. **Method Request**: Authorization `google-id-token`, API Key Required **true**.
+4. No hay mapeo de headers: con integración proxy a Lambda no se pueden fijar. La Lambda lee el email en `event.requestContext.authorizer.email`, que pone el authorizer y el cliente no puede alterar. Por esta ruta la Lambda solo acepta acciones de usuario (`ACCIONES_USUARIO` en su `index.mjs`); las de sistema (`procesaDiaSiguiente`, `procesaAgencia`) responden `SIN_PERMISO`.
+5. Lo que necesita la Lambda de valuación (`toma-unidades-en-taller/CLAUDE.md`):
+   - Variable `HUB_ENTRY_POINT` = `hub-entry-point-dev`.
+   - En su rol: `lambda:InvokeFunction` sobre `arn:aws:lambda:us-east-1:<cuenta>:function:hub-entry-point-dev`.
+   - Desplegar el código nuevo: `.\deploy.ps1 dev` en `toma-unidades-en-taller`.
+6. Límite: el gateway corta a los 29 s. `enviaOferta` hace dos llamadas a PostgREST e invoca al hub, que llama varias veces a PostgREST y una vez al proveedor; normalmente son pocos segundos. Si el proveedor tarda de más, el gateway responde 504 aunque el envío termine: la oferta queda con el resultado correcto y se ve al recargar.
 
 ## Paso 5 — API key y despliegue
 

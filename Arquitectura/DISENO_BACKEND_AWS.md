@@ -35,7 +35,7 @@ Navegador           │ API Gateway REST v1 (z66x2zyooj)                        
  │                  Lambda router ──► SQS FIFO hub-entrantes ──► Lambda entrantes ──invoke──► Lambda bot ──► Abacus
  │                                         (grupo = número + cliente)        │                          │
  │                  EventBridge Scheduler ──► Lambda jobs                    ├──► Twilio / Meta / ValueText (por NAT)
- │                  Lambda TomaUnidades.enviaOferta ──invoke──► Lambda contrato-entrada                 │
+ │                  Lambda TomaUnidades.enviaOferta ──invoke──► Lambda entry-point                 │
  │                                                                           └──► publica avisos ─┐
  │                                                                                                ▼
  └─ suscripción WebSocket (id_token) ◄──────────────────────────────── AppSync Events (canales por marca y módulo)
@@ -56,7 +56,7 @@ Navegador           │ API Gateway REST v1 (z66x2zyooj)                        
 | `bot` | `hub-bot` | Invocación directa | 300 s | Concurrencia reservada propia. Se quita `X-Service-Secret` |
 | `actions-execute` | `hub-acciones-bot` | API Gateway (API key del bot) | 120 s | Ver §9, límite de 29 s |
 | `user-actions-execute` | `hub-acciones-usuario` | API Gateway con authorizer Google | 29 s | Deja de verificar el token de Firebase: usa `X-User-Email`. Campañas: ver abajo |
-| *(nuevo)* contrato ① | `hub-contrato-entrada` | Invocación directa (Valuación) y API Gateway `/internal` (Salesforce, otros) | 60 s | §5 |
+| *(nuevo)* contrato ① | `hub-entry-point` | Invocación directa (Valuación) y API Gateway `/internal` (Salesforce, otros) | 60 s | §5 |
 | `lead-webhook`, `close-by-phone`, `situacion-detectada` | Se mudan en la rebanada de Ventas/Servicio | API Gateway | | |
 | `jobs-run`, `inactivity-followup` | `hub-jobs` | EventBridge Scheduler | 600 s | Concurrencia reservada 1. Se quita `X-Cron-Secret` |
 | `health` | Se elimina | | | CloudWatch y alarmas lo cubren |
@@ -93,8 +93,8 @@ Lo que dice `DISENO_MIGRACION_POSTGRES.md` §7, con dos cambios:
 
 ### 4.6 Dependencias y empaquetado
 - Se quitan `functions-framework`, `google-cloud-pubsub`, `google-cloud-firestore` y `firebase-admin`; se agrega `boto3`.
-- **Imagen de contenedor** en ECR (una para todas las funciones; cambia el `CMD` del handler).
-- `dev/deploy.ps1` → script de despliegue a AWS siguiendo `toma-unidades-en-taller/deploy.ps1`. Sigue siendo la única fuente de tiempos, memoria y concurrencia por función.
+- **Un .zip** para todas las funciones (cambia solo el handler), Python 3.12 arm64, con las dependencias de `requirements-lambda.txt` instaladas para Linux con `pip --platform` (sin Docker). Hoy pesa ~15 MB. Si pasa de 50 MB se sube por S3, y si pasa de 250 MB se cambia a imagen de contenedor en ECR, sin tocar el código.
+- `dev/deploy_aws.ps1` (patrón de `toma-unidades-en-taller/deploy.ps1`): es la única fuente de handler, tiempo y memoria por función. Al crear fija `SECRETOS_EN=aws`, `SECRETOS_PREFIJO`, `SECRET_NAME`, variables y VPC.
 
 ---
 
@@ -106,11 +106,11 @@ Lo que dice `DISENO_MIGRACION_POSTGRES.md` §7, con dos cambios:
 Valuador pulsa "Enviar" (OfertasApiView)
   └─► /toma-unidades → Lambda TomaUnidades.enviaOferta (Valuación, acciones-valuacion.md §6.1)
         1. Valuacion.solicitaEnvio            → SOLICITADO; regresa envio {source, externalId, idMarca, telefono, claveCliente, contexto}
-        2. invoke hub-contrato-entrada (①)    → idConversacion
+        2. invoke hub-entry-point (①)    → idConversacion
         3. Valuacion.marcaEnviada             → ENVIADO (con idConversacion) o FALLIDO
 ```
 
-Dentro del hub, `hub-contrato-entrada`:
+Dentro del hub, `hub-entry-point`:
 
 1. **Valida** `fuente` y que la fuente pueda abrir conversaciones en esa marca y vertical.
 2. **Número**: el número de Valuación de la marca (`Hub.resuelveNumero` por marca y módulo). **Cada módulo tiene su propio número** (A8); no se comparte con Servicio.
@@ -127,7 +127,14 @@ Si el envío falla después de abrir la conversación, ① regresa el error. La 
 
 Cuando el cliente contesta, el mensaje entra por el pipeline normal (`router` → cola → `entrantes`). `obtieneOAbreConversacion` encuentra la conversación abierta de ese número y teléfono, que es la de Valuación, y el turno usa su bot (el de la vertical). Los eventos de la conversación (contestó, pasó a asesor, resultado, cierre) se mandan a Valuación por el contrato ③ (`TomaUnidades.recibeEventoHub`). El módulo `valuacion.py` decide cuáles.
 
-### 5.3 Pendientes del envío
+### 5.3 Implementación
+
+- `handlers.entry_point` (Lambda `hub-entry-point`): acepta invocación directa (el evento es `{ action: "Hub.abreConversacion", params }`) o por API Gateway. Regresa el envelope de la convención: `info: { idConversacion, creada, enviada, idMensajeProveedor }`, o `errorCode` (`ESTADO_INVALIDO` con `motivo` `CONVERSACION_ABIERTA`/`SIN_NUMERO`, `PLANTILLA_NO_CONFIGURADA`, `ERROR_PROVEEDOR`, `FUENTE_DESCONOCIDA`, `CAMPO_REQUERIDO`…), que Valuación guarda con `marcaEnviada`.
+- `core/contrato_entrada.py` es genérico; `modules/valuacion.py` registra la fuente `valuacion`.
+- La plantilla de la oferta se configura en el número de Valuación de la marca, `plantillas.ofertaValuacion` (`templateName`/`contentSid`, `variables` en orden con las llaves del `contexto`, `texto` para el chat). Ver el docstring de `modules/valuacion.py`.
+- Un reintento de la misma oferta no reenvía si ya se mandó (`metadatos.envio`); si el proveedor falló, reutiliza la conversación y no duplica el `<<CONTEXTO>>`.
+
+### 5.4 Pendientes del envío
 - Plantilla aprobada de la oferta: nombre o id y variables.
 - Número de WhatsApp de Valuación de cada marca piloto y su proveedor.
 - Bot de Valuación (Abacus) y su configuración.
@@ -157,7 +164,7 @@ Con esto **se van Firestore, Firebase Auth y `accesos/{email}`** (Q2, Q8, Q24 y 
 ## 7. Consolas
 
 **AWS**
-1. **IAM**: un rol de ejecución por grupo de funciones, con lo mínimo (VPC, logs, sus colas, sus secretos por ARN, invocar `hub-bot`, publicar en AppSync). La Lambda `TomaUnidades.enviaOferta` necesita `lambda:InvokeFunction` sobre `hub-contrato-entrada`.
+1. **IAM**: un rol de ejecución por grupo de funciones, con lo mínimo (VPC, logs, sus colas, sus secretos por ARN, invocar `hub-bot`, publicar en AppSync). La Lambda `TomaUnidades.enviaOferta` necesita `lambda:InvokeFunction` sobre `hub-entry-point`.
 2. **VPC**: subredes privadas con NAT; security group con acceso al NLB de PostgREST.
 3. **SQS**: `hub-entrantes.fifo` y `hub-campanas.fifo`, cada una con su DLQ. Visibilidad mayor al tiempo máximo de su consumidor. Modo de alto rendimiento de FIFO.
 4. **Secrets Manager**: secretos de números, bots y webhooks.
@@ -183,7 +190,7 @@ El código es uno solo. Mientras dura la mudanza, **el despliegue de GCP se cong
 | Parte | Contenido |
 |-------|-----------|
 | Base de datos | Tablas `equipos`, `numeros`, `bots`, `conversaciones`, `mensajes`, `bitacora` (`DISENO_MIGRACION_POSTGRES.md` §5.2). Acciones: `resuelveNumero`, `obtieneOAbreConversacion`, `guardaMensaje`, `consultaHistorial`, `abreConversacionExterna`, cambios de estado (asignar, tomar, cerrar), `consultaConversaciones`, `consultaMensajes`; configuración de números y bots |
-| Backend | `handlers.py` y adaptador; `core/postgrest.py`; `core/datos/` de esas entidades; `core/tiempo_real.py`; cola SQS; credenciales en Secrets Manager; invocación de `hub-bot`; `hub-contrato-entrada`; `modules/valuacion.py` |
+| Backend | `handlers.py` y adaptador; `core/postgrest.py`; `core/datos/` de esas entidades; `core/tiempo_real.py`; cola SQS; credenciales en Secrets Manager; invocación de `hub-bot`; `hub-entry-point`; `modules/valuacion.py` |
 | Valuación | Lambda `TomaUnidades.enviaOferta`; botón **Enviar** activo en `OfertasApiView` |
 | Dashboard | Conversaciones de Valuación (bandeja y chat) sobre `Hub.consulta*` y AppSync; configuración del número y el bot de Valuación sobre `hub_cleber` |
 | Prueba de punta a punta en dev | Enviar oferta → llega la plantilla → el cliente contesta → contesta el bot → pasa a asesor → el asesor contesta → cierre → Valuación recibe los eventos ③ |
