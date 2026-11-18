@@ -64,7 +64,12 @@ Las cuatro comparten estas (las copia `hub-entry-point-dev`):
 | `SECRETOS_EN` | `aws` |
 | `SECRETOS_PREFIJO` | `hub/dev` |
 | `URL_API_DB` | `http://ec2-3-89-235-189.compute-1.amazonaws.com:3000/` |
-| `TELEFONO_PRUEBAS` | `+528126390927` (solo lo usa el contrato ①: redirige las ofertas a ese teléfono) |
+
+`TELEFONO_PRUEBAS` ya no se usa: fuera de producción el destino del envío lo elige quien pulsa **Enviar** (teléfono de prueba o cliente). Si la Lambda aún la trae, se puede borrar.
+
+| Variable | Valor | Para qué |
+|---|---|---|
+| `AMBIENTE` | `prd` en producción; `dev` (o vacía) en los demás | Contrato ①. En `prd`, las ofertas se envían siempre al cliente, en automático, y un teléfono de prueba se ignora. Fuera de `prd`, el envío exige indicar a quién va. **En las Lambdas de producción es obligatoria**: sin ella, se tratan como no productivas y rechazan los envíos (`DESTINO_REQUERIDO`). |
 
 Además:
 

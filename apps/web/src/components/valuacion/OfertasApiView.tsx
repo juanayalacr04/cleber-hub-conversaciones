@@ -24,16 +24,19 @@ import type { ApiResponse } from "@/lib/api";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { addDays, fmtKm, fmtMoney, parseIso, todayIso } from "@/lib/valuacion/store";
+import { diezDigitos, formatoDiez, telefonoMx } from "@/lib/valuacion/telefono";
+import { esProduccion } from "@/lib/ambiente";
 import {
   ESTADOS, GRUPOS, MOTIVO_EVALUACION, detalleOferta, mensajeError, motivoNoVigente,
   type EstadoOferta, type Etiqueta, type EvaluacionCita, type Grupo, type Oferta,
 } from "@/lib/valuacion/tipos";
 import {
   calibraOferta, cierraOferta, consultaEtiquetas, consultaOferta, consultaOfertas, descartaOferta, enviaOferta, registraRespuesta, retomaOferta,
+  type DestinoEnvio,
 } from "@/lib/valuacion/acciones";
 
 type Orden = { por: "hora" | "modelo"; asc: boolean };
-type TipoDialogo = "descartar" | "retomar" | "cerrar" | "respuesta";
+type TipoDialogo = "descartar" | "retomar" | "cerrar" | "respuesta" | "enviar";
 type Dialogo = { tipo: TipoDialogo; oferta: Oferta } | null;
 
 const dinero = (n: number | null | undefined) => (n == null ? "—" : fmtMoney(Number(n)));
@@ -111,8 +114,9 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
   const calibra = (o: Oferta, monto: number) =>
     ejecuta(o, () => calibraOferta({ idOferta: o.idOferta, version: o.version, montoOferta: monto }), "Monto guardado");
   // Si el hub no pudo enviar, la respuesta trae la oferta ya en FALLIDO (se reemplaza en la tabla) y el motivo
-  const envia = (o: Oferta) =>
-    ejecuta(o, () => enviaOferta({ idOferta: o.idOferta, version: o.version }), "Oferta enviada por WhatsApp");
+  const envia = (o: Oferta, destino: DestinoEnvio) =>
+    ejecuta(o, () => enviaOferta({ idOferta: o.idOferta, version: o.version, ...destino }),
+      destino.alCliente ? "Oferta enviada al cliente por WhatsApp" : "Oferta enviada por WhatsApp a tu número de prueba");
 
   const agencias = useMemo(() => {
     const m = new Map<string, string>();
@@ -248,7 +252,7 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
                             )}
                             <td><span className={`pill ${det.tono}`}>{det.texto}</span></td>
                             <td onClick={(e) => e.stopPropagation()}>
-                              <AccionesFila oferta={o} deshabilitado={enCurso} enviando={ocupada === o.idOferta} onEnvia={() => envia(o)}
+                              <AccionesFila oferta={o} deshabilitado={enCurso} enviando={ocupada === o.idOferta} onEnvia={() => esProduccion ? envia(o, { alCliente: true }) : setDialogo({ tipo: "enviar", oferta: o })}
                                 onAbre={(tipo) => setDialogo({ tipo, oferta: o })} />
                             </td>
                           </tr>
@@ -268,7 +272,18 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
         </div>
       </div>
 
-      {dialogo && dialogo.tipo !== "respuesta" && (
+      {dialogo?.tipo === "enviar" && (
+        <DialogoEnvio
+          oferta={dialogo.oferta}
+          onCerrar={() => setDialogo(null)}
+          onConfirmar={async (destino) => {
+            // Si el hub no pudo enviar, la oferta queda en FALLIDO y el motivo se avisa; el diálogo se cierra igual
+            await envia(dialogo.oferta, destino);
+            setDialogo(null);
+          }}
+        />
+      )}
+      {dialogo && dialogo.tipo !== "respuesta" && dialogo.tipo !== "enviar" && (
         <DialogoMotivo
           tipo={dialogo.tipo}
           oferta={dialogo.oferta}
@@ -553,6 +568,85 @@ function DialogoMotivo({ tipo, oferta, onCerrar, onConfirmar }: {
           <button type="button" className="btn primary" disabled={!valido || enviando}
             onClick={async () => { setEnviando(true); await onConfirmar(motivo.trim()); setEnviando(false); }}>
             {enviando ? "Guardando…" : t.boton}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const LLAVE_TELEFONO_PRUEBA = "valuacion.telefonoPrueba";
+
+/** Pide a quién se envía la oferta: a un teléfono de prueba (10 dígitos, el +52 se agrega solo) o, marcando la casilla, al cliente. */
+function DialogoEnvio({ oferta, onCerrar, onConfirmar }: {
+  oferta: Oferta; onCerrar: () => void; onConfirmar: (destino: DestinoEnvio) => Promise<void>;
+}) {
+  const [alCliente, setAlCliente] = useState(false);
+  // El último número de prueba se recuerda en este navegador (si el almacenamiento no está disponible, no pasa nada)
+  const [digitos, setDigitos] = useState(() => {
+    try { return diezDigitos(localStorage.getItem(LLAVE_TELEFONO_PRUEBA) ?? ""); } catch { return ""; }
+  });
+  const [tocado, setTocado] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const telefono = telefonoMx(digitos);
+  const valido = alCliente || telefono !== null;
+  const telefonoCliente = oferta.contacto.telefono;
+
+  const envia = async () => {
+    if (!valido) return;
+    setEnviando(true);
+    if (!alCliente && telefono) {
+      try { localStorage.setItem(LLAVE_TELEFONO_PRUEBA, digitos); } catch { /* sin almacenamiento */ }
+    }
+    await onConfirmar(alCliente ? { alCliente: true } : { telefonoDestino: telefono! });
+    setEnviando(false);
+  };
+
+  return (
+    <Dialog open onOpenChange={(abierto) => !abierto && !enviando && onCerrar()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Enviar oferta por WhatsApp</DialogTitle>
+          <DialogDescription>{oferta.contacto.nombre ?? "Cliente"} · {modelo(oferta)}.</DialogDescription>
+        </DialogHeader>
+
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, cursor: "pointer" }}>
+          <input type="checkbox" checked={alCliente} onChange={(e) => setAlCliente(e.target.checked)} disabled={enviando} style={{ marginTop: 3 }} />
+          <span>
+            <strong>Enviar al cliente</strong>
+            <span style={{ display: "block", color: "var(--muted-foreground, #6b7280)" }}>
+              {telefonoCliente ? `Se enviará al número del cliente: ${telefonoCliente}.` : "Esta oferta no tiene teléfono del cliente."}
+            </span>
+          </span>
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13, opacity: alCliente ? 0.5 : 1 }}>
+          Teléfono de prueba (10 dígitos)
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 14 }} aria-hidden>+52</span>
+            <input
+              className="date" style={{ flex: 1 }} inputMode="numeric" autoComplete="tel-national" placeholder="81 1234 5678"
+              value={formatoDiez(digitos)} disabled={alCliente || enviando} autoFocus={!alCliente}
+              onChange={(e) => { setDigitos(diezDigitos(e.target.value)); setTocado(true); }}
+              onBlur={() => setTocado(true)} aria-invalid={!alCliente && tocado && !telefono}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); envia(); } }}
+            />
+          </span>
+          {!alCliente && tocado && !telefono && (
+            <span role="alert" style={{ color: "var(--destructive, #dc2626)" }}>Escribe los 10 dígitos del número, sin el +52.</span>
+          )}
+        </label>
+
+        {alCliente && (
+          <p role="status" style={{ fontSize: 13, margin: 0, color: "var(--destructive, #dc2626)" }}>
+            El mensaje llegará al cliente real. El teléfono de prueba no se usa.
+          </p>
+        )}
+
+        <DialogFooter>
+          <button type="button" className="btn" onClick={onCerrar} disabled={enviando}>Cancelar</button>
+          <button type="button" className="btn primary" disabled={!valido || enviando} onClick={envia}>
+            <Send size={14} />{enviando ? "Enviando…" : alCliente ? "Enviar al cliente" : "Enviar a mi número de prueba"}
           </button>
         </DialogFooter>
       </DialogContent>

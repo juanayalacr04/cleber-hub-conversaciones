@@ -18,7 +18,7 @@ PLANTILLA = {
 CONTEXTO = {"nombreCliente": "Juan Pérez", "vehiculo": "HONDA CIVIC 2019", "kilometraje": 64000, "montoOferta": 270000.0,
             "agencia": "Honda Satélite", "fechaCita": "2026-11-12", "horaCita": "09:30"}
 PETICION = {"action": "Hub.abreConversacion", "params": {
-    "fuente": "valuacion", "idExterno": "123", "idMarca": "HO", "modulo": "valuacion", "telefono": "+525512345678",
+    "fuente": "valuacion", "idExterno": "123", "idMarca": "HO", "modulo": "valuacion", "telefono": "+525512345678", "alCliente": True,
     "nombreCliente": "Juan Pérez", "contexto": CONTEXTO}}
 
 
@@ -143,14 +143,70 @@ def test_envia_la_oferta_de_punta_a_punta(base, envios, avisos):
     assert [canal for canal, _ in avisos] == ["/hub/HO/valuacion", "/hub/HO/valuacion/c1"]
 
 
-def test_telefono_de_pruebas_redirige_el_envio(base, envios, monkeypatch):
-    monkeypatch.setenv("TELEFONO_PRUEBAS", "+525599999999")
-    r = contrato_entrada.maneja(PETICION)
-    assert r["successful"]
+def _con(**extra):
+    params = {k: v for k, v in PETICION["params"].items() if k != "alCliente"}
+    return {"action": "Hub.abreConversacion", "params": {**params, **extra}}
+
+
+@pytest.mark.parametrize("escrito", ["5599999999", "55 9999 9999", "+52 55 9999 9999", "525599999999", "+525599999999"])
+def test_telefono_destino_redirige_el_envio_y_agrega_el_codigo_de_pais(base, envios, escrito):
+    r = contrato_entrada.maneja(_con(telefonoDestino=escrito))
+    assert r["successful"], r
     assert envios.enviados[0]["phone"] == "+525599999999"                     # nunca al cliente
     conv = base.conversaciones["c1"]
     assert conv["telefonoCliente"] == "+525599999999"                          # la respuesta caerá en esta conversación
     assert conv["metadatos"]["contexto"]["telefonoOriginal"] == "+525512345678"
+
+
+def test_al_cliente_envia_al_telefono_del_cliente(base, envios):
+    r = contrato_entrada.maneja(_con(alCliente=True))
+    assert r["successful"] and envios.enviados[0]["phone"] == "+525512345678"
+    assert "telefonoOriginal" not in base.conversaciones["c1"]["metadatos"]["contexto"]
+
+
+def test_sin_destino_explicito_no_se_envia_a_nadie(base, envios):
+    r = contrato_entrada.maneja(_con())
+    assert (r["successful"], r["errorCode"]) == (False, "DESTINO_REQUERIDO")
+    assert envios.enviados == [] and base.conversaciones == {}
+
+
+def test_al_cliente_en_falso_tampoco_cuenta_como_destino(base, envios):
+    assert contrato_entrada.maneja(_con(alCliente=False))["errorCode"] == "DESTINO_REQUERIDO"
+    assert contrato_entrada.maneja(_con(alCliente="true"))["errorCode"] == "DESTINO_REQUERIDO"   # solo el booleano true
+
+
+@pytest.mark.parametrize("malo", ["123", "55999", "abcdefghij", "+12"])
+def test_telefono_destino_invalido_se_rechaza(base, envios, malo):
+    r = contrato_entrada.maneja(_con(telefonoDestino=malo))
+    assert (r["errorCode"], r["info"]) == ("CAMPO_INVALIDO", {"campo": "telefonoDestino"})
+    assert envios.enviados == []
+
+
+def test_en_produccion_se_envia_al_cliente_en_automatico(base, envios, monkeypatch):
+    monkeypatch.setenv("AMBIENTE", "prd")
+    r = contrato_entrada.maneja(_con())                    # sin destino: no hace falta
+    assert r["successful"] and envios.enviados[0]["phone"] == "+525512345678"
+    assert "telefonoOriginal" not in base.conversaciones["c1"]["metadatos"]["contexto"]
+
+
+def test_en_produccion_no_se_puede_desviar_el_envio(base, envios, monkeypatch):
+    monkeypatch.setenv("AMBIENTE", "prd")
+    r = contrato_entrada.maneja(_con(telefonoDestino="5599999999"))
+    assert r["successful"] and envios.enviados[0]["phone"] == "+525512345678"          # el desvío se ignora
+
+
+@pytest.mark.parametrize("valor", [None, "dev", "qa", ""])
+def test_fuera_de_produccion_sigue_exigiendo_destino(base, envios, monkeypatch, valor):
+    if valor is None:
+        monkeypatch.delenv("AMBIENTE", raising=False)
+    else:
+        monkeypatch.setenv("AMBIENTE", valor)
+    assert contrato_entrada.maneja(_con())["errorCode"] == "DESTINO_REQUERIDO"
+
+
+def test_telefono_destino_gana_sobre_al_cliente(base, envios):
+    contrato_entrada.maneja(_con(telefonoDestino="5599999999", alCliente=True))
+    assert envios.enviados[0]["phone"] == "+525599999999"
 
 
 def test_la_misma_oferta_otra_vez_no_reenvia(base, envios):

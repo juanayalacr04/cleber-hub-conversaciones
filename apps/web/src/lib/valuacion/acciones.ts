@@ -49,12 +49,16 @@ export async function cierraOferta(o: Ref & { motivo?: string }): Promise<ApiRes
   return llama("cierra_oferta", "cierraOferta", o);
 }
 
+/** A quién se envía: a un teléfono de prueba (+52XXXXXXXXXX) o al cliente. Siempre uno de los dos: el hub rechaza un envío sin destino. */
+export type DestinoEnvio = { telefonoDestino: string; alCliente?: false } | { alCliente: true; telefonoDestino?: undefined };
+
 /**
- * Envía la oferta al cliente por WhatsApp. Si el hub no pudo enviarla, la respuesta falla con su errorCode e
+ * Envía la oferta por WhatsApp. Si el hub no pudo enviarla, la respuesta falla con su errorCode e
  * info { oferta (ya en FALLIDO), hub: { motivo... } }; ver mensajeError.
  */
-export async function enviaOferta(o: Ref): Promise<ApiResponse<{ oferta: Oferta; idConversacion: string }>> {
-  return api.lambda("toma-unidades-acciones", "TomaUnidades.enviaOferta", { idOferta: o.idOferta, version: o.version });
+export async function enviaOferta(o: Ref & DestinoEnvio): Promise<ApiResponse<{ oferta: Oferta; idConversacion: string }>> {
+  const destino = o.alCliente ? { alCliente: true } : { telefonoDestino: o.telefonoDestino };
+  return api.lambda("toma-unidades-acciones", "TomaUnidades.enviaOferta", { idOferta: o.idOferta, version: o.version, ...destino });
 }
 
 // ---------- Configuración por agencia (permiso: configurar) ----------

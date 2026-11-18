@@ -5,6 +5,7 @@ El núcleo no sabe de ofertas: lo propio de cada fuente (qué plantilla, con qu�
 módulo que la registra (`modules/valuacion.py` registra "valuacion").
 
     Petición:  { "action": "Hub.abreConversacion", "params": { fuente, idExterno, idMarca, modulo, telefono,
+                                                               telefonoDestino? | alCliente?,
                                                                nombreCliente?, claveCliente?, contexto? } }
     Respuesta: envelope de la convención
                { successful: true,  info: { idConversacion, creada, enviada, idMensajeProveedor } }
@@ -19,10 +20,18 @@ Pasos:
      ERROR_PROVEEDOR; la conversación queda abierta sin envío y un reintento la reutiliza.
   5. Mensaje de la plantilla en la conversación, metadatos.envio y aviso de tiempo real.
 
-Pruebas: con TELEFONO_PRUEBAS definida (solo en dev), todas las conversaciones se abren y se envían a ese teléfono en lugar
-del del cliente; el original queda en metadatos.contexto.telefonoOriginal. En producción no se define.
+A quién se envía depende del ambiente (variable AMBIENTE de la Lambda):
+  Producción (AMBIENTE=prd)   siempre al `telefono` del cliente, en automático. Un telefonoDestino se ignora (con una advertencia
+                              en el log): en producción no hay forma de desviar un envío.
+  Cualquier otro ambiente     lo decide quien llama, siempre explícito:
+    telefonoDestino   se abre y se envía a ESTE teléfono en lugar del del cliente (pruebas). Acepta 10 dígitos (se le agrega +52)
+                      o +código de país. El del cliente queda en metadatos.contexto.telefonoOriginal.
+    alCliente: true   se envía al `telefono` del cliente.
+    Sin ninguno de los dos se rechaza con DESTINO_REQUERIDO: un envío que no dice a quién va nunca llega a un cliente real por
+    omisión (y una Lambda sin AMBIENTE se trata como no productiva). Si vienen los dos, manda telefonoDestino.
 
-Errores propios: CAMPO_REQUERIDO, FUENTE_DESCONOCIDA, PLANTILLA_NO_CONFIGURADA, ERROR_PROVEEDOR, ERROR_INTERNO.
+Errores propios: CAMPO_REQUERIDO, CAMPO_INVALIDO, DESTINO_REQUERIDO, FUENTE_DESCONOCIDA, PLANTILLA_NO_CONFIGURADA,
+ERROR_PROVEEDOR, ERROR_INTERNO.
 Los de hub_cleber (ErrorHub) pasan con su código e info.
 """
 import logging
@@ -99,7 +108,11 @@ def maneja(cuerpo: dict | None) -> dict:
     if preparar is None:
         return _falla("FUENTE_DESCONOCIDA", f"La fuente {fuente!r} no está registrada", {"fuentes": fuentes()})
     try:
-        return _exito(_abre(fuente, preparar, params))
+        telefono, contexto = _telefono_destino(params)
+    except _DestinoInvalido as e:
+        return _falla(e.codigo, e.mensaje, e.info)
+    try:
+        return _exito(_abre(fuente, preparar, params, telefono, contexto))
     except ErrorHub as e:
         return _falla(e.codigo, e.mensaje, e.info)
     except SinPlantilla as e:
@@ -112,19 +125,51 @@ def maneja(cuerpo: dict | None) -> dict:
         return _falla("ERROR_INTERNO", "Error inesperado al abrir la conversación")
 
 
+class _DestinoInvalido(Exception):
+    def __init__(self, codigo: str, mensaje: str, info: dict | None = None):
+        self.codigo, self.mensaje, self.info = codigo, mensaje, info
+
+
+def normaliza_destino(valor) -> str | None:
+    """10 dígitos (México) → +52XXXXXXXXXX; +código de país → tal cual; 52 + 10 dígitos → +52…. None si no es un teléfono."""
+    texto = str(valor or "").strip()
+    digitos = "".join(c for c in texto if c.isdigit())
+    if texto.startswith("+"):
+        return f"+{digitos}" if 8 <= len(digitos) <= 15 else None
+    if len(digitos) == 10:
+        return f"+52{digitos}"
+    if len(digitos) == 12 and digitos.startswith("52"):
+        return f"+{digitos}"
+    return None
+
+
+def es_produccion() -> bool:
+    return (os.environ.get("AMBIENTE") or "").strip().lower() in ("prd", "prod", "produccion", "producción")
+
+
 def _telefono_destino(params: dict) -> tuple[str, dict]:
-    """Teléfono al que se abre y se envía, y el contexto (con el teléfono original si se redirigió a TELEFONO_PRUEBAS)."""
+    """Teléfono al que se abre y se envía, y el contexto (con el del cliente si se redirigió a otro)."""
     contexto = dict(params.get("contexto") or {})
-    pruebas = (os.environ.get("TELEFONO_PRUEBAS") or "").strip()
-    if not pruebas:
+    destino = str(params.get("telefonoDestino") or "").strip()
+    if es_produccion():
+        if destino:
+            log.warning("contrato ①: telefonoDestino ignorado en producción (%s %s)", params.get("fuente"), params.get("idExterno"))
         return params["telefono"], contexto
-    log.warning("contrato ①: TELEFONO_PRUEBAS activo; %s %s se envía a %s en lugar de %s",
-                params.get("fuente"), params.get("idExterno"), pruebas, params["telefono"])
-    return pruebas, {**contexto, "telefonoOriginal": params["telefono"]}
+    if destino:
+        normalizado = normaliza_destino(destino)
+        if not normalizado:
+            raise _DestinoInvalido("CAMPO_INVALIDO", "telefonoDestino debe ser de 10 dígitos o +código de país y número",
+                                   {"campo": "telefonoDestino"})
+        log.warning("contrato ①: %s %s se envía a %s en lugar del cliente", params.get("fuente"), params.get("idExterno"),
+                    f"****{normalizado[-4:]}")
+        return normalizado, {**contexto, "telefonoOriginal": params["telefono"]}
+    if params.get("alCliente") is True:
+        return params["telefono"], contexto
+    raise _DestinoInvalido("DESTINO_REQUERIDO", "Indica a quién se envía: telefonoDestino (pruebas) o alCliente: true",
+                           {"campos": ["telefonoDestino", "alCliente"]})
 
 
-def _abre(fuente: str, preparar: Preparador, params: dict) -> dict:
-    telefono, contexto = _telefono_destino(params)
+def _abre(fuente: str, preparar: Preparador, params: dict, telefono: str, contexto: dict) -> dict:
     try:
         resuelto = numeros.resuelve(id_marca=params["idMarca"], modulo=params["modulo"])
     except ErrorHub as e:
