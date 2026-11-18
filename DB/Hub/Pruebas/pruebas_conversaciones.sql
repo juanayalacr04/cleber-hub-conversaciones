@@ -409,6 +409,22 @@ BEGIN
                         || jsonb_array_length(i#>'{conversacion,tiemposRespuesta}')::text,
                         'with_agent/' || v_ag_b || '/2', '6.39 ... la toma al contestar y suma otro tiempo de respuesta');
 
+  -- 7. Permisos de un usuario para el backend (acciones del dashboard que no son plpgsql)
+  PERFORM pg_temp.como(c_sistema);
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaPermisosUsuario', jsonb_build_object('email', c_admin, 'idMarca', c_marca, 'modulo', 'valuacion')),
+                  '7.1 El sistema consulta los permisos del administrador');
+  PERFORM pg_temp.igual((i->>'rol') || '/' || (i->>'esAdministrador') || '/' || (i->>'escribe'), 'ADMINISTRADOR/true/true', '7.2 ... administra el módulo');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaPermisosUsuario', jsonb_build_object('email', c_cons, 'idMarca', c_marca, 'modulo', 'valuacion')),
+                  '7.3 ... los de un usuario de consulta');
+  PERFORM pg_temp.igual((i->>'rol') || '/' || (i->>'esAdministrador') || '/' || (i->>'escribe'), 'CONSULTA/false/false', '7.4 ... solo lee');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaPermisosUsuario', jsonb_build_object('email', 'nadie@prueba-conv.invalid', 'idMarca', c_marca, 'modulo', 'valuacion')),
+                  '7.5 ... los de un email no registrado');
+  PERFORM pg_temp.igual(i->>'existe', 'false', '7.6 ... no existe');
+  PERFORM pg_temp.como(c_admin);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.consultaPermisosUsuario', jsonb_build_object('email', c_admin, 'idMarca', c_marca, 'modulo', 'valuacion')),
+                        'SIN_PERMISO', '7.7 Solo el sistema la usa');
+  PERFORM pg_temp.como(c_ag_b);
+
   PERFORM pg_temp.igual((SELECT string_agg(DISTINCT accion, ',' ORDER BY accion) FROM hub_cleber.bitacora
                           WHERE id_conversacion = v_ext AND origen = 'usuario'),
                         'asigna_conversacion,cierra_conversacion,devuelve_al_bot,reabre_conversacion,renombra_cliente,toma_conversacion,transfiere_equipo',

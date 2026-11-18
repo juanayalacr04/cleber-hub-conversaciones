@@ -170,6 +170,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/autoriza_mensaje_agente.sql
 \echo 'Functions/Acciones/registra_mensaje_agente.sql'
 \i Functions/Acciones/registra_mensaje_agente.sql
+\echo 'Functions/Acciones/consulta_permisos_usuario.sql'
+\i Functions/Acciones/consulta_permisos_usuario.sql
 
 -- 5. Datos maestros
 \echo '================================================================================'
