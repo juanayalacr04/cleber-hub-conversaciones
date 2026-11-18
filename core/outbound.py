@@ -13,6 +13,7 @@ Campañas:
     send_campaign(number, broadcast, recipient, phone, sf_config, track=True) → id del mensaje; lanza `TemplateError`
     delivery_statuses(number, ids, sf_config)                      → {id: {"state", "message"}} de los que ya llegaron
     render_template(number, template, variables)                   → texto que recibió el cliente, o None
+    describe_template(number, template_id)                         → la plantilla del proveedor; lanza TemplateError
 """
 
 NOT_CONFIGURED = "not_configured"
@@ -31,11 +32,12 @@ _senders: dict = {}
 
 
 def configure(send_text=None, send_template=None, send_campaign=None, check_campaign=None, delivery_statuses=None,
-              render_template=None) -> None:
+              render_template=None, describe_template=None) -> None:
     """Inyecta los envíos del router. Sin argumentos los quita (las pruebas)."""
     _senders.clear()
     named = {"text": send_text, "template": send_template, "campaign": send_campaign,
-             "check_campaign": check_campaign, "delivery_statuses": delivery_statuses, "render": render_template}
+             "check_campaign": check_campaign, "delivery_statuses": delivery_statuses, "render": render_template,
+             "describe": describe_template}
     _senders.update({kind: fn for kind, fn in named.items() if fn})
 
 
@@ -64,6 +66,13 @@ def render_template(number: dict, template: dict, variables: dict | None = None)
     if "render" not in _senders:
         return None
     return _senders["render"](number, template, variables)
+
+
+def describe_template(number: dict, template_id: str) -> dict:
+    """La plantilla tal como la tiene el proveedor (nombre, idioma, cuerpo, botones, variables). Lanza TemplateError."""
+    if "describe" not in _senders:
+        raise TemplateError(NOT_CONFIGURED, "La consulta de plantillas no está configurada")
+    return _senders["describe"](number, template_id)
 
 
 def delivery_statuses(number: dict, ids: list, sf_config: dict | None = None) -> dict:

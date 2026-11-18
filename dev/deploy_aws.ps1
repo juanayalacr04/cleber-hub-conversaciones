@@ -8,13 +8,14 @@
     (tabla $Funciones), como dev/deploy.ps1 lo es en GCP.
 
     1. Instala requirements-lambda.txt para Linux arm64 / Python 3.12 (pip --platform, sin Docker) y copia el código.
-    2. Arma el .zip. Si la función existe, actualiza su código; si no, la crea (requiere -RolArn).
+    2. Arma el .zip. Si la función existe, actualiza su código; si no, la crea. Para crearla sin -RolArn copia rol,
+       variables (SECRET_NAME, URL_API_DB...) y VPC de hub-entry-point-<ambiente>; lo que se pase por parámetro gana.
     3. Si todo salió bien, elimina el .zip.
 
     Requiere Python con pip y AWS CLI v2 con sesión iniciada. Para prd pide confirmación.
 
 .PARAMETER Funcion
-    Nombre corto de la función (ver $Funciones): entry-point.
+    Nombre corto de la función (ver $Funciones): entry-point, acciones-usuario.
 
 .PARAMETER Ambiente
     dev o prd. La función se llama hub-<funcion>-<ambiente>.
@@ -33,6 +34,7 @@
     Solo al crear: VPC para llegar a PostgREST por la red interna (separados por coma). Con salida a internet por NAT.
 
 .EXAMPLE
+    .\dev\deploy_aws.ps1 acciones-usuario dev        # la crea con la configuración de hub-entry-point-dev, o la actualiza
     .\dev\deploy_aws.ps1 entry-point dev -SoloEmpaquetar
     .\dev\deploy_aws.ps1 entry-point dev -RolArn arn:aws:iam::123:role/hub-lambda -Secret hub/dev/entorno `
         -EnvFile .env.aws.dev -SubnetIds subnet-a,subnet-b -SecurityGroupIds sg-1
@@ -44,7 +46,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('entry-point')]
+    [ValidateSet('entry-point', 'acciones-usuario')]
     [string]$Funcion,
 
     [Parameter(Mandatory, Position = 1)]
@@ -70,7 +72,9 @@ $Arquitectura = 'arm64'
 
 # Única fuente de handler, tiempo máximo (s) y memoria (MB) de cada Lambda
 $Funciones = @{
-    'entry-point' = @{ Handler = 'handlers.entry_point'; Timeout = 60; Memoria = 512 }
+    'entry-point'      = @{ Handler = 'handlers.entry_point'; Timeout = 60; Memoria = 512 }
+    # Detrás del API Gateway: su límite es 29 s
+    'acciones-usuario' = @{ Handler = 'handlers.acciones_usuario'; Timeout = 29; Memoria = 512 }
 }
 
 # Lo que va en el paquete (el resto del repo: apps/, DB/, tests/, dev/, Arquitectura/... no)
@@ -146,7 +150,27 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "update-function-configuration terminó con código $LASTEXITCODE." }
     }
     else {
-        if (-not $RolArn) { throw "'$nombreLambda' no existe. Para crearla indique -RolArn." }
+        $vars = @{}
+        if (-not $RolArn) {
+            # Sin -RolArn: copia rol, variables y VPC de hub-entry-point-<ambiente> (todas las Lambdas del hub los comparten)
+            $modelo = "hub-entry-point-$Ambiente"
+            if ($nombreLambda -eq $modelo) { throw "'$nombreLambda' no existe. Para crearla indique -RolArn." }
+            Write-Host "'$nombreLambda' no existe: se crea con el rol, las variables y la VPC de '$modelo'."
+            $ErrorActionPreference = 'Continue'
+            $json = aws lambda get-function-configuration --function-name $modelo @awsArgs
+            $ok = ($LASTEXITCODE -eq 0)
+            $ErrorActionPreference = 'Stop'
+            if (-not $ok) { throw "No se pudo leer '$modelo' para copiar su configuración. Indique -RolArn, -Secret y -EnvFile." }
+            $cfg = ($json | Out-String) | ConvertFrom-Json
+            $RolArn = $cfg.Role
+            if ($cfg.Environment -and $cfg.Environment.Variables) {
+                $cfg.Environment.Variables.PSObject.Properties | ForEach-Object { $vars[$_.Name] = $_.Value }
+            }
+            if (-not $SubnetIds -and $cfg.VpcConfig -and $cfg.VpcConfig.SubnetIds) {
+                $SubnetIds = $cfg.VpcConfig.SubnetIds -join ','
+                $SecurityGroupIds = $cfg.VpcConfig.SecurityGroupIds -join ','
+            }
+        }
         $creaArgs = @(
             '--function-name', $nombreLambda, '--runtime', $Runtime, '--architectures', $Arquitectura,
             '--handler', $conf.Handler, '--role', $RolArn,
@@ -156,7 +180,10 @@ try {
             $creaArgs += @('--vpc-config', "SubnetIds=$SubnetIds,SecurityGroupIds=$SecurityGroupIds")
         }
 
-        $vars = @{ SECRETOS_EN = 'aws'; SECRETOS_PREFIJO = $(if ($SecretosPrefijo) { $SecretosPrefijo } else { "hub/$Ambiente" }) }
+        # Lo que se indique en la línea de comandos gana sobre lo copiado
+        $vars.SECRETOS_EN = 'aws'
+        if ($SecretosPrefijo) { $vars.SECRETOS_PREFIJO = $SecretosPrefijo }
+        elseif (-not $vars.SECRETOS_PREFIJO) { $vars.SECRETOS_PREFIJO = "hub/$Ambiente" }
         if ($Secret) { $vars.SECRET_NAME = $Secret }
         if ($EnvFile) {
             Get-Content $EnvFile | ForEach-Object {

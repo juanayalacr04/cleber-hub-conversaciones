@@ -1,6 +1,6 @@
 """Canales de WhatsApp: un módulo por proveedor y un despacho único por `bot["provider"]`."""
-from channels.campaign_templates import (check_ready as check_campaign_ready, delivery_statuses, render_text as render_template_text,
-                                        send as send_campaign_template)
+from channels.campaign_templates import (check_ready as check_campaign_ready, delivery_statuses, describe as describe_template,
+                                        render_text as render_template_text, send as send_campaign_template)
 from channels.meta_wa import send_meta_handoff_template, send_meta_message
 from channels.twilio_wa import send_twilio_handoff_template, send_twilio_message
 from channels.valuetext_wa import send_valuetext_handoff_template, send_valuetext_message

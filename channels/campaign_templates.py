@@ -7,6 +7,8 @@ Portado de `api/broadcasts/[id]/send|test-send|retry|check-status`, que repetía
     delivery_statuses(number, ids, sf_config)       → {id: {"state": delivered|read|failed, "message": ...}} solo de los que ya
                                                       llegaron a un estado final (lo demás sigue en tránsito)
     render_text(number, template, variables)        → el texto que recibió el cliente (cuerpo con sus variables y botones), o None
+    describe(number, template_id)                   → la plantilla tal como la tiene el proveedor (nombre, idioma, cuerpo, botones,
+                                                      variables); lanza TemplateError si no se puede leer
 """
 import base64
 import copy
@@ -20,7 +22,7 @@ import urllib.parse
 from channels.meta_wa import GRAPH_VERSION
 from core import http
 from core.db import get_executor
-from core.outbound import FAILED, TemplateError
+from core.outbound import FAILED, NOT_CONFIGURED, TemplateError
 from crm import salesforce
 
 log = logging.getLogger(__name__)
@@ -153,6 +155,38 @@ def _twilio_content(number: dict, content_sid: str) -> dict | None:
 def fill_variables(text: str, variables: dict | None) -> str:
     """{{1}}, {{2}}… con los valores del envío; las que no vienen se dejan como están."""
     return re.sub(r"\{\{\s*(\w+)\s*\}\}", lambda m: str((variables or {}).get(m.group(1), m.group(0))), text or "")
+
+
+def describe(number: dict, template_id: str) -> dict:
+    """La plantilla tal como la tiene el proveedor, para configurarla y mostrar su vista previa.
+
+        { nombre, idioma, cuerpo, botones: [{ titulo, id }], variables: ["1", "2", ...] }
+
+    Solo Twilio (Content API). Lanza TemplateError: NOT_CONFIGURED si el proveedor no lo permite o faltan credenciales;
+    FAILED si Twilio no la encontró o no respondió.
+    """
+    provider = number.get("provider", "twilio")
+    if provider != "twilio":
+        raise TemplateError(NOT_CONFIGURED, f"La consulta de plantillas aún no está disponible para {provider}")
+    if not (number.get("twilioAccountSid") and number.get("twilioAuthToken")):
+        raise TemplateError(NOT_CONFIGURED, "Falta la cuenta de Twilio del ambiente (TWILIO_ACCOUNT_SID y TWILIO_AUTH_TOKEN)")
+    try:
+        _content_cache.pop(template_id, None)          # al configurar se lee fresca
+        content = _twilio_content(number, template_id) or {}
+    except Exception as e:
+        if isinstance(e, http.HTTPError) and e.code == 404:
+            raise TemplateError(FAILED, f"Twilio no encontró la plantilla {template_id} en esta cuenta") from None
+        raise _error("Twilio", e) from None
+    for kind, data in (content.get("types") or {}).items():
+        if isinstance(data, dict) and data.get("body"):
+            body = data["body"]
+            buttons = [{"titulo": a.get("title"), "id": a.get("id")} for a in (data.get("actions") or [])
+                       if isinstance(a, dict) and a.get("title")]
+            found = {m for m in re.findall(r"\{\{\s*(\w+)\s*\}\}", body + " ".join(b["titulo"] for b in buttons))}
+            variables = sorted(found, key=lambda v: (not v.isdigit(), int(v) if v.isdigit() else 0, v))
+            return {"nombre": content.get("friendly_name"), "idioma": content.get("language"), "tipo": kind,
+                    "cuerpo": body, "botones": buttons, "variables": variables}
+    raise TemplateError(FAILED, f"La plantilla {template_id} no tiene un cuerpo de texto que se pueda mostrar")
 
 
 def render_text(number: dict, template: dict, variables: dict | None = None) -> str | None:
