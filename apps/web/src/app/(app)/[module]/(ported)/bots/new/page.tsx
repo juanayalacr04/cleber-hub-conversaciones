@@ -25,8 +25,9 @@ import { callHubAction } from "@/lib/hub-actions";
 import Link from "next/link";
 import { getModule } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
+import { BotValuacionEditor } from "@/components/valuacion/BotValuacionEditor";
 
-export default function NewBotPage() {
+function NewBotPageFirestore() {
   const router = useRouter();
   const { module: moduleId } = useParams<{ module: string }>();
   const moduleVertical = getModule(moduleId)?.vertical ?? null;
@@ -370,4 +371,12 @@ export default function NewBotPage() {
       </div>
     </div>
   );
+}
+
+/** Valuación crea sus bots en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
+export default function NewBotPage() {
+  const { module: moduleId } = useParams<{ module: string }>();
+  const mod = getModule(moduleId);
+  if (mod?.id === "valuacion") return <BotValuacionEditor mod={mod} idBot={null} />;
+  return <NewBotPageFirestore />;
 }

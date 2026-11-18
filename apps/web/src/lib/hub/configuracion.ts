@@ -3,7 +3,7 @@
 /**
  * Configuración de un módulo en una marca sobre hub_cleber: equipos, números de WhatsApp y bots.
  *   Hub.consultaConfiguracionModulo   cualquier rol del módulo (puedeEditar = administrador del módulo)
- *   Hub.guardaEquipo / Hub.guardaNumero   administrador del módulo
+ *   Hub.guardaEquipo / Hub.guardaNumero / Hub.guardaBot   administrador del módulo
  *   Hub.consultaPlantillaProveedor   administrador del módulo; Lambda hub-acciones-usuario (core/acciones_usuario.py)
  * Contratos: DB/Hub/Functions/Acciones/*.sql (DB/Hub/README.md, "Núcleo de conversaciones").
  * Las credenciales del proveedor NO pasan por aquí: Twilio usa la cuenta del ambiente y Meta va en Secrets Manager.
@@ -22,12 +22,37 @@ export interface Equipo {
   esActivo: boolean;
 }
 
+export type TipoBot = "chatllm" | "workflow" | "vertex_ai" | "external";
+
+/**
+ * Configuración de un bot tal como la lee el backend (core/entrada_mensajes.py, core/datos/bots.py). Se guarda completa en
+ * `config`; solo se listan las llaves que edita la pantalla de Bots, el resto se conserva tal cual.
+ * Las credenciales NO van aquí (la base las rechaza): el token de Abacus es uno por módulo y vive en el secreto del ambiente.
+ */
+export interface ConfigBot {
+  description?: string;
+  abacusConfig?: { deploymentId?: string; workflowInputName?: string };
+  handoffConfig?: { enabled?: boolean; triggerKeywords?: string[]; handoffMessage?: string; waitingMessage?: string };
+  scheduleConfig?: {
+    enabled?: boolean; viaBot?: boolean; timezone?: string; outOfHoursMessage?: string;
+    schedule?: { day: string; startTime: string; endTime: string }[];
+  };
+  optOutAction?: "close" | "handoff";
+  outcomeActions?: string[];
+  outcomeTool?: string;
+  injectPhoneContext?: boolean;
+  [otra: string]: unknown;
+}
+
 export interface Bot {
   idBot: string;
   idMarca: string;
   modulo: ModuloHub;
   nombre: string;
-  tipo: string;
+  tipo: TipoBot | string;
+  categoria?: string | null;
+  config?: ConfigBot;
+  secretosConfigurados?: string[];
   esActivo: boolean;
 }
 
@@ -83,6 +108,22 @@ export async function guardaEquipo(p: { idEquipo?: string; idMarca: string; modu
 
 export async function guardaNumero(p: GuardaNumero) {
   return api.call<{ numero: Numero; creado: boolean }>("hub", "guarda_numero", "Hub.guardaNumero", { ...p });
+}
+
+export interface GuardaBot {
+  /** Sin id es un alta (idMarca, modulo y nombre son obligatorios); con id, solo se cambia lo que viene. */
+  idBot?: string;
+  idMarca?: string;
+  modulo?: ModuloHub;
+  nombre?: string;
+  tipo?: TipoBot;
+  /** Reemplaza la configuración completa: quien edita debe partir de la que ya tiene el bot. */
+  config?: ConfigBot;
+  esActivo?: boolean;
+}
+
+export async function guardaBot(p: GuardaBot) {
+  return api.call<{ bot: Bot; creado: boolean }>("hub", "guarda_bot", "Hub.guardaBot", { ...p });
 }
 
 /** La plantilla tal como la tiene el proveedor (hoy solo Twilio, por Content SID). */

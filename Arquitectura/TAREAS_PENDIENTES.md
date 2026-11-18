@@ -260,6 +260,7 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [x] 2.16 Pantalla de Números de WhatsApp con vista previa de la plantilla de Twilio
 - [x] 2.17 Pantallas de Ofertas y Conversaciones con datos reales — en dev
 - [ ] 2.17b Dashboard y Configuración por agencia de Valuación con datos reales
+- [x] 2.17c Pantalla de **Bots** de Valuación sobre `hub_cleber` (18 nov 2026, sin desplegar): lista, crear y editar con las pestañas General, Abacus AI, Handoff, Horarios, Avanzado y ChatLLM (lo que Abacus tiene configurado para el deployment, con la misma vista que Ventas y Servicio; solo administradores), igual que la de Ventas y Servicio. Pendientes de esa pantalla: Inactividad (cuando corran los recordatorios en AWS) y las herramientas del bot (con 2.7). Requiere `ABACUS_API_KEY` en el servidor web (Vercel)
 - [ ] 2.18 Originación diaria (cron de madrugada: Quiter → BigQuery → criterios → precios) en producción, con la fuente de precios decidida (D16)
 - [ ] 2.19 Registro de la oferta final después de la inspección
 - [ ] 2.20 Verificar que no quedó nada de Valuación en `core/`, el router ni el bot (el ensayo de §3 del plan, antes 2.10 y 2.11)

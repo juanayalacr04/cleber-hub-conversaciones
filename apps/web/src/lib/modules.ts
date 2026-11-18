@@ -43,6 +43,8 @@ export const MODULES: ModuleDef[] = [
       { slug: "configuracion", label: "Configuración", icon: "gear", group: "admin", ready: true },
       // Número de WhatsApp de Valuación de la marca y plantilla de la oferta (hub_cleber)
       { slug: "whatsapp", label: "WhatsApp", icon: "phone", group: "admin", ready: true },
+      // Bots de la marca: Deployment de Abacus, handoff, horarios y clasificación del resultado (hub_cleber)
+      { slug: "bots", label: "Bots", icon: "bot", group: "admin", ready: true },
       // Editor de usuarios de la marca (hub_cleber)
       { slug: "agentes", label: "Usuarios", icon: "user", group: "admin", ready: true },
       // Alta de marcas (hub_cleber), solo super admin
