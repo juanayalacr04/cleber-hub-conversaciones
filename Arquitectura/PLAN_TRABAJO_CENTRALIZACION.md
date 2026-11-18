@@ -272,7 +272,7 @@ flowchart LR
 |---|---|---|---|
 | **0** | Fundación | Que la plataforma nazca con la seguridad, el esquema y la estructura correctos | ✅ Hecha sobre GCP; rehecha en parte sobre AWS + PostgreSQL (login, marcas, usuarios, roles, API Gateway) |
 | **1** | Portar el núcleo | Tener el motor conversacional probado corriendo en el repo nuevo | ✅ Código portado (sobre Firestore). Pendientes que pasan a la Fase 2 o 3 |
-| **2** | **Núcleo en AWS + Valuación en producción** | Primer módulo productivo: el núcleo sobre AWS y PostgreSQL, el contrato de entrada y Valuación completa | 🟡 En curso — envío de ofertas y pantallas ya en dev |
+| **2** | **Núcleo en AWS + Valuación en producción** | Primer módulo productivo: el núcleo sobre AWS y PostgreSQL, el contrato de entrada y Valuación completa | 🟡 En curso — en dev ya funcionan el envío de ofertas, la entrada de mensajes con el bot de Abacus y las pantallas de Números, Bots, Ofertas y Conversaciones. Falta: paso a asesor, tiempo real, eventos a Valuación probados, invitaciones de usuarios y producción |
 | **3** | Adecuar y migrar Ventas | Llevar `modules/ventas.py` y lo suyo a AWS + PostgreSQL y migrar sus marcas | ⏳ |
 | **4** | Adecuar y migrar Servicio | Igual que Ventas → **plataforma centralizada** | ⏳ |
 | **5** | Consolidación | Transferencia interna entre módulos y ficha única de cliente | ⏳ |

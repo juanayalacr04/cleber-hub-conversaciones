@@ -15,7 +15,7 @@ import { signOut } from "next-auth/react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
-  ArrowDown, ArrowUp, Ban, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Lock, MessageSquareReply,
+  ArrowDown, ArrowUp, Ban, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Lock,
   MessageSquare, Minus, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Search, Send, X,
 } from "lucide-react";
 import { PageHead } from "@/components/shell/Shell";
@@ -306,7 +306,7 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
           onCerrar={() => setDialogo(null)}
           onConfirmar={async (idEtiqueta, motivo) => {
             const o = dialogo.oferta;
-            const ok = await ejecuta(o, () => registraRespuesta({ idOferta: o.idOferta, version: o.version, idEtiqueta, motivo: motivo || undefined }), "Respuesta registrada");
+            const ok = await ejecuta(o, () => registraRespuesta({ idOferta: o.idOferta, version: o.version, idEtiqueta, motivo: motivo || undefined }), "Estatus actualizado");
             if (ok) setDialogo(null);
           }}
         />
@@ -355,7 +355,7 @@ function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
   const principal: "enviar" | "respuesta" | "retomar" | null =
     o.puede.enviar ? "enviar" : o.puede.registrarRespuesta ? "respuesta" : o.puede.retomar ? "retomar" : null;
   const menu = [
-    o.puede.registrarRespuesta && principal !== "respuesta" && { tipo: "respuesta" as const, label: "Registrar respuesta", icono: <MessageSquareReply size={14} /> },
+    o.puede.registrarRespuesta && principal !== "respuesta" && { tipo: "respuesta" as const, label: "Editar estatus", icono: <Pencil size={14} /> },
     o.puede.retomar && principal !== "retomar" && { tipo: "retomar" as const, label: "Retomar", icono: <RotateCcw size={14} /> },
     o.puede.descartar && { tipo: "descartar" as const, label: "Descartar", icono: <Ban size={14} /> },
     o.puede.cerrar && { tipo: "cerrar" as const, label: "Cerrar oferta", icono: <Lock size={14} /> },
@@ -364,25 +364,24 @@ function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
 
   return (
     <div className="vacts">
+      {conversacion && (
+        <Link href={rutaConversacion(conversacion)} className="btn" title="Abrir la conversación de WhatsApp de esta oferta">
+          <MessageSquare size={14} />Ver conversación
+        </Link>
+      )}
       {principal === "enviar" && (
         <button type="button" className="btn" disabled={deshabilitado} onClick={onEnvia} title="Enviar la oferta al cliente por WhatsApp">
           <Send size={14} />{enviando ? "Enviando…" : "Enviar"}
         </button>
       )}
-      {principal === "respuesta" && <button type="button" className="btn" disabled={deshabilitado} onClick={() => onAbre("respuesta")}><MessageSquareReply size={14} />Respuesta</button>}
+      {principal === "respuesta" && <button type="button" className="btn" disabled={deshabilitado} onClick={() => onAbre("respuesta")}><Pencil size={14} />Editar estatus</button>}
       {principal === "retomar" && <button type="button" className="btn" disabled={deshabilitado} onClick={() => onAbre("retomar")}><RotateCcw size={14} />Retomar</button>}
-      {(menu.length > 0 || conversacion) && (
+      {menu.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" className="btn oicon" disabled={deshabilitado} aria-label="Más acciones" title="Más acciones"><MoreHorizontal size={16} /></button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {conversacion && (
-              <DropdownMenuItem asChild>
-                <Link href={rutaConversacion(conversacion)}><MessageSquare size={14} />Ver conversación</Link>
-              </DropdownMenuItem>
-            )}
-            {conversacion && menu.length > 0 && <DropdownMenuSeparator />}
             {menu.map((m, i) => (
               <Fragment key={m.tipo}>
                 {m.tipo === "cerrar" && i > 0 && <DropdownMenuSeparator />}
@@ -483,7 +482,7 @@ function FichaOferta({ oferta: o, deshabilitado, onCalibra }: { oferta: Oferta; 
         <section>
           <h3>Seguimiento</h3>
           <dl className="dl">
-            {o.etiqueta && <><dt>Respuesta</dt><dd>{o.etiqueta.nombre}</dd></>}
+            {o.etiqueta && <><dt>Estatus</dt><dd>{o.etiqueta.nombre}</dd></>}
             {o.etiqueta?.motivo && <><dt>Motivo</dt><dd>{o.etiqueta.motivo}</dd></>}
             {o.envio.enviadaEn && <><dt>Enviada</dt><dd>{fechaHora(o.envio.enviadaEn)}</dd></>}
             {o.envio.idConversacion && (
@@ -498,7 +497,7 @@ function FichaOferta({ oferta: o, deshabilitado, onCalibra }: { oferta: Oferta; 
 }
 
 /** Conversación de WhatsApp de la oferta (la abrió el envío): Conversaciones, vista conversación, con ella seleccionada. */
-const rutaConversacion = (id: string) => `/valuacion/conversaciones?c=${encodeURIComponent(id)}`;
+const rutaConversacion = (id: string) => `/valuacion/conversaciones/${encodeURIComponent(id)}`;
 
 const km = (n: number | null | undefined) => (n == null ? "—" : fmtKm(Number(n)));
 
@@ -685,13 +684,13 @@ function DialogoRespuesta({ oferta, onCerrar, onConfirmar }: {
     <Dialog open onOpenChange={(abierto) => !abierto && !enviando && onCerrar()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Registrar respuesta del cliente</DialogTitle>
+          <DialogTitle>Editar estatus de la oferta</DialogTitle>
           <DialogDescription>{oferta.contacto.nombre ?? "Cliente"} · {modelo(oferta)}</DialogDescription>
         </DialogHeader>
         {error ? <div className="alert" role="alert">{error}</div> : !etiquetas ? <span className="vsub">Cargando etiquetas…</span> : (
           <>
             <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
-              Respuesta
+              Estatus
               <select className="date" value={id} onChange={(e) => setId(e.target.value)} autoFocus>
                 <option value="">Elige una opción…</option>
                 {grupos.map((g) => {
@@ -710,7 +709,7 @@ function DialogoRespuesta({ oferta, onCerrar, onConfirmar }: {
           <button type="button" className="btn" onClick={onCerrar} disabled={enviando}>Cancelar</button>
           <button type="button" className="btn primary" disabled={!valido || enviando}
             onClick={async () => { setEnviando(true); await onConfirmar(id, motivo.trim()); setEnviando(false); }}>
-            {enviando ? "Guardando…" : "Registrar"}
+            {enviando ? "Guardando…" : "Guardar"}
           </button>
         </DialogFooter>
       </DialogContent>

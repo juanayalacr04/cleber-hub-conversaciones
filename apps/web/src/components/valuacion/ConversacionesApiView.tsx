@@ -11,7 +11,9 @@
  * extra. Sin tiempo real todavía: se refresca cada 15 s mientras la página está visible.
  *
  * `/valuacion/conversaciones?c=<id>` abre la vista conversación con esa conversación seleccionada (enlace desde Ofertas).
- * Solo lectura por ahora: responder, tomar y cerrar llegan con las acciones del backend.
+ * Cerrar: el botón "Cerrar conversación" abre DialogoCierreConversacion: el motivo del cierre (Hub.cierraConversacion, con los
+ * permisos de la base) y, si viene de una oferta, el estatus de la oferta y si se cierra también. Responder y tomar llegan con las
+ * acciones del backend.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -20,7 +22,7 @@ import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   ArrowLeft, Bot, Columns, FileText, HelpCircle, List, Loader2, MessageCircle, MessageSquare, Phone, RefreshCw, Search, Send,
-  User, UserCircle,
+  User, UserCircle, XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,6 +31,7 @@ import {
 } from "@/lib/hub/conversaciones";
 import { consultaUsuarios } from "@/lib/hub/usuarios";
 import { mensajeError } from "@/lib/valuacion/tipos";
+import { DialogoCierreConversacion } from "@/components/valuacion/DialogoCierreConversacion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -218,7 +221,9 @@ function Kanban({ convs, agentes }: { convs: ConversacionHub[]; agentes: Record<
 
 const CONVERSE_FILTERS: ("all" | EstadoConversacion)[] = ["all", "waiting_agent", "with_agent", "bot", "closed"];
 
-function Converse({ convs, sel, onSel, agentes }: { convs: ConversacionHub[]; sel: string | null; onSel: (id: string) => void; agentes: Record<string, string> }) {
+function Converse({ convs, sel, onSel, agentes, onCambio }: {
+  convs: ConversacionHub[]; sel: string | null; onSel: (id: string) => void; agentes: Record<string, string>; onCambio: () => void;
+}) {
   const elegida = convs.find((c) => c.idConversacion === sel);
   // Si se abrió una conversación cerrada (p. ej. desde Ofertas), el filtro arranca en Cerradas para que se vea en la lista
   const [filter, setFilter] = useState<"all" | EstadoConversacion>(elegida?.estado === "closed" ? "closed" : "all");
@@ -260,7 +265,7 @@ function Converse({ convs, sel, onSel, agentes }: { convs: ConversacionHub[]; se
       </div>
       <div className="flex-1 min-w-0 flex flex-col bg-background">
         {sel ? (
-          <div className="flex-1 p-3 overflow-hidden"><ConversacionChat key={sel} idConversacion={sel} compact agentes={agentes} /></div>
+          <div className="flex-1 p-3 overflow-hidden"><ConversacionChat key={sel} idConversacion={sel} compact agentes={agentes} onCambio={onCambio} /></div>
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
@@ -369,7 +374,7 @@ export function ConversacionesApiView() {
             </div>
           )}
           {view === "kanban" && <Kanban convs={filtradas} agentes={agentes} />}
-          {view === "converse" && <Converse convs={filtradas} sel={sel} onSel={elige} agentes={agentes} />}
+          {view === "converse" && <Converse convs={filtradas} sel={sel} onSel={elige} agentes={agentes} onCambio={carga} />}
           {view === "list" && <ListView convs={filtradas} agentes={agentes} />}
         </>
       )}
@@ -385,12 +390,15 @@ const QUIEN: Record<Exclude<MensajeHub["remitente"], "system">, string> = { cust
 const hora = (s: string) => new Date(s).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 const dia = (s: string) => new Date(s).toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" });
 
-export function ConversacionChat({ idConversacion, compact = false, agentes = {} }: { idConversacion: string; compact?: boolean; agentes?: Record<string, string> }) {
+export function ConversacionChat({ idConversacion, compact = false, agentes = {}, onCambio }: {
+  idConversacion: string; compact?: boolean; agentes?: Record<string, string>; onCambio?: () => void;
+}) {
   const [conv, setConv] = useState<ConversacionHub | null>(null);
   const [mensajes, setMensajes] = useState<MensajeHub[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [conContexto, setConContexto] = useState(false);
   const [view, setView] = useState<DetailView>("messages");
+  const [dialogoCierre, setDialogoCierre] = useState(false);
 
   const carga = useCallback(async () => {
     const r = await consultaMensajes({ idConversacion, incluyeSistema: conContexto, limite: 200 });
@@ -463,6 +471,12 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
         <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground px-2">
           <input type="checkbox" checked={conContexto} onChange={(e) => setConContexto(e.target.checked)} />Contexto del bot
         </label>
+        {conv.estado !== "closed" && (
+          <Button variant="outline" size="sm" className={cn("flex-shrink-0", compact && "h-7 px-2 text-xs")} style={{ color: "var(--crit)" }}
+            onClick={() => setDialogoCierre(true)}>
+            <XCircle className="mr-1 h-3 w-3" aria-hidden="true" />Cerrar conversación
+          </Button>
+        )}
       </div>
 
       {view === "messages" && (
@@ -527,6 +541,11 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
           </CardContent></Card>
         </div>
       )}
+
+      <DialogoCierreConversacion
+        conv={conv} abierto={dialogoCierre} onCerrar={() => setDialogoCierre(false)}
+        onCerrada={(cerrada) => { if (cerrada) setConv(cerrada); onCambio?.(); carga(); }}
+      />
     </div>
   );
 }
