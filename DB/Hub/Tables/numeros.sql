@@ -4,10 +4,11 @@
 -- (marca, módulo), y un teléfono no puede estar activo en dos números.
 -- telefono en E.164 tal como está registrado en el proveedor (en México puede ser +521...), sin "whatsapp:";
 -- hub_cleber.telefono_numero, no la regla de clientes (que quita el 1).
--- config_proveedor: ids no secretos del proveedor (twilioAccountSid, metaPhoneNumberId, valuetextSenderId).
+-- config_proveedor: ids no secretos del proveedor (metaPhoneNumberId, valuetextSenderId). Twilio no lleva nada: todos los
+-- números están en una sola cuenta, que el backend toma del secreto del ambiente (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN).
 -- plantillas: plantillas por uso (handoff de servicio, cierre por inactividad, situación, oferta de valuación...).
--- Los tokens (Twilio, Meta, token de verificación del webhook de Meta) van en Secrets Manager; secretos_configurados
--- dice cuáles ya están puestos.
+-- Los tokens de Meta (acceso y verificación del webhook) van en Secrets Manager; secretos_configurados dice cuáles ya
+-- están puestos.
 CREATE TABLE IF NOT EXISTS hub_cleber.numeros (
   id_numero                  text        NOT NULL DEFAULT gen_random_uuid()::text,
   id_marca                   text        NOT NULL,

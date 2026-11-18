@@ -90,6 +90,7 @@ Lo que dice `DISENO_MIGRACION_POSTGRES.md` §7, con dos cambios:
 ### 4.5 Credenciales
 - `core/credentials.py`: lee de **Secrets Manager** un secreto por número y uno por bot (`hub/<ambiente>/numeros/<id>`, `hub/<ambiente>/bots/<id>`), con el mismo caché de 60 s. La interfaz (`reveal`, `store`, `clear`, `mark_configured`) no cambia; `secretsSet` pasa a columna de `numeros` y `bots`.
 - `META_APP_SECRET`, `VALUETEXT_WEBHOOK_SECRET` y similares: un secreto por ambiente, leído al iniciar la Lambda.
+- **Twilio (2026-11-18):** todos los números están en una sola cuenta de Twilio que administra Cleber, así que `TWILIO_ACCOUNT_SID` y `TWILIO_AUTH_TOKEN` van en el secreto del ambiente (`SECRET_NAME`), no por número. `core/datos/numeros.para_canal` los pone en cada número de Twilio e ignora `configProveedor.twilioAccountSid` y cualquier secreto propio del número (sin respaldo). El mismo token servirá para validar la firma del webhook de Twilio cuando se mude la entrada. Meta sigue por número.
 
 ### 4.6 Dependencias y empaquetado
 - Se quitan `functions-framework`, `google-cloud-pubsub`, `google-cloud-firestore` y `firebase-admin`; se agrega `boto3`.

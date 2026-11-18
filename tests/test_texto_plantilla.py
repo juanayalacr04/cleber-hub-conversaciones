@@ -64,7 +64,9 @@ def test_el_chat_guarda_el_texto_de_la_plantilla_del_proveedor(monkeypatch):
     base = tc.BaseFalsa(plantillas={"ofertaValuacion": {"contentSid": "HX1", "variables": ["nombreCliente", "vehiculo", "montoOferta"]}})
     monkeypatch.setattr(postgrest, "llama", base.llama)
     numeros.clear_cache()
-    credentials.configure(type("A", (), {"lee": lambda self, db, k, i: {"twilioAuthToken": "tok"}})())
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC1")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok")
+    credentials.configure(type("A", (), {"lee": lambda self, db, k, i: {}})())
     vistos = []
     outbound.configure(send_campaign=lambda *a, **k: "SM1",
                        render_template=lambda number, template, variables: vistos.append(variables) or "Hola Juan Pérez…")

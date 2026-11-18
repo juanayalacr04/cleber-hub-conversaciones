@@ -10,18 +10,23 @@
  *   telefono      número de WhatsApp (+52... o 10 dígitos)
  *   nombre        nombre del número en el hub (p. ej. "Valuación Toyota")
  *   proveedor     twilio / meta / valuetext
- *   id_proveedor  Twilio: Account SID (AC...) · Meta: phone_number_id · ValueText: Sender ID
+ *   id_proveedor  Meta: phone_number_id · ValueText: Sender ID · Twilio: no se usa (la cuenta es la del ambiente)
  *
  * Ejemplo (solo desarrollo/QA):
  *   psql -h <host> -U <usuario> -d <database> -v marca=TO -v telefono=+5215512345678 -v "nombre=Valuación Toyota" `
- *        -v proveedor=twilio -v id_proveedor=ACxxxxxxxx -f dev/alta_numero_valuacion.sql
+ *        -v proveedor=twilio -f dev/alta_numero_valuacion.sql
  *
- * La plantilla de la oferta (plantillas.ofertaValuacion) y el bot se agregan después con Hub.guardaNumero; las credenciales
- * del proveedor van en Secrets Manager, en hub/<ambiente>/numbers/<idNumero> (el script imprime el idNumero).
+ * La plantilla de la oferta (plantillas.ofertaValuacion) y el bot se agregan después con Hub.guardaNumero. Twilio usa la
+ * cuenta del ambiente (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN en el secreto SECRET_NAME); las credenciales de Meta van en
+ * Secrets Manager, en hub/<ambiente>/numbers/<idNumero> (el script imprime el idNumero).
  */
 
 \encoding UTF8
 \set ON_ERROR_STOP on
+\if :{?id_proveedor}
+\else
+\set id_proveedor ''
+\endif
 
 BEGIN;
 
@@ -56,13 +61,16 @@ SELECT r->>'successful' AS ok, r->>'errorCode' AS error, r->>'errorMessage' AS m
          'idMarca', :'marca', 'modulo', 'valuacion', 'telefono', :'telefono', 'nombre', :'nombre',
          'proveedor', :'proveedor', 'idEquipo', :'id_equipo',
          'configProveedor', CASE :'proveedor'
-                              WHEN 'twilio'    THEN jsonb_build_object('twilioAccountSid', :'id_proveedor')
+                              WHEN 'twilio'    THEN '{}'::jsonb
                               WHEN 'meta'      THEN jsonb_build_object('metaPhoneNumberId', :'id_proveedor')
                               WHEN 'valuetext' THEN jsonb_build_object('valuetextSenderId', :'id_proveedor')
                             END)))) AS r \gset
 \if :ok
 \echo 'Número de Valuación:' :id_numero :telefono_guardado
-\echo 'Credenciales del proveedor en Secrets Manager: hub/<ambiente>/numbers/':id_numero
+SELECT :'proveedor' = 'meta' AS es_meta \gset
+\if :es_meta
+\echo 'Credenciales de Meta en Secrets Manager: hub/<ambiente>/numbers/':id_numero
+\endif
 \else
 \echo 'FALLÓ Hub.guardaNumero:' :error :mensaje :detalle
 ROLLBACK;

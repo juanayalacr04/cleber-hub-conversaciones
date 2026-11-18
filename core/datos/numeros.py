@@ -5,8 +5,15 @@
 
 Los canales (channels/twilio_wa.py, meta_wa.py, valuetext_wa.py, campaign_templates.py) nacieron leyendo el documento de
 Firestore (`phoneNumber`, `provider`, `twilioAccountSid`, `metaPhoneNumberId`...). `para_canal` traduce la fila de hub_cleber
-a esa forma para no tocarlos; las credenciales se agregan desde el almacén (core/credentials.py, tipo "numbers").
+a esa forma para no tocarlos.
+
+Credenciales:
+    Twilio   una sola cuenta para todos los números del ambiente: TWILIO_ACCOUNT_SID y TWILIO_AUTH_TOKEN, que vienen del
+             secreto del ambiente (SECRET_NAME, core/entorno.py). Lo que tenga el número (configProveedor.twilioAccountSid o
+             un secreto propio) se ignora.
+    Meta     por número, desde el almacén (core/credentials.py, tipo "numbers").
 """
+import os
 import time
 
 from core import credentials, postgrest
@@ -54,10 +61,19 @@ def para_canal(numero: dict) -> dict:
         "reopenWindowHours": numero.get("ventanaReaperturaHoras"),
         "closeWebhookUrl": numero.get("webhookCierreUrl"),
         "status": "active" if numero.get("esActivo", True) else "inactive",
-        "twilioAccountSid": config.get("twilioAccountSid"),
         "metaPhoneNumberId": config.get("metaPhoneNumberId"),
         "valuetextSenderId": config.get("valuetextSenderId"),
         "plantillas": numero.get("plantillas") or {},
     }
     plano = {k: v for k, v in plano.items() if v is not None}
+    if proveedor == "twilio":
+        return {**plano, **cuenta_twilio()}
     return credentials.reveal(None, "numbers", plano.get("id"), plano)
+
+
+def cuenta_twilio() -> dict:
+    """La cuenta de Twilio del ambiente en la forma de los canales; las llaves que falten no se incluyen (los canales
+    responden "no configurado")."""
+    cuenta = {"twilioAccountSid": (os.environ.get("TWILIO_ACCOUNT_SID") or "").strip(),
+              "twilioAuthToken": (os.environ.get("TWILIO_AUTH_TOKEN") or "").strip()}
+    return {k: v for k, v in cuenta.items() if v}

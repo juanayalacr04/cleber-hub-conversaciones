@@ -98,10 +98,14 @@ def envios(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def sin_credenciales_reales():
+def sin_credenciales_reales(monkeypatch):
+    """Twilio: la cuenta del ambiente. Un secreto propio del número (el almacén) se ignora."""
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-ambiente")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok")
+
     class Almacen:
         def lee(self, db, kind, doc_id):
-            return {"twilioAuthToken": "tok"} if kind == "numbers" else {}
+            return {"twilioAuthToken": "del-numero", "metaAccessToken": "meta-tok"} if kind == "numbers" else {}
     credentials.configure(Almacen())
     yield
     credentials.configure(None)
@@ -122,7 +126,8 @@ def test_envia_la_oferta_de_punta_a_punta(base, envios, avisos):
     (enviado,) = envios.enviados
     assert enviado["phone"] == "+525512345678"
     assert enviado["number"]["phoneNumber"] == "whatsapp:+525500000001"      # forma que esperan los canales
-    assert enviado["number"]["twilioAuthToken"] == "tok"                       # con sus credenciales
+    assert enviado["number"]["twilioAuthToken"] == "tok"                       # la cuenta de Twilio del ambiente...
+    assert enviado["number"]["twilioAccountSid"] == "AC-ambiente"              # ...no la que traiga el número
     assert enviado["plantilla"]["contentSid"] == "HX123"
     assert enviado["recipient"]["variables"] == {"1": "Juan Pérez", "2": "HONDA CIVIC 2019", "3": "$270,000"}
 
@@ -234,3 +239,16 @@ def test_para_canal_de_meta_y_valuetext():
     vt = numeros.para_canal({"idNumero": "n3", "proveedor": "valuetext", "telefono": "+525522222222",
                              "configProveedor": {"valuetextSenderId": "S1"}})
     assert vt["valuetextSenderId"] == "S1" and vt["provider"] == "valuetext"
+
+
+def test_para_canal_de_twilio_usa_solo_la_cuenta_del_ambiente(monkeypatch):
+    fila = {"idNumero": "n1", "proveedor": "twilio", "telefono": "+5215500000001",
+            "configProveedor": {"twilioAccountSid": "AC-del-numero"}}
+    tw = numeros.para_canal(fila)
+    assert tw["twilioAccountSid"] == "AC-ambiente" and tw["twilioAuthToken"] == "tok"       # nada del número ni de su secreto
+    assert tw["phoneNumber"] == "whatsapp:+5215500000001"
+
+    monkeypatch.delenv("TWILIO_ACCOUNT_SID")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", " ")
+    tw = numeros.para_canal(fila)
+    assert "twilioAccountSid" not in tw and "twilioAuthToken" not in tw                    # sin respaldo: queda sin configurar
