@@ -1,8 +1,10 @@
 # Plan de trabajo — Centralización de plataformas
 
-**Fecha: 14 de octubre de 2026**
-**Premisa: arranque desde cero** — repo nuevo, proyecto de Google Cloud nuevo, proyecto de Vercel nuevo.
-**Alcance: centralizar Comercial + Servicio. Valuación queda fuera** (ver Apéndice A).
+**Fecha: 14 de octubre de 2026 · Reordenado el 18 de noviembre de 2026**
+**Premisa: arranque desde cero** — repo nuevo, infraestructura nueva (AWS + PostgreSQL desde el 17 nov 2026), proyecto de Vercel nuevo.
+**Alcance: Valuación sale primero a producción; después se adecuan Ventas y Servicio** (ver §1 y §6).
+
+> **Actualización 18 de noviembre de 2026 — Valuación es la primera fase productiva.** Valuación deja de ser un prototipo o un módulo "fuera del alcance": **es el primer módulo que sale a producción en la plataforma nueva**, y es requisito para salir a producción. Ventas y Servicio se adecuan después, en ese orden. Cambian §1, §3, §5, §6, las fases 2 a 4, §13 a §15 y el Apéndice A. Las fases 0 y 1 (fundación y núcleo portado) se conservan como antecedente: su código es la base, pero se despliega en AWS sobre PostgreSQL ([`DISENO_BACKEND_AWS.md`](DISENO_BACKEND_AWS.md)), no en GCP sobre Firestore.
 
 Plan de ejecución derivado de:
 - [`ANALISIS_CENTRALIZACION_PLATAFORMAS.md`](ANALISIS_CENTRALIZACION_PLATAFORMAS.md) — la decisión, en lenguaje de negocio
@@ -19,22 +21,29 @@ Documentos hermanos:
 
 ## 1. El destino y el alcance de ahora
 
-**El destino:** una sola plataforma, organizada por **marca**, con los módulos de **Comercial y Servicio** conviviendo en un solo repo, una sola base y una sola bandeja — **una aplicación con un solo login**, un solo código y una **ficha única de cliente** que cruza los dos módulos.
+**El destino:** una sola plataforma, organizada por **marca**, con los módulos de **Valuación, Ventas (Comercial) y Servicio** conviviendo en un solo repo, una sola base y una sola bandeja — **una aplicación con un solo login**, un solo código y una **ficha única de cliente** que cruza los módulos.
 
-Diseñada para que un módulo más entre sin abrir el núcleo, pero **ese módulo no se construye aquí**.
+**El alcance de este plan, en orden:**
 
-**El alcance de este plan: Comercial + Servicio. Nada más.**
+| Orden | Módulo | Qué significa |
+|---|---|---|
+| **1º** | **Valuación** | Módulo nuevo (toma de autos, FlashTrade). **Primera fase productiva**: sin Valuación en producción no se sale a producción |
+| **2º** | **Ventas** | Se adecua el módulo ya portado a la plataforma en AWS y se migran sus marcas desde la plataforma vieja |
+| **3º** | **Servicio** | Igual que Ventas. Al cerrarlo, la plataforma queda centralizada |
 
-| | |
-|---|---|
-| ✅ **Dentro** | Centralizar Comercial y Servicio en una sola plataforma: un repo, una base, una bandeja, un login, un solo código |
-| ❌ **Fuera** | El módulo de Valuación, completo. Sus números, su bot, su contrato de salida y sus pantallas → **Apéndice A**, para cuando el negocio lo defina |
+Valuación **sí vive dentro del hub** (decisión del 2026-10-29): su lógica va en `modules/valuacion.py` y en sus propias Lambdas (`TomaUnidades.*`), y sus pantallas dentro del dashboard. Ver el Apéndice A para lo que se revirtió.
 
-### Qué cambia por dejar Valuación de lado
+### Por qué Valuación primero
 
-**Mucho menos de lo que parecería: las fases 0 a 5 quedan prácticamente iguales.** La razón está medida en §3 — de los ocho ganchos de extensibilidad que el plan contemplaba, **siete se justifican por la centralización misma**, no por Valuación:
+1. **Es un negocio nuevo, sin datos que mudar.** El primer tráfico de producción de la plataforma ya no es tráfico migrado (conversaciones en curso, ventanas de 24h abiertas), sino conversaciones nuevas que nacen en la plataforma. Se recupera la pasada de rodaje que el plan original había perdido (§5).
+2. **Valuación es el ensayo real del punto de extensión** (§3). Entra por el contrato de entrada, con su propio número, bot y pantallas. Si sale a producción sin `if vertical == "valuacion"` en `core/`, la plataforma quedó preparada para recibir a Ventas y Servicio.
+3. **Obliga a terminar primero el núcleo en AWS.** Lo que Valuación necesita (entrada de mensajes, bot, bandeja, handoff, cierre, tiempo real) es exactamente el núcleo que después usan Ventas y Servicio. Lo que es solo de ellos (Salesforce, leads, campañas, situaciones) se adecua en su fase.
 
-| Gancho | Por qué lo necesita la centralización, sin Valuación |
+### Los ganchos de extensibilidad
+
+Se justifican por la centralización misma, y Valuación los usa primero:
+
+| Gancho | Para qué sirve |
 |---|---|
 | `vertical` en `teams` y `conversations` | Es lo que separa Comercial de Servicio dentro de una base compartida |
 | `customers` + `customerId` | Es la ficha única de cliente **entre Comercial y Servicio** |
@@ -44,13 +53,15 @@ Diseñada para que un módulo más entre sin abrir el núcleo, pero **ese módul
 | Contrato de entrada único | Colapsa los **4 caminos ad-hoc** que existen hoy |
 | Shell con vistas por módulo | Es la forma del dashboard unificado con dos módulos |
 
-**Lo único que sale de verdad** es el contrato de salida (outcomes hacia un sistema origen), que ya estaba en la última fase, más el alta de los 5 números y las pantallas de Valuación.
+**Lo que Valuación agrega** sobre los ganchos: el contrato de salida (contrato ③: eventos de la conversación hacia `TomaUnidades.recibeEventoHub`), **un número de WhatsApp propio por marca** (decisión A8 de `DISENO_BACKEND_AWS.md`) con su plantilla aprobada, su bot y sus pantallas.
 
-**Y una consecuencia práctica:** los números de WhatsApp de Comercial y Servicio **ya existen y están en operación**. Centralizar no requiere darlos de alta, solo reapuntar sus webhooks. El trámite con el proveedor —que era el candidato a volverse camino crítico— **desaparece por completo del plan**.
+**Una consecuencia práctica:** los números de Ventas y Servicio **ya existen y están en operación**; al migrarlos solo se reapuntan sus webhooks. **Los números de Valuación sí hay que darlos de alta** por marca piloto, con su plantilla aprobada. Ese trámite vuelve a ser candidato a camino crítico y se arranca cuanto antes (Fase 2).
 
 ---
 
-## 2. Los dos módulos dentro de una sola aplicación
+## 2. Los módulos dentro de una sola aplicación
+
+> **Actualización 18 nov 2026:** son tres módulos —Valuación, Ventas y Servicio—, no dos. Lo que esta sección dice de los dos aplica igual a Valuación.
 
 Comercial y Servicio son **módulos de una misma plataforma**, no dos sistemas que se parecen. Esta sección define qué comparten y qué tiene cada uno.
 
@@ -108,11 +119,11 @@ Es la forma más barata de verificar que la separación Comercial/Servicio qued�
 
 ### Cómo se verifica
 
-**Al cerrar la Fase 2 se corre un ensayo con un módulo de prueba:** un bot apuntando a un stub, un número de prueba y un equipo con `vertical: "prueba"`. Se dispara una conversación por el contrato de entrada, el stub responde, se hace handoff a un asesor y se cierra.
+> **Actualización 18 nov 2026:** con PostgreSQL, "crear documentos en Firestore" se lee como "dar de alta la configuración en `hub_cleber`" (equipo, número, bot, plantillas).
 
-Si corre end-to-end **sin haber tocado `core/`**, el diseño es correcto. Si hubo que tocar el núcleo, se corrige antes de migrar, no después.
+**El ensayo es Valuación misma (Fase 2).** Ya no hace falta un módulo de prueba con `vertical: "prueba"`: Valuación es un módulo real que entra por el contrato de entrada, con su número, su bot y su handoff. Se dispara la oferta, el cliente contesta, el bot responde, pasa a un asesor y se cierra.
 
-> Es un ensayo de medio día, y de paso deja la puerta abierta para cuando entre Valuación (Apéndice A). Pero su valor no depende de eso.
+Si corre end-to-end **sin haber tocado `core/`** por algo propio de Valuación, el diseño es correcto. Si hubo que tocar el núcleo, se corrige antes de adecuar Ventas y Servicio, no después.
 
 ---
 
@@ -231,11 +242,13 @@ Es el trabajo de diseño más denso de la Fase 1 y conviene presupuestarlo como 
 | **Dos migraciones de datos, no una** | Antes la base de Comercial era el destino. Ahora **Ventas y Servicio migran los dos** a una base vacía |
 | Convivencia temporal de tres deployments | Durante la transición corren el Ventas viejo, el Servicio viejo y la plataforma nueva |
 
-### El costo de centralizar primero, dicho claro
+### El rodaje lo da Valuación
 
-Con Valuación aplazado, **el primer tráfico de producción de la plataforma nueva es tráfico migrado**: conversaciones en curso, con WhatsApp abierto y ventanas de 24h corriendo. Se pierde la pasada de rodaje que daba estrenarse con un negocio nuevo sin datos que mudar.
+> **Actualización 18 nov 2026.** El plan original (sin Valuación) estrenaba la plataforma con **tráfico migrado**: conversaciones en curso, con WhatsApp abierto y ventanas de 24h corriendo, sin pasada de rodaje.
 
-**Mitigación, y está en el plan:** migrar **una marca a la vez, empezando por la de menor volumen**, con la plataforma vieja encendida y capaz de recibir hasta cerrar cada corte. La primera marca es el rodaje.
+Con Valuación primero, **el primer tráfico de producción es nuevo**: conversaciones que nacen en la plataforma, de un negocio que no tiene plataforma vieja ni datos que mudar. El rodaje (infraestructura de producción, entrada de mensajes, bot, bandeja, tiempo real, alarmas) se hace con ese tráfico.
+
+Cuando lleguen Ventas y Servicio se conserva la mitigación original: migrar **una marca a la vez, empezando por la de menor volumen**, con la plataforma vieja encendida y capaz de recibir hasta cerrar cada corte.
 
 ---
 
@@ -245,29 +258,28 @@ Con Valuación aplazado, **el primer tráfico de producción de la plataforma nu
 flowchart LR
     F0["<b>FASE 0</b><br/>Fundación"]
     F1["<b>FASE 1</b><br/>Portar<br/>el núcleo"]
-    F2["<b>FASE 2</b><br/>Contrato<br/>de entrada"]
-    F3["<b>FASE 3</b><br/>Migrar<br/>Ventas"]
-    F4["<b>FASE 4</b><br/>Migrar<br/>Servicio"]
+    F2["<b>FASE 2</b><br/>Núcleo en AWS +<br/>Valuación en<br/>producción"]
+    F3["<b>FASE 3</b><br/>Adecuar y<br/>migrar Ventas"]
+    F4["<b>FASE 4</b><br/>Adecuar y<br/>migrar Servicio"]
     F5["<b>FASE 5</b><br/>Consolidación"]
 
     F0 --> F1 --> F2 --> F3 --> F4 --> F5
-    F2 ==>|"ensayo con<br/>módulo de prueba"| P(["EXTENSIBLE"])
+    F2 ==>|"primer módulo<br/>en producción"| P(["PRODUCTIVA<br/>Y EXTENSIBLE"])
     F4 ==>|"se apaga<br/>lo viejo"| C(["CENTRALIZADA"])
-    F5 -.->|"fuera de este plan"| V(["Apéndice A:<br/>Valuación"])
 ```
 
-| Fase | Nombre | Objetivo en una línea | Local |
+| Fase | Nombre | Objetivo en una línea | Estado (18 nov 2026) |
 |---|---|---|---|
-| **0** | Fundación | Que la plataforma nazca con la seguridad, el esquema y la estructura correctos | 💻 |
-| **1** | Portar el núcleo | Tener el motor conversacional probado corriendo en el repo nuevo | 💻 |
-| **2** | Contrato de entrada | Una sola puerta en vez de cuatro, y el punto de extensión verificado | 💻 |
-| **3** | Migrar Comercial | Primer módulo con datos vivos | ❌ |
-| **4** | Migrar Servicio | **Plataforma centralizada** | ❌ |
-| **5** | Consolidación | Transferencia interna entre módulos y ficha única de cliente | ❌ |
+| **0** | Fundación | Que la plataforma nazca con la seguridad, el esquema y la estructura correctos | ✅ Hecha sobre GCP; rehecha en parte sobre AWS + PostgreSQL (login, marcas, usuarios, roles, API Gateway) |
+| **1** | Portar el núcleo | Tener el motor conversacional probado corriendo en el repo nuevo | ✅ Código portado (sobre Firestore). Pendientes que pasan a la Fase 2 o 3 |
+| **2** | **Núcleo en AWS + Valuación en producción** | Primer módulo productivo: el núcleo sobre AWS y PostgreSQL, el contrato de entrada y Valuación completa | 🟡 En curso — envío de ofertas y pantallas ya en dev |
+| **3** | Adecuar y migrar Ventas | Llevar `modules/ventas.py` y lo suyo a AWS + PostgreSQL y migrar sus marcas | ⏳ |
+| **4** | Adecuar y migrar Servicio | Igual que Ventas → **plataforma centralizada** | ⏳ |
+| **5** | Consolidación | Transferencia interna entre módulos y ficha única de cliente | ⏳ |
 
-**La Fase 5 cierra el plan.** Valuación queda documentada en el Apéndice A para cuando el negocio la defina.
+**Cómo se relaciona con las rebanadas de [`DISENO_BACKEND_AWS.md`](DISENO_BACKEND_AWS.md) §8:** la rebanada 1 (núcleo + Valuación) es la Fase 2; la rebanada 2 (Ventas y Servicio) y la 3 (migración de marcas) se reparten entre las fases 3 y 4.
 
-> **Las fases 0, 1 y 2 se hacen locales**, con el emulador de Firestore y `functions-framework` (ya está en `requirements.txt`). GCP entra recién cuando hace falta el primer despliegue real. Ver §7.1.
+> **Mientras dure la Fase 2, el despliegue de GCP queda congelado** en el último commit antes de la mudanza (`DISENO_BACKEND_AWS.md` §8). Ventas y Servicio siguen operando en sus plataformas viejas, que no se tocan.
 
 ### Frentes paralelos
 
@@ -544,74 +556,99 @@ Se hace **después de portar lo conversacional y antes del end-to-end y de la Fa
 
 ---
 
-## 9. Fase 2 — Contrato de entrada único 💻
+## 9. Fase 2 — Núcleo en AWS y Valuación en producción
 
-> **Objetivo:** que cualquier sistema dispare una conversación saliente por un único endpoint genérico y autenticado. Es trabajo de centralización —colapsa cuatro caminos en uno— y, de paso, es el gancho principal de Valuación.
+> **Objetivo:** el primer módulo productivo de la plataforma. Valuación opera en producción con sus marcas piloto, sobre el núcleo de conversaciones ya mudado a AWS y PostgreSQL, y entrando por el contrato de entrada. **Sin esta fase no se sale a producción.**
+>
+> Reemplaza a la antigua "Fase 2 — Contrato de entrada único" (reescrita el 18 nov 2026). El contrato de entrada sigue siendo parte de esta fase; lo que era solo de Ventas (el `lead_webhook` de Salesforce sobre el contrato) pasa a la Fase 3.
 
-### El problema que se evita repetir
+Diseño técnico: [`DISENO_BACKEND_AWS.md`](DISENO_BACKEND_AWS.md) (rebanada 1) y [`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md) (modelo de datos y acciones `Hub.*`).
 
-| Camino | Origen | Por qué no se reutiliza |
+### 9.1 Núcleo de conversaciones en AWS
+
+Lo que cualquier módulo necesita para conversar. Valuación lo estrena; Ventas y Servicio lo reutilizan sin cambios.
+
+| Pieza | Contenido |
+|---|---|
+| **Datos** | Tablas del núcleo en `hub_cleber` (`equipos`, `numeros`, `bots`, `conversaciones`, `mensajes`, `bitacora`) y sus acciones `Hub.*`, con `core/datos/` por entidad |
+| **Entrada de mensajes** | `hub-router` (webhook con firma validada) → SQS FIFO `hub-entrantes` (grupo = número + cliente) → `hub-entrantes` → `hub-bot` → Abacus |
+| **Acciones** | `hub-acciones-usuario` (pantallas) y `hub-acciones-bot` (bots, D14) |
+| **Jobs** | `hub-jobs` con EventBridge Scheduler: inactividad, cierre y resúmenes del expediente |
+| **Tiempo real** | AppSync Events (o la opción que se decida, `DISENO_BACKEND_AWS.md` §6) en lugar de `onSnapshot` de Firestore |
+| **Credenciales** | Secrets Manager; Twilio con una sola cuenta por ambiente |
+| **Proveedor** | **Twilio** (el de los números de Valuación). Meta y ValueText se validan en AWS cuando entren Ventas y Servicio |
+
+### 9.2 Contratos con Valuación
+
+| Contrato | Qué hace | Estado |
 |---|---|---|
-| `lead_webhook` | Salesforce, SOAP XML | Atado al objeto `Lead` y a `sfBrandCode` |
-| `api/broadcasts/[id]/send` | CSV / UI | Masivo, no 1-a-1 por evento |
-| `api/integrations/situacion-detectada` | HTTP JSON | 1 solo evento, 2 variables fijas, **sin auth** |
-| `api/web-chat/init` | Widget web | Otro canal |
+| **① Entrada** (`hub-entry-point`) | `TomaUnidades.enviaOferta` abre la conversación y manda la plantilla. Idempotente por (`fuente`, `id_externo`); guarda el `<<CONTEXTO>>` para el bot | ✅ En dev |
+| **② Bot** | El bot de Valuación (IA Workflow de Abacus) conversa con el cliente con el contexto de la oferta | ⏳ |
+| **③ Salida** (`TomaUnidades.recibeEventoHub`) | El hub avisa a Valuación lo que pasa en la conversación: contestó (incluido el `ButtonPayload` `oferta_interesa` / `oferta_no_interesa`), pasó a asesor, resultado y cierre. `modules/valuacion.py` decide qué eventos se mandan | ⏳ |
 
-### El contrato
+Reglas del contrato que se conservan del plan original: **autenticación por sistema origen desde el día 1**, idempotencia por (`fuente`, `id_externo`), priming del bot con la plantilla y el contexto (sin esto el bot contesta sin saber qué se mandó) y `fuente` / `id_externo` guardados en la conversación.
 
-> Desde la arquitectura de tres funciones (§7.7), este endpoint es una acción de la función 2, no una ruta de Next.js. El envío de la plantilla lo hace la función 1.
+### 9.3 El módulo de Valuación
 
-```
-POST /api/integrations/conversations
-Authorization: Bearer <api key por sistema origen>
+| Parte | Contenido |
+|---|---|
+| **Originación** | Cron de madrugada: citas de servicio (Quiter → BigQuery) → criterios → precios → ofertas. Las pantallas solo muestran su resultado |
+| **Pantallas** | Dashboard, Ofertas (con **Enviar**), Conversaciones (bandeja y chat al estilo de Ventas y Servicio), Configuración por agencia y Números de WhatsApp |
+| **Envío** | Manual (el valuador pulsa **Enviar**) y solo para clientes con cita de servicio |
+| **Oferta final** | Después de la inspección se registra en la plataforma; no se envía al cliente |
+| **Número y plantilla** | Un número de WhatsApp de Valuación **por marca**, con su plantilla aprobada |
+| **Bot** | IA Workflow de Abacus, con el vocabulario de acciones como configuración |
 
-{
-  "source": "valuacion",
-  "externalId": "VAL-00123",
-  "target": { "whatsappNumberId": "..." },
-  "customer": { "phone": "+52...", "name": "Juan Pérez" },
-  "template": { "name": "oferta_compra_auto",
-                "variables": { "1": "Juan", "2": "Civic 2021", "3": "$285,000" } },
-  "context": { "vin": "...", "modelo": "...", "oferta": 285000, "vigencia": "2026-10-20" },
-  "botId": "bot-valuacion"
-}
-→ 200 { "conversationId": "...", "reused": false }
-```
+### 9.4 Producción
 
-### Qué hace por dentro
+Valuación es lo que estrena la infraestructura de producción, así que esta fase la crea:
 
-1. **Idempotencia** por `(source, externalId)` — hay precedente en `_is_duplicate_lead`.
-2. **Resuelve el número** → `organizationId`, `teamId`, `defaultBotId`, proveedor.
-3. **Reusa conversación abierta o crea nueva**, con la ventana de 24h validada.
-4. **Manda la plantilla por el proveedor del número** (Twilio / Meta / ValueText).
-5. **Prima la sesión del agente**: guarda `<<PLANTILLA>>` + `<<CONTEXTO>>` y la primea. **No es opcional** — sin esto el bot contesta sin saber qué se mandó.
-6. **Persiste `source` / `externalId`** para filtrar en la bandeja y cerrar el ciclo.
+1. Cuenta de AWS de producción (`386458449724`): Lambdas, SQS, Secrets Manager, tiempo real, alarmas de CloudWatch.
+2. API Gateway de producción: authorizer de Google, rutas con VPC Link a PostgREST y la excepción de API key para `/webhook/*` (`PENDIENTES_INFRA_DEV.md` P1 a P4, `DISENO_BACKEND_AWS.md` §9).
+3. PostgreSQL de producción con los schemas `hub_cleber`, `clientes` y `valuacion`.
+4. Vercel de producción y cliente de Google OAuth de producción.
+5. Seguridad de dev resuelta antes de copiar el patrón a producción (`PENDIENTES_INFRA_DEV.md` S1 a S3, I1 e I2).
 
-**Autenticación por API key por sistema origen, desde el día 1** — a diferencia del endpoint actual, que por contrato explícito no tiene ninguna.
+### 9.5 Lo que esta fase NO incluye
 
-### El ensayo que certifica que quedó preparada
+Se queda en las plataformas viejas de Ventas y Servicio, y se adecua en las fases 3 y 4: Salesforce (leads, citas, flows), `lead_webhook`, campañas, situaciones y la federación Ventas → Servicio, `close-by-phone`, Meta y ValueText.
 
-Al cerrar esta fase se corre el ensayo de §3: un módulo de prueba con un bot contra un stub, número de prueba y `vertical: "prueba"`. Disparar → conversar → handoff → cerrar.
+### 9.6 El ensayo que certifica la plataforma
 
-**Si corre sin tocar `core/`, la plataforma está preparada.** Si hubo que tocarlo, el gancho se corrige aquí, antes de migrar.
+Valuación es el ensayo de §3: un módulo real que entra por el contrato de entrada. **Si sale a producción sin tocar `core/`, el router ni el bot por algo propio de Valuación**, la plataforma está preparada para Ventas y Servicio. Si hubo que tocarlos, el gancho se corrige aquí.
 
 ### Criterio de salida
 
-- [ ] Endpoint con API key por sistema origen, funcionando con los 3 proveedores
-- [ ] Idempotencia verificada: dos llamadas con el mismo `externalId` no crean dos conversaciones
-- [ ] Priming verificado: el bot responde con conocimiento del contexto enviado
-- [ ] El camino de leads de Salesforce reimplementado **sobre este contrato**, no al lado
-- [ ] **Ensayo del módulo de prueba, end-to-end, sin cambios en `core/`**
+- [ ] Núcleo corriendo en AWS de producción: router, cola, entrantes, bot, acciones, jobs y tiempo real, con alarmas
+- [ ] Firma del webhook de Twilio validada con el token del ambiente
+- [ ] Contrato ① con autenticación por sistema origen e idempotencia verificada
+- [ ] Contrato ③ entregando a Valuación los eventos de la conversación, incluido el `ButtonPayload`
+- [ ] Prueba de punta a punta en dev y luego en producción: enviar oferta → llega la plantilla → el cliente contesta → contesta el bot → pasa a asesor → el asesor contesta → cierre → Valuación recibe los eventos
+- [ ] Originación diaria corriendo en producción con la fuente de precios decidida (DA-1)
+- [ ] Números y plantillas aprobadas de las marcas piloto; bot de Valuación configurado
+- [ ] Sin `if vertical == "valuacion"` en `core/`
+- [ ] **Hito: Valuación operando en producción con sus marcas piloto**
 
 ---
 
-## 10. Fase 3 — Migrar Comercial
+## 10. Fase 3 — Adecuar y migrar Ventas (Comercial)
 
-> **Objetivo:** primer módulo con datos vivos y conversaciones en curso dentro de la plataforma nueva.
+> **Objetivo:** Ventas operando en la plataforma nueva, sobre el núcleo que Valuación ya dejó en producción, con sus datos vivos y conversaciones en curso.
 
-### Por qué Comercial antes que Servicio
+### Adecuar: lo de Ventas que no entró en la Fase 2
 
-Comercial aporta la mayor parte del código portado (situaciones, CRM, 52 de las 59 funciones exclusivas), así que es donde menos sorpresas de comportamiento debería haber.
+El código de Ventas ya está portado (Fase 1), pero sobre Firestore y GCP. Antes de migrar marcas se adecua a AWS y PostgreSQL (rebanada 2 de `DISENO_BACKEND_AWS.md`):
+
+1. `modules/ventas.py` y `crm/` sobre `core/datos/` (PostgreSQL), sin escribir en Firestore.
+2. `lead-webhook` reimplementado **sobre el contrato de entrada**, no al lado, con su autenticación (secreto compartido o lista de IPs).
+3. Situaciones y ruteo entre bots, campañas (cola `hub-campanas`), contacto programado y crons de Ventas en `hub-jobs`.
+4. Validación de firma de Meta y ValueText en `hub-router`, si las marcas de Ventas los usan.
+5. Las pantallas de Ventas que todavía leen Firestore pasan a `Hub.consulta*` y al tiempo real de AWS.
+6. Bots de Ventas (ChatLLM) migrados al endpoint de acciones (1.47 y 1.48 de `TAREAS_PENDIENTES.md`).
+
+### Por qué Ventas antes que Servicio
+
+Ventas aporta la mayor parte del código portado (situaciones, CRM, 52 de las 59 funciones exclusivas), así que es donde menos sorpresas de comportamiento debería haber.
 
 ### El riesgo real no es el código, es el dato vivo
 
@@ -624,8 +661,8 @@ Hay que mudar **conversaciones en curso**, con WhatsApp abierto, ventanas de 24h
 1. ✅ **Migración en corte** (decisión 5 de la Fase D) — sin doble escritura. Definir ventana, duración máxima tolerable y punto de no retorno.
 2. Migrar organizaciones, equipos, números, bots, usuarios y configuración.
 3. Migrar las conversaciones **activas** y sus mensajes, poblando `vertical` y `customerId` al escribir. **El expediente arranca vacío**: no se generan resúmenes de conversaciones históricas.
-4. Reapuntar los webhooks de los proveedores al GCP nuevo (las rutas de la función 1). **Los números no cambian.** La validación de firma y las credenciales en Secret Manager deben estar listas antes del corte.
-5. **Marca por marca, empezando por la de menor volumen** — esa primera marca es el rodaje de la plataforma (§5).
+4. Reapuntar los webhooks de los proveedores a `hub-router` en AWS. **Los números no cambian.** La validación de firma y las credenciales en Secrets Manager deben estar listas antes del corte.
+5. **Marca por marca, empezando por la de menor volumen.** El rodaje de la plataforma ya lo dio Valuación (§5); la primera marca es el rodaje de la *migración*.
 6. Plan de rollback explícito: la plataforma vieja se mantiene encendida y capaz de recibir hasta cerrar cada corte.
 
 ### El pendiente de la transición
@@ -642,19 +679,20 @@ Durante la ventana entre esta fase y la siguiente, **Ventas ya está en la plata
 
 ---
 
-## 11. Fase 4 — Migrar Servicio: la plataforma queda centralizada
+## 11. Fase 4 — Adecuar y migrar Servicio: la plataforma queda centralizada
 
-> **Objetivo:** "todo centralizado" de verdad — una bandeja, un login, métricas juntas, un solo código.
+> **Objetivo:** "todo centralizado" de verdad — una bandeja, un login, métricas juntas, un solo código, con Valuación, Ventas y Servicio.
 
-Mismo procedimiento que la Fase 3, con dos diferencias:
+Mismo procedimiento que la Fase 3 (adecuar y luego migrar), con estas diferencias:
 
-- Servicio viene de otro proyecto de GCP (`atomic-hybrid-482121-n7`) y de una **base default**, no nombrada. El cliente de Firestore cambia, no solo los documentos.
-- Es la última migración: al cerrarla se apagan los proyectos de GCP y de Vercel viejos, y **la federación HTTP entre Ventas y Servicio desaparece** — pasa a ser una transferencia interna dentro de la misma base.
+- **Adecuar es poco:** `modules/servicio.py` nace prácticamente vacío. Lo propio de Servicio es su parseo `workflow`, los outcomes, los recordatorios de cita y el no-show, y `close-by-phone` y `situacion-detectada` como entradas de sistema.
+- Servicio viene de otro proyecto de GCP (`atomic-hybrid-482121-n7`) y de una **base default**, no nombrada: el script de migración lee de otra base.
+- Es la última migración: al cerrarla se apagan las plataformas viejas de Ventas y Servicio, **y también el despliegue congelado del hub en GCP y su Firestore** (`DISENO_BACKEND_AWS.md` §7). **La federación HTTP entre Ventas y Servicio desaparece**: pasa a ser una transferencia interna dentro de la misma base.
 
 ### Criterio de salida
 
 - [ ] Todas las marcas de Servicio operando en la plataforma nueva
-- [ ] Proyectos de GCP y Vercel viejos apagados
+- [ ] Plataformas viejas (GCP y Vercel) y el despliegue del hub en GCP apagados
 - [ ] **Hito: una sola plataforma, un solo repo, una sola base, una sola bandeja, un solo login**
 
 ---
@@ -675,7 +713,7 @@ Con las dos verticales en una base, pasar un caso de Ventas a Servicio deja de s
 
 3. **Cada transferencia consume una plantilla** (ventana de 24h del número destino) y el cliente recibe un mensaje desde otro número. Inevitable con números separados; es trabajo de **redacción**, no técnico.
 
-Queda listo para que Valuación lo use tal cual cuando entre.
+Valuación lo usa tal cual (por ejemplo, Ventas → Valuación cuando un prospecto quiere dejar su auto a cuenta).
 
 ### 12.2 La ficha única de cliente
 
@@ -686,10 +724,10 @@ flowchart TB
     CL(["JUAN PÉREZ · 55 1234 5678"])
     CL --> V["<b>VENTAS</b><br/>Compró un Civic en 2023"]
     CL --> S["<b>SERVICIO</b><br/>2 servicios este año"]
-    CL -.-> U["<b>VALUACIÓN</b><br/><i>cuando entre el módulo</i>"]
+    CL --> U["<b>VALUACIÓN</b><br/>Oferta por su RAV4 2019"]
     V --> O{{"OPORTUNIDAD"}}
     S --> O
-    U -.-> O
+    U --> O
 ```
 
 - Panel de cliente en la ficha de conversación, con el timeline cruzado
@@ -715,7 +753,10 @@ flowchart TB
 | **`modules/ventas.py` se vuelve el nuevo `main.py`** | Se cambia un archivo de 4,738 líneas por otro, y la centralización queda en mudanza | §4.7: los handlers orquestan; la mecánica compartida vive en `crm/` y `core/`. Un handler largo es la señal de alarma |
 | **Divergencia por copy-paste entre handlers** | El problema de los dos repos, reproducido dentro de uno | §4.7: lo común al helper; el handler se queda solo con lo que difiere |
 | **Vuelven los `if vertical == ...` al núcleo** | Se muda el código pero se conserva el acoplamiento: la centralización queda a medias | §7.4: `core/` nunca importa de `modules/`. Regla de revisión explícita en §4.9, verificada con el ensayo de §3 |
-| **El primer tráfico de producción es tráfico migrado** | Sin rodaje previo de la plataforma nueva | Fase 3: marca por marca, empezando por la de menor volumen, con rollback |
+| ~~**El primer tráfico de producción es tráfico migrado**~~ | — | ✅ Resuelto por el reorden (18 nov 2026): el primer tráfico es de Valuación, nuevo y sin datos que mudar (§5). Para Ventas y Servicio se conserva marca por marca, con rollback |
+| **El núcleo sale a producción probado solo con Valuación** | Ventas y Servicio ejercitan caminos que Valuación no usa (Meta, ValueText, Salesforce, campañas, situaciones) y pueden encontrar huecos del núcleo ya en producción | Fase 2: nada de Valuación en `core/`. Fases 3 y 4: adecuar y probar en dev antes de cada corte; un cambio al núcleo se prueba también contra Valuación |
+| **Valuación depende de trámites que no controlamos** | Números de WhatsApp por marca, plantillas aprobadas, fuente de precios (DA-1) | Arrancarlos al inicio de la Fase 2, en paralelo con el desarrollo |
+| **Dos plataformas del hub a la vez** | El despliegue de GCP congelado y el de AWS conviven hasta la Fase 4 | Regla: nada nuevo en GCP; una marca × vertical vive en un solo lado |
 | **La federación Comercial → Servicio se rompe a media migración** | Casos de postventa perdidos durante la ventana | Fase 3: criterio de salida explícito, validado y no asumido |
 | **El dashboard portado hereda el drift** | Dos comportamientos distintos en el mismo repo | Fase 1: decidir qué versión gana **antes** de portar |
 | **Redeploy resetea flags de capacidad** | Saturación con todo el tráfico junto | Fase 1: flags explícitos en los comandos de deploy |
@@ -741,18 +782,24 @@ Respondidas en [`TAREAS_PENDIENTES.md`](TAREAS_PENDIENTES.md) §Fase D, 2026-10-
 | 6 | ¿Respetan opt-out en Servicio? | **No, y hay que agregarlo: cierra la conversación** | `_is_stop_message` al núcleo; el efecto extra por módulo se despacha como handler |
 | 7 | ¿Dónde vive el motor de bot / Web Chat? | **El Web Chat no está en uso** | `bot-engine.ts` no se porta. Se cae la fase de duplicación Python ↔ TS (§7.5) |
 | 8 | ¿Hay sandbox de Salesforce para dev? | **No; se deja como está** | Escribir a producción es aceptable. Sin guardarrail. Ver §14.1 |
-| 9 | ¿Quién hospeda el agente de Valuación? | **Un IA Workflow de Abacus** | ⏸️ Fuera de alcance — Apéndice A |
+| 9 | ¿Quién hospeda el agente de Valuación? | **Un IA Workflow de Abacus** | Contrato ② de la Fase 2 |
 | 11 | Clave del expediente | **Organización + teléfono normalizado** (`{orgId}_{phone}`) | Un mismo cliente no mezcla historial entre marcas (§7.7) |
 | 12 | ¿El expediente se rellena al migrar? | **No, arranca vacío** | La Fase 3 no genera resúmenes históricos |
 | 13 | **Reparto de tools** | **La función 3 no ejecuta tools de negocio.** Los bots piden cada acción al endpoint de la función 2 (`action` + `data`); `actions: [...]` del bot externo convive | §7.8. Tareas 1.43 a 1.48. Los handlers de Ventas no se mueven |
+| 14 | ¿La lógica de Valuación vive en el hub? (2026-10-29) | **Sí.** Cada módulo es una mini-aplicación con su navegación; la lógica en `modules/valuacion.py` y las Lambdas `TomaUnidades.*` | Revierte el Apéndice A.2 |
+| 15 | ¿El backend sigue en GCP? (2026-11-17, Q40) | **No: se muda a AWS**, con datos en PostgreSQL | Nada nuevo en GCP. `DISENO_BACKEND_AWS.md` |
+| 16 | ¿Valuación comparte número con Servicio? (2026-11-17, A8) | **No: cada módulo tiene su número por marca** | Alta de números de Valuación en la Fase 2 |
+| 17 | **¿En qué orden sale a producción cada módulo?** (2026-11-18) | **Valuación primero**, como primera fase productiva; después Ventas y luego Servicio | Reordena el plan: §1, §6 y fases 2 a 4 |
 
 ### Abiertas
 
 | # | Decisión | Bloquea |
 |---|---|---|
-| 10 | **¿Qué marca se migra primero?** *(recomendado: la de menor volumen — es el rodaje de la plataforma)* | Fase 3 |
-
-> Las decisiones de Valuación —si las ofertas se registran en Salesforce, cuándo entra, y cómo le llegan el VIN y la oferta al Workflow— **salen de este plan** y quedan en el Apéndice A.
+| 10 | **¿Qué marca de Ventas se migra primero?** *(recomendado: la de menor volumen — es el rodaje de la migración)* | Fase 3 |
+| DA-1 | **Fuente de precios de Valuación:** Intelimotor o Autométrica | Fase 2 (originación en producción) |
+| A1 | ¿Cómo le llegan los datos de la oferta al bot de Valuación? Hoy: precalculados en `<<CONTEXTO>>` (opción a del Apéndice A.5) | Fase 2 (bot) |
+| A2 | ¿Las ofertas de compra / toma a cuenta se registran en Salesforce? | Fase 2, si sí |
+| 18 | Marcas y agencias piloto de Valuación en producción *(hoy en dev: Toyota, agencias Fleteros y Cumbres)* | Fase 2 (números y plantillas) |
 
 ### 14.1 No habrá sandbox de Salesforce, y no se construye guardarrail
 
@@ -768,16 +815,26 @@ Por eso **no se construye** `SALESFORCE_MODE=stub|real`, ni stub por omisión, n
 |---|---|
 | **Fase 0** | La plataforma nace segura, modular y con el esquema correcto — se evitan fases enteras de corrección posterior |
 | **Fase 1** | El motor conversacional probado, corriendo en casa nueva |
-| **Fase 2** | Una sola puerta autenticada en vez de cuatro, con el punto de extensión verificado |
-| **Fase 3** | Comercial con datos vivos en la plataforma nueva |
-| **Fase 4** | **PLATAFORMA CENTRALIZADA**: un repo, una base, una bandeja, un login. Cada arreglo se hace una sola vez |
-| **Fase 5** | Transferencia interna sin perder al cliente, y la ficha cruzada Comercial + Servicio |
+| **Fase 2** | **PLATAFORMA EN PRODUCCIÓN** con Valuación: el negocio nuevo de toma de autos operando, el núcleo en AWS rodado con tráfico real y el punto de extensión verificado con un módulo real |
+| **Fase 3** | Ventas con datos vivos en la plataforma nueva |
+| **Fase 4** | **PLATAFORMA CENTRALIZADA**: un repo, una base, una bandeja, un login para los tres módulos. Cada arreglo se hace una sola vez |
+| **Fase 5** | Transferencia interna sin perder al cliente, y la ficha cruzada Valuación + Ventas + Servicio |
 
 ---
 
-# Apéndice A — Valuación (fuera del alcance de este plan)
+# Apéndice A — Valuación: el diseño original del 14 de octubre (histórico)
 
-> Todo lo de aquí **no se construye ahora**. Se documenta para que las decisiones de las fases 0 a 5 no cierren puertas sin querer, y para retomarlo cuando el negocio defina la fecha.
+> **Actualización 18 de noviembre de 2026.** Este apéndice describía Valuación como "fuera del alcance". **Ya no lo está: Valuación es la Fase 2, la primera fase productiva** (§9). Se conserva como antecedente. Lo que cambió:
+>
+> | Lo que decía | Lo que vale hoy |
+> |---|---|
+> | Fuera del alcance, sin fecha | **Primera fase productiva** (decisión 17) |
+> | A.2: la lógica de valuación no entra al repo; dos sistemas por HTTP | **Sí entra**: `modules/valuacion.py` y las Lambdas `TomaUnidades.*`, con pantallas dentro del dashboard (decisión 14). La frontera que sí se conserva: **nada de Valuación en `core/`** |
+> | A.2: Valuación no accede a la base del hub | Valuación tiene su schema `valuacion` en el mismo PostgreSQL y habla con el hub por los contratos ①, ② y ③ |
+> | Firestore y GCP | PostgreSQL y AWS (decisión 15) |
+> | 5 números, uno por marca | Un número de Valuación **por marca piloto**, propio del módulo (decisión 16) |
+> | A.3 punto 4, contrato de salida genérico por `source` | Contrato ③ hacia `TomaUnidades.recibeEventoHub` |
+> | A.4 / A.5: decisiones abiertas | Siguen abiertas A1 y A2 en §14; A3 ("¿cuándo entra?") queda cerrada por la decisión 17 |
 
 ## A.1 Lo que las fases 0–5 ya dejan listo, sin costo extra
 

@@ -184,6 +184,8 @@ Con esto **se van Firestore, Firebase Auth y `accesos/{email}`** (Q2, Q8, Q24 y 
 
 ## 8. Rebanadas
 
+> **18 nov 2026:** la rebanada 1 es la **Fase 2** del plan (`PLAN_TRABAJO_CENTRALIZACION.md` §9): Valuación es la primera fase productiva y su salida a producción es requisito para todo lo demás. Las rebanadas 2 y 3 se reparten entre la Fase 3 (Ventas) y la Fase 4 (Servicio).
+
 El código es uno solo. Mientras dura la mudanza, **el despliegue de GCP se congela** en el último commit antes de empezar: Ventas y Servicio siguen funcionando ahí (no son productivos), y el repo avanza hacia AWS.
 
 ### Rebanada 1 — Núcleo + Valuación

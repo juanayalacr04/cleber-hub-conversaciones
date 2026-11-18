@@ -1,6 +1,8 @@
 # Tareas pendientes, por fase
 
-**Fecha: 14 de octubre de 2026**
+**Fecha: 14 de octubre de 2026 · Reordenado el 18 de noviembre de 2026**
+
+> **18 de noviembre de 2026 — Valuación es la primera fase productiva.** La Fase 2 deja de ser "Contrato de entrada" y pasa a ser **Núcleo en AWS + Valuación en producción**: sin Valuación en producción no se sale a producción. Ventas (Fase 3) y Servicio (Fase 4) se **adecuan** a AWS y PostgreSQL y después se migran. Las fases 0 y 1 se hicieron sobre GCP y Firestore; su código es la base, pero el backend se muda a AWS (Q40, [`DISENO_BACKEND_AWS.md`](DISENO_BACKEND_AWS.md)) y los datos a PostgreSQL ([`DISENO_MIGRACION_POSTGRES.md`](DISENO_MIGRACION_POSTGRES.md)). Lo que en las fases 0 y 1 dice Firestore, Cloud Functions, Pub/Sub o Secret Manager de GCP se lee con ese cambio. El porqué del reorden está en §1 y §6 del plan.
 
 Checklist de trabajo. El porqué de cada cosa está en [`PLAN_TRABAJO_CENTRALIZACION.md`](PLAN_TRABAJO_CENTRALIZACION.md); el detalle de las funciones, en [`INVENTARIO_FUNCIONES_CLASIFICADAS.md`](INVENTARIO_FUNCIONES_CLASIFICADAS.md).
 
@@ -17,11 +19,10 @@ Checklist de trabajo. El porqué de cada cosa está en [`PLAN_TRABAJO_CENTRALIZA
 | **D** | Decisiones y trámites — no es desarrollo, pero bloquea | — |
 | **0** | Fundación: que nazca segura, modular y con el esquema correcto | 💻 |
 | **1** | Portar el núcleo conversacional probado | 💻 |
-| **2** | Contrato de entrada único, y el punto de extensión verificado | 💻 |
-| **3** | Migrar Comercial | ❌ |
-| **4** | Migrar Servicio → **plataforma centralizada** | ❌ |
+| **2** | **Núcleo en AWS + Valuación en producción** — primera fase productiva | ❌ |
+| **3** | Adecuar y migrar Ventas | ❌ |
+| **4** | Adecuar y migrar Servicio → **plataforma centralizada** | ❌ |
 | **5** | Consolidación: transferencia interna y ficha de cliente | ❌ |
-| ~~6~~ | ~~Valuación~~ — ⏸️ **fuera del alcance de este plan** | — |
 
 ---
 
@@ -43,9 +44,11 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 | D13 | ✅ **Clave del expediente:** teléfono normalizado **y** organización (`{orgId}_{phone}`). Un mismo cliente no mezcla historial entre marcas | Cerrada |
 | D14 | ✅ **Reparto de tools (16 oct 2026):** la función 3 **no ejecuta tools de negocio**. Los bots (IA Workflow y ChatLLM) piden cada acción al **endpoint de acciones de la función 2** (`POST /actions/execute`, con `action` y `data`), que la despacha al registro de handlers. El contrato `actions: [...]` del bot externo **convive**. Ver §7.8 del plan | Cerrada → 1.43 a 1.48 |
 | D15 | ✅ **Expediente al migrar:** arranca vacío. No se generan resúmenes de conversaciones históricas | Cerrada |
-| ~~D10~~ | ~~Cuándo entra Valuación~~ | ⏸️ Fuera de alcance |
-| ~~D11~~ | ~~Quién hospeda el agente de Valuación~~ — respondido: IA Workflow de Abacus | ⏸️ Fuera de alcance |
-| ~~D12~~ | ~~Ofertas de compra / toma a cuenta en Salesforce~~ | ⏸️ Fuera de alcance |
+| D10 | ✅ **Cuándo entra Valuación** (18 nov 2026): **primero**, como primera fase productiva | Cerrada → Fase 2 |
+| D11 | ✅ Quién hospeda el agente de Valuación: IA Workflow de Abacus | Cerrada → 2.13 |
+| D12 | ¿Las ofertas de compra / toma a cuenta se registran en Salesforce? | Fase 2, si sí |
+| D16 | **Fuente de precios de Valuación (DA-1):** Intelimotor o Autométrica | Fase 2 (2.18) |
+| D17 | **Marcas y agencias piloto de Valuación en producción** (en dev: Toyota, agencias Fleteros y Cumbres) | Fase 2 (2.15) |
 
 ---
 
@@ -105,6 +108,8 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 ---
 
 ## Fase 1 — Portar el núcleo 💻
+
+> **18 nov 2026 — dónde quedan los pendientes de esta fase.** El código se portó sobre GCP y Firestore; su despliegue en AWS es la Fase 2. Las tareas abiertas pasan a: 1.29 → 2.11 (solo Twilio) y 3.7 / 4.x para Meta y ValueText; 1.45 → 2.11b; 1.47 → 3.6; 1.48 → 3.6 (Ventas) y 4.2 (Servicio); 1.30, 1.30b y 1.26b se revisan al adecuar Ventas y Servicio.
 
 > El orden importa: primero lo que no depende de decisiones de negocio. Las 40 funciones de núcleo/routing/CRM antes que las 19 handlers de Ventas.
 
@@ -224,59 +229,105 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 ---
 
-## Fase 2 — Contrato de entrada 💻
+## Fase 2 — Núcleo en AWS + Valuación en producción
 
-> Una sola puerta en vez de cuatro. Al cerrarla, la plataforma queda **certificada como preparada**.
+> **Primera fase productiva** (reescrita el 18 nov 2026). El núcleo de conversaciones se muda a AWS y PostgreSQL, Valuación entra por el contrato de entrada y sale a producción con sus marcas piloto. Diseño: [`DISENO_BACKEND_AWS.md`](DISENO_BACKEND_AWS.md) (rebanada 1). Las antiguas 2.1 a 2.11 se reparten aquí y en la Fase 3 (ver al final de la fase).
 
-- [ ] 2.1 `POST /api/integrations/conversations` con **API key por sistema origen**
-  - 🔁 Deja de ser ruta de Next.js: es una acción de la función 2 (1.37)
-- [ ] 2.2 Idempotencia por `(source, externalId)` — reusa 1.8
-- [ ] 2.3 Resolución del número → organización, equipo, bot, proveedor
-- [ ] 2.4 Reusar conversación abierta o crear nueva, con ventana de 24h
-- [ ] 2.5 Envío de plantilla por los **3 proveedores**
-  - 🔁 El envío lo hace la función 1, a petición de la 2
-- [ ] 2.6 **Priming de la sesión** con `<<PLANTILLA>>` + `<<CONTEXTO>>` — sin esto el bot contesta sin saber qué se mandó
-- [ ] 2.7 Persistir `source` / `externalId` en la conversación
-- [ ] 2.8 **Reimplementar `lead_webhook` sobre este contrato**, no al lado
-- [ ] 2.9 Plan de absorción de los otros 3 caminos (broadcasts, `situacion-detectada`, web-chat)
-  - 🔁 `broadcasts` y `situacion-detectada` ya se migran como acciones de la función 2 en 1.39; aquí queda decidir cómo comparten el contrato
+### 2.a Núcleo en AWS
 
-### El ensayo que certifica
+- [x] 2.1 Cliente de PostgREST (`core/postgrest.py`) y credenciales en AWS Secrets Manager
+- [x] 2.2 Puntos de entrada de Lambda (`handlers.py`, adaptador de API Gateway) y despliegue (`dev/deploy_aws.ps1`)
+- [ ] 2.3 Tablas y acciones `Hub.*` del núcleo en `hub_cleber` (`equipos`, `numeros`, `bots`, `conversaciones`, `mensajes`, `bitacora`) y `core/datos/` por entidad — hecho en parte (números, conversaciones de Valuación)
+- [ ] 2.4 🔒 **Entrada de mensajes:** `hub-router` → SQS FIFO `hub-entrantes` (con DLQ) → `hub-entrantes` → `hub-bot`. Reemplaza Pub/Sub (1.34) y las tres funciones de GCP (1.g)
+- [ ] 2.5 Firma del webhook de Twilio validada con `TWILIO_AUTH_TOKEN` del ambiente; `PUBLIC_BASE_URL` = URL pública final
+- [ ] 2.6 Reapuntar el webhook del número de pruebas de Twilio a AWS
+- [ ] 2.7 `hub-acciones-bot` (endpoint de acciones para bots, D14) en AWS; resolver el límite de 29 s del API Gateway (`DISENO_BACKEND_AWS.md` §9, I2)
+- [x] 2.8 `hub-acciones-usuario` con el authorizer de Google — corre en dev (vista previa de plantilla)
+- [ ] 2.9 `hub-jobs` con EventBridge Scheduler: inactividad, cierre y resúmenes del expediente
+- [ ] 2.10 **Tiempo real** en AWS (propuesta: AppSync Events, `DISENO_BACKEND_AWS.md` §6). La bandeja y el chat dejan `onSnapshot` de Firestore
+- [ ] 2.11 Conversación de punta a punta en dev por Twilio: entra, contesta el bot, handoff, el asesor contesta, cierre (antes 1.29, solo Twilio)
+- [ ] 2.11b ⚠️ Reentrada bot → acciones con Abacus real (antes 1.45)
 
-- [ ] 2.10 🔒 **Módulo de prueba end-to-end**: bot `external` contra un stub, número de prueba, `vertical: "prueba"` → disparar, conversar, handoff, cerrar
-- [ ] 2.11 🔒 **Verificar que corrió sin tocar `core/`.** Si hubo que tocarlo, el gancho está mal puesto y se corrige **antes** de migrar
-  - 🔁 Se amplía: sin tocar `core/`, el router ni el bot
+### 2.b Contratos con Valuación
+
+- [x] 2.12 **Contrato ① (entrada):** `hub-entry-point`, idempotente por (`fuente`, `id_externo`), con `<<CONTEXTO>>` para el bot y botón **Enviar** en Ofertas — en dev
+- [ ] 2.12b Autenticación por sistema origen en ① (invocación directa con IAM para Valuación; `/internal` con API key para otros)
+- [ ] 2.13 **Contrato ② (bot):** IA Workflow de Abacus de Valuación, con su vocabulario de acciones como configuración; priming verificado (el bot responde sabiendo qué oferta se mandó)
+- [ ] 2.14 **Contrato ③ (salida):** eventos de la conversación a `TomaUnidades.recibeEventoHub` (contestó, pasó a asesor, resultado, cierre). Leer el `ButtonPayload` (`oferta_interesa` / `oferta_no_interesa`)
+
+### 2.c Módulo de Valuación
+
+- [ ] 2.15 🔒 ⚠️ **Números de WhatsApp de Valuación por marca piloto** (D17) y **plantilla de la oferta aprobada**. Trámite externo: arrancarlo ya
+- [x] 2.16 Pantalla de Números de WhatsApp con vista previa de la plantilla de Twilio
+- [x] 2.17 Pantallas de Ofertas y Conversaciones con datos reales — en dev
+- [ ] 2.17b Dashboard y Configuración por agencia de Valuación con datos reales
+- [ ] 2.18 Originación diaria (cron de madrugada: Quiter → BigQuery → criterios → precios) en producción, con la fuente de precios decidida (D16)
+- [ ] 2.19 Registro de la oferta final después de la inspección
+- [ ] 2.20 Verificar que no quedó nada de Valuación en `core/`, el router ni el bot (el ensayo de §3 del plan, antes 2.10 y 2.11)
+
+### 2.d Producción
+
+- [ ] 2.21 🔒 Seguridad de dev resuelta antes de copiar el patrón (`PENDIENTES_INFRA_DEV.md` S1 a S3, I1 e I2)
+- [ ] 2.22 Cuenta de AWS de producción (`386458449724`): Lambdas, SQS, Secrets Manager, tiempo real y alarmas de CloudWatch
+- [ ] 2.23 API Gateway de producción: authorizer de Google, rutas con VPC Link y excepción de API key para `/webhook/*` (`PENDIENTES_INFRA_DEV.md` P1 a P4)
+- [ ] 2.24 PostgreSQL de producción con `hub_cleber`, `clientes` y `valuacion`
+- [ ] 2.25 Vercel y cliente de Google OAuth de producción
+- [ ] 2.26 Revisar `CLEBER_API_KEY` en los secretos de cada ambiente (en `hub/dev/entorno` está vacía)
+- [ ] 2.27 Prueba de punta a punta en producción con una marca piloto
+- [ ] 2.28 ✅ **Hito: Valuación operando en producción con sus marcas piloto**
+
+### Lo que salió de la antigua Fase 2
+
+| Antes | Ahora |
+|---|---|
+| 2.1 a 2.7 — contrato de entrada | 2.12 y 2.12b (ya existe sobre AWS para Valuación) |
+| 2.5 — envío por los 3 proveedores | Twilio aquí; Meta y ValueText en las fases 3 y 4 |
+| 2.8 — `lead_webhook` sobre el contrato | Fase 3 (3.3) |
+| 2.9 — absorber broadcasts, `situacion-detectada` y web-chat | Fases 3 y 4 |
+| 2.10 y 2.11 — ensayo con módulo de prueba | 2.20: el ensayo es Valuación misma |
 
 ---
 
-## Fase 3 — Migrar Ventas
+## Fase 3 — Adecuar y migrar Ventas
 
-> Primera vertical con datos vivos. Marca por marca; la primera es el rodaje de la plataforma.
+> Ventas sobre el núcleo que Valuación ya dejó en producción. Primero se adecua a AWS y PostgreSQL (rebanada 2 de `DISENO_BACKEND_AWS.md`); después se migra marca por marca.
 
-- [ ] 3.1 ✅ **Migración en corte (D8)** — sin doble escritura. Definir ventana, duración máxima tolerable y el punto de no retorno de cada corte
-- [ ] 3.2 Migrar organizaciones, equipos, números, bots, usuarios y configuración
-- [ ] 3.3 Migrar conversaciones y mensajes, **poblando `vertical` y `customerId` al escribir**
-  - 🔁 El expediente **arranca vacío** (D15): no se generan resúmenes de conversaciones históricas. Se llena con las conversaciones que cierren después del corte
-- [ ] 3.4 Reapuntar webhooks de los proveedores al GCP nuevo — **los números no cambian**
-  - 🔁 Las URLs nuevas son las rutas de la función 1. Requiere 1.41 y 1.42 listos antes del corte
-- [ ] 3.5 Plan de rollback: la plataforma vieja encendida y capaz de recibir hasta cerrar cada corte
-- [ ] 3.6 Migrar **marca por marca**, empezando por la de D9
-- [ ] 3.7 🔒 **Validar que la federación Ventas → Servicio sigue funcionando a través del corte** — durante esta ventana Ventas está en la nueva y Servicio en la vieja
-- [ ] 3.8 Reconciliar métricas contra la plataforma vieja
-- [ ] 3.9 Apagar la plataforma de Ventas vieja
+### Adecuar
+
+- [ ] 3.1 `modules/ventas.py` y `crm/` sobre `core/datos/` (PostgreSQL), sin Firestore
+- [ ] 3.2 Validar la firma de Meta y ValueText en `hub-router`, si las marcas de Ventas los usan
+- [ ] 3.3 **`lead-webhook` reimplementado sobre el contrato de entrada**, no al lado (antes 2.8)
+- [ ] 3.4 Situaciones y ruteo entre bots; campañas por la cola `hub-campanas`; contacto programado y crons de Ventas en `hub-jobs`
+- [ ] 3.5 Pantallas de Ventas que leen Firestore → `Hub.consulta*` y tiempo real de AWS
+- [ ] 3.6 Prueba del ChatLLM con el endpoint de acciones y migración de los bots de Ventas (antes 1.47 y 1.48)
+- [ ] 3.7 Conversación de punta a punta de Ventas en dev, y verificar que Valuación sigue igual
+
+### Migrar
+
+- [ ] 3.8 ✅ **Migración en corte (D8)** — sin doble escritura. Definir ventana, duración máxima tolerable y el punto de no retorno de cada corte
+- [ ] 3.9 Migrar equipos, números, bots, usuarios y configuración (`Hub.importaConfiguracion`)
+- [ ] 3.10 Migrar las conversaciones **activas** y sus mensajes (`Hub.importaConversaciones`). El expediente **arranca vacío** (D15)
+- [ ] 3.11 Reapuntar webhooks de los proveedores a `hub-router` — **los números no cambian**
+- [ ] 3.12 Plan de rollback: la plataforma vieja encendida y capaz de recibir hasta cerrar cada corte
+- [ ] 3.13 Migrar **marca por marca**, empezando por la de D9
+- [ ] 3.14 🔒 **Validar que la federación Ventas → Servicio sigue funcionando a través del corte** — durante esta ventana Ventas está en la nueva y Servicio en la vieja
+- [ ] 3.15 Reconciliar métricas contra la plataforma vieja
+- [ ] 3.16 Apagar la plataforma de Ventas vieja
 
 ---
 
-## Fase 4 — Migrar Servicio
+## Fase 4 — Adecuar y migrar Servicio
 
-> Al cerrarla: **plataforma centralizada**.
+> Al cerrarla: **plataforma centralizada** con Valuación, Ventas y Servicio.
 
-- [ ] 4.1 ⚠️ Ajustar el cliente de Firestore: Servicio usa la **base default**, no nombrada
-- [ ] 4.2 Migrar organizaciones, datos y conversaciones de Servicio
-- [ ] 4.3 Reapuntar webhooks
-- [ ] 4.4 Verificar que la federación HTTP Ventas ↔ Servicio **desaparece** y pasa a ser transferencia interna
-- [ ] 4.5 Apagar los proyectos de GCP y Vercel viejos
-- [ ] 4.6 ✅ **Hito: un repo, una base, una bandeja, un login**
+- [ ] 4.1 Adecuar lo propio de Servicio: parseo `workflow`, outcomes, recordatorios de cita, no-show, `close-by-phone` y `situacion-detectada` sobre AWS y PostgreSQL
+- [ ] 4.2 Migrar los IA Workflows de Servicio al endpoint de acciones (antes 1.48)
+- [ ] 4.3 ⚠️ El script de migración lee la **base default** de Servicio (`atomic-hybrid-482121-n7`), no una nombrada
+- [ ] 4.4 Migrar configuración y conversaciones activas de Servicio
+- [ ] 4.5 Reapuntar webhooks
+- [ ] 4.6 Verificar que la federación HTTP Ventas ↔ Servicio **desaparece** y pasa a ser transferencia interna
+- [ ] 4.7 Apagar las plataformas viejas (GCP y Vercel), el despliegue congelado del hub en GCP y su Firestore
+- [ ] 4.8 ✅ **Hito: un repo, una base, una bandeja, un login**
 
 ---
 
@@ -288,28 +339,16 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 
 - [ ] 5.1 Dos destinos distintos: `derivar_fuera` (cierra) y **`transferir_modulo` (conserva el lead)**
 - [ ] 5.2 Generalizar la transferencia a los **3 proveedores** (hoy `_notify_situacion_interna` solo manda por ValueText y retorna `False` con los otros)
-  - 🔁 Se simplifica: la función 1 ya envía por los tres proveedores, así que basta pedirle el envío
+  - 🔁 Se simplifica: el hub ya envía por los tres proveedores, así que basta pedirle el envío
 - [ ] 5.3 Redactar las plantillas de transferencia para que no se sientan como un rebote
-- [ ] 5.4 Validar transferencia entre organizaciones distintas
+- [ ] 5.4 Validar transferencia entre organizaciones distintas, incluido Ventas → Valuación
 
 ### Ficha de cliente
 
-- [ ] 5.5 Panel de cliente en la ficha de conversación, con timeline cruzado
-  - 🔁 El dato ya existe desde 1.38 (expediente). Solo falta la vista; la clave `{orgId}_{phone}` hace que el cruce sea por marca
-- [ ] 5.6 Vistas cruzadas por `organizationId + vertical` para el gerente de marca
-- [ ] 5.7 Métricas por marca × vertical
-
----
-
-## Fuera del alcance — Valuación
-
-**No se trabaja en este plan.** El detalle está en el [Apéndice A](PLAN_TRABAJO_CENTRALIZACION.md) del plan, para retomarlo cuando el negocio lo defina.
-
-Lo que quedaría por hacer, en una línea: alta de 5 números, documentos de Firestore por marca, API key, contrato de salida (outcomes), vocabulario de acciones del Workflow como config, y las pantallas de Valuación dentro del dashboard.
-
-Y tres decisiones de negocio abiertas: cuándo entra, si las ofertas se registran en Salesforce, y **cómo le llegan el VIN, el valor y la oferta al Workflow** — la de más peso.
-
-> **Nada de esto condiciona las fases 0 a 5.** Los ganchos que Valuación necesitaría se construyen igual porque la centralización de Comercial y Servicio los necesita (ver §1 del plan).
+- [ ] 5.5 Panel de cliente en la ficha de conversación, con timeline cruzado de los tres módulos
+  - 🔁 El dato ya existe desde 1.38 (expediente, hoy `clientes.clientes` y `clientes.resumenes`). Solo falta la vista
+- [ ] 5.6 Vistas cruzadas por marca y módulo para el gerente de marca
+- [ ] 5.7 Métricas por marca × módulo
 
 ---
 
@@ -317,10 +356,9 @@ Y tres decisiones de negocio abiertas: cuándo entra, si las ofertas se registra
 
 | Tarea | Por qué |
 |---|---|
-| **D1 · Dueño del repo** | Sin esto no arranca la Fase 0 |
-| **D4 · Opt-out de Servicio** | Si el hueco es real, es cumplimiento, no funcionalidad |
-| **0.9–0.11 · Reglas de Firestore** | Con los módulos en una base, un asesor podría leer datos de otra marca |
-| **1.12–1.17 · Config fuera del código** | Un handler se escribe mucho más limpio cuando los valores ya salieron |
-| **1.23 · Decidir el drift antes de portar** | Decidirlo después significa portar dos veces |
-| **2.10–2.11 · El ensayo** | Corregir un gancho mal puesto es barato con la plataforma vacía, caro después de migrar |
-| **3.7 · Federación a través del corte** | Es de las que se asumen y luego se rompen en producción |
+| **2.15 · Números y plantilla de Valuación** | Trámite externo con tiempos que no controlamos: sin él Valuación no sale a producción |
+| **2.4 y 2.5 · Entrada de mensajes con firma** | Sin esto el cliente no puede contestar la oferta |
+| **2.21 · Seguridad de dev** | PostgREST de dev está abierto a internet; producción no debe copiar ese patrón |
+| **2.20 · Nada de Valuación en `core/`** | Corregir un gancho mal puesto es barato antes de que entren Ventas y Servicio, caro después |
+| **D16 · Fuente de precios** | Bloquea la originación en producción |
+| **3.14 · Federación a través del corte** | Es de las que se asumen y luego se rompen en producción |
