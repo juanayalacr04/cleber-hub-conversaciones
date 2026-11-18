@@ -70,15 +70,19 @@ async function call<T>(ruta: RutaApi, funcion: string, action: string, params: R
 }
 
 /** Rutas del gateway con integración proxy a una Lambda (no a PostgREST). */
-export type RutaLambda = "toma-unidades-acciones";
+export type RutaLambda = "toma-unidades-acciones" | "hub-acciones";
 
-/** Recurso del gateway de cada Lambda. `toma-unidades-acciones` → Lambda de valuación (TomaUnidades.*). */
-const RECURSO_LAMBDA: Record<RutaLambda, string> = { "toma-unidades-acciones": "toma-unidades-acciones" };
+/**
+ * Recurso del gateway de cada Lambda:
+ *   toma-unidades-acciones → Lambda de valuación (TomaUnidades.*)
+ *   hub-acciones           → hub-acciones-usuario-<amb>: acciones del dashboard que tocan algo externo (core/acciones_usuario.py)
+ */
+const RECURSO_LAMBDA: Record<RutaLambda, string> = { "toma-unidades-acciones": "toma-unidades-acciones", "hub-acciones": "hub-acciones" };
 
 /**
  * Acción de una Lambda por el gateway, con el mismo envelope { action, params } y la misma autenticación que `call`.
- * La Lambda responde 500 cuando la acción falla (aws-util Lambda.toLambdaResponse), así que el cuerpo se lee también en
- * ese caso: trae el errorCode y el info de la acción.
+ * La Lambda de valuación responde 500 cuando la acción falla (aws-util Lambda.toLambdaResponse) y la del hub 200 con el
+ * envelope, así que el cuerpo se lee con cualquier estado: trae el errorCode y el info de la acción.
  */
 async function lambda<T>(ruta: RutaLambda, action: string, params: Record<string, unknown> = {}): Promise<ApiResponse<T>> {
   const base = process.env.API_GATEWAY_URL;

@@ -4,8 +4,9 @@
  * Configuración de un módulo en una marca sobre hub_cleber: equipos, números de WhatsApp y bots.
  *   Hub.consultaConfiguracionModulo   cualquier rol del módulo (puedeEditar = administrador del módulo)
  *   Hub.guardaEquipo / Hub.guardaNumero   administrador del módulo
+ *   Hub.consultaPlantillaProveedor   administrador del módulo; Lambda hub-acciones-usuario (core/acciones_usuario.py)
  * Contratos: DB/Hub/Functions/Acciones/*.sql (DB/Hub/README.md, "Núcleo de conversaciones").
- * Las credenciales del proveedor NO pasan por aquí: van en Secrets Manager (hub/<ambiente>/numbers/<idNumero>).
+ * Las credenciales del proveedor NO pasan por aquí: Twilio usa la cuenta del ambiente y Meta va en Secrets Manager.
  */
 
 import { api } from "@/lib/api";
@@ -82,4 +83,19 @@ export async function guardaEquipo(p: { idEquipo?: string; idMarca: string; modu
 
 export async function guardaNumero(p: GuardaNumero) {
   return api.call<{ numero: Numero; creado: boolean }>("hub", "guarda_numero", "Hub.guardaNumero", { ...p });
+}
+
+/** La plantilla tal como la tiene el proveedor (hoy solo Twilio, por Content SID). */
+export interface PlantillaProveedor {
+  nombre: string | null;
+  idioma: string | null;
+  tipo: string;
+  cuerpo: string;
+  botones: { titulo: string; id: string | null }[];
+  /** Variables que usa la plantilla ("1", "2"...), en orden. */
+  variables: string[];
+}
+
+export async function consultaPlantillaProveedor(p: { idMarca: string; modulo: ModuloHub; idPlantilla: string }) {
+  return api.lambda<PlantillaProveedor>("hub-acciones", "Hub.consultaPlantillaProveedor", p);
 }

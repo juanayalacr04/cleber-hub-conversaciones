@@ -12,6 +12,7 @@ Copia la configuración que ya funciona en `api-cleber` (stage `dev`, verificada
 | `/hub-cleber/{proxy+}` POST, HTTP proxy a `http://ec2-3-89-235-189.compute-1.amazonaws.com:3000/{proxy}`, schema `hub_cleber` | Igual |
 | `/toma-unidades/{proxy+}` POST, igual con schema `valuacion` | Igual |
 | — | `/toma-unidades-acciones` POST → Lambda `toma-unidades-en-taller-api-dev` (botón **Enviar** de Ofertas) |
+| — | `/hub-acciones` POST → Lambda `hub-acciones-usuario-dev` (acciones del dashboard que tocan algo externo; hoy **Consultar** plantilla en Números de WhatsApp) |
 
 Los nombres de los recursos no cambian: el dashboard solo cambia `API_GATEWAY_URL` y `API_GATEWAY_KEY`.
 
@@ -95,6 +96,27 @@ Lo que necesita la Lambda de valuación para `enviaOferta`:
 - Variable `HUB_ENTRY_POINT` = `hub-entry-point-dev`.
 - En su rol (`toma-unidades-en-taller-role`): `lambda:InvokeFunction` sobre `arn:aws:lambda:us-east-1:807746362931:function:hub-entry-point-dev`.
 - El código nuevo: `.\deploy.ps1 dev` en `toma-unidades-en-taller`.
+
+## Paso 5b — `/hub-acciones` (Lambda del hub para acciones de usuario)
+
+Antes, la Lambda: `.\dev\deploy_aws.ps1 acciones-usuario dev`. La primera vez la crea como `hub-acciones-usuario-dev` (handler `handlers.acciones_usuario`, 29 s) con el rol, las variables (`SECRET_NAME`, `URL_API_DB`...) y la VPC de `hub-entry-point-dev`; después solo actualiza el código. El secreto del ambiente debe traer `TWILIO_ACCOUNT_SID` y `TWILIO_AUTH_TOKEN`: todos los números están en esa cuenta de Twilio.
+
+1. *Resources → `/` → Create resource*: `hub-acciones` (sin proxy).
+2. *Create method*:
+   - Method type: **POST**
+   - Integration type: **Lambda function**, **Lambda proxy integration** activado
+   - Lambda function: `hub-acciones-usuario-dev`
+   - Acepta el permiso para que el API invoque la Lambda.
+3. *Method request → Edit*: Authorization `google-id-token-dev`, API key required **activado**.
+4. Sin mapeo de headers: la Lambda lee el email en `event.requestContext.authorizer.email` y decide el permiso con `Hub.consultaPermisosUsuario`. Responde siempre 200 con el envelope (`{ successful, info }` o `{ successful: false, errorCode, errorMessage }`). Invocada directo (sin API Gateway) responde `SIN_PERMISO`.
+
+Acciones (`core/acciones_usuario.py`):
+
+| Acción | Permiso | Params | Info |
+|--------|---------|--------|------|
+| `Hub.consultaPlantillaProveedor` | Administrador del módulo en la marca | `idMarca`, `modulo`, `idPlantilla` (Content SID de Twilio) | `{ nombre, idioma, tipo, cuerpo, botones: [{ titulo, id }], variables: ["1", ...] }` |
+
+Errores propios: `PROVEEDOR_NO_CONFIGURADO` (falta la cuenta de Twilio del ambiente: `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` en el secreto), `ERROR_PROVEEDOR` (Twilio no encontró la plantilla o no respondió).
 
 ## Paso 6 — Desplegar
 

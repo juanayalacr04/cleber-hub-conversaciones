@@ -7,19 +7,24 @@
  * Cada módulo tiene un solo número ACTIVO por marca (A8): los demás pueden existir inactivos.
  *
  * El diálogo también captura la plantilla de la oferta (`plantillas.ofertaValuacion`), la que manda el hub cuando el
- * valuador pulsa Enviar (modules/valuacion.py). La credencial del proveedor no se captura aquí: va en Secrets Manager.
+ * valuador pulsa Enviar (modules/valuacion.py). Con Twilio, "Consultar" lee la plantilla en Twilio (Hub.consultaPlantillaProveedor,
+ * Lambda hub-acciones-usuario) y muestra su vista previa con datos de ejemplo; al guardar, su cuerpo y botones quedan en
+ * `texto`, que es lo que ve el chat. Con Meta y ValueText el texto se captura a mano.
+ * Ninguna credencial se captura aquí: Twilio usa la cuenta del ambiente (todos los números están en ella) y el token de Meta
+ * va en Secrets Manager.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
 import {
-  ArrowDown, ArrowUp, Bot, Eye, EyeOff, FileText, Loader2, MoreVertical, Pencil, Phone, Plus, RefreshCw, Users2, X,
+  ArrowDown, ArrowUp, Bot, Eye, EyeOff, FileText, Loader2, MoreVertical, Pencil, Phone, Plus, RefreshCw, Search, Users2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ModuleDef } from "@/lib/modules";
 import {
-  consultaConfiguracionModulo, guardaEquipo, guardaNumero, type ConfiguracionModulo, type GuardaNumero, type Numero, type Proveedor,
+  consultaConfiguracionModulo, consultaPlantillaProveedor, guardaEquipo, guardaNumero, type ConfiguracionModulo, type GuardaNumero,
+  type Numero, type PlantillaProveedor, type Proveedor,
 } from "@/lib/hub/configuracion";
 import { mensajeError } from "@/lib/valuacion/tipos";
 import { Badge } from "@/components/ui/badge";
@@ -49,26 +54,32 @@ const DATOS: { llave: string; etiqueta: string; ejemplo: string }[] = [
 ];
 const ejemploDe = (llave: string) => DATOS.find((d) => d.llave === llave)?.ejemplo ?? `[${llave}]`;
 
-/** Por proveedor: qué id de cuenta pide, qué id de plantilla y qué credencial va en Secrets Manager. */
+/**
+ * Por proveedor: qué id de cuenta pide (null: ninguno), qué id de plantilla y qué credencial va en Secrets Manager.
+ * Twilio no pide nada: todos los números están en la cuenta de Twilio del ambiente (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN).
+ */
 const PROVEEDORES: Record<Proveedor, {
-  nombre: string; corto: string; color: string; campoCuenta: "twilioAccountSid" | "metaPhoneNumberId" | "valuetextSenderId";
+  nombre: string; corto: string; color: string; campoCuenta: "metaPhoneNumberId" | "valuetextSenderId" | null;
   etiquetaCuenta: string; placeholderCuenta: string; etiquetaPlantilla: string; pistaPlantilla: string; credencial: string | null;
+  notaCredenciales: string;
 }> = {
   twilio: {
-    nombre: "Twilio", corto: "Twilio", color: "border-green-500 text-green-700", campoCuenta: "twilioAccountSid",
-    etiquetaCuenta: "Twilio Account SID", placeholderCuenta: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    nombre: "Twilio", corto: "Twilio", color: "border-green-500 text-green-700", campoCuenta: null,
+    etiquetaCuenta: "", placeholderCuenta: "",
     etiquetaPlantilla: "Content SID", pistaPlantilla: "De la plantilla aprobada en Twilio (Content Template Builder); empieza con HX.",
-    credencial: "twilioAuthToken",
+    credencial: null, notaCredenciales: "Usa la cuenta de Twilio del ambiente: no hay que capturar Account SID ni token.",
   },
   meta: {
     nombre: "Meta (WhatsApp Cloud API)", corto: "Meta", color: "border-blue-500 text-blue-700", campoCuenta: "metaPhoneNumberId",
     etiquetaCuenta: "Phone Number ID", placeholderCuenta: "ID numérico del número en Meta",
     etiquetaPlantilla: "Nombre de la plantilla", pistaPlantilla: "Tal como está aprobada en WhatsApp Manager.", credencial: "metaAccessToken",
+    notaCredenciales: "",
   },
   valuetext: {
     nombre: "ValueText", corto: "ValueText", color: "border-purple-500 text-purple-700", campoCuenta: "valuetextSenderId",
     etiquetaCuenta: "Sender ID (ValueText)", placeholderCuenta: "Identificador del remitente en ValueText",
     etiquetaPlantilla: "Template ID", pistaPlantilla: "Plantilla de ValueText.", credencial: null,
+    notaCredenciales: "ValueText usa las credenciales de Salesforce del ambiente.",
   },
 };
 
@@ -92,6 +103,11 @@ const VACIO: Borrador = {
   plantillaId: "", idioma: "es_MX", variables: ["nombreCliente", "vehiculo", "agencia", "montoOferta"], texto: "",
 };
 
+const cuentaDe = (n: Numero) => {
+  const campo = PROVEEDORES[n.proveedor].campoCuenta;
+  return campo ? n.configProveedor?.[campo] : undefined;
+};
+
 const plantillaDeNumero = (n: Numero) => (n.plantillas?.[LLAVE_PLANTILLA] ?? null) as Record<string, unknown> | null;
 
 function aBorrador(n: Numero): Borrador {
@@ -99,7 +115,7 @@ function aBorrador(n: Numero): Borrador {
   const texto = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : "");
   return {
     nombre: n.nombre, telefono: n.telefono, proveedor: n.proveedor,
-    idCuenta: n.configProveedor?.[PROVEEDORES[n.proveedor].campoCuenta] ?? "",
+    idCuenta: cuentaDe(n) ?? "",
     idEquipo: n.idEquipo ?? "", idBot: n.idBotDefault ?? "", ventana: String(n.ventanaReaperturaHoras), esActivo: n.esActivo,
     plantillaId: n.proveedor === "twilio" ? texto("contentSid") : texto("templateName"),
     idioma: texto("templateLanguage") || "es_MX",
@@ -118,8 +134,16 @@ function plantillaDe(d: Borrador): Record<string, unknown> | null {
   return { templateName: id, ...base };
 }
 
-const vistaPrevia = (d: Borrador) =>
-  d.texto.replace(/\{\{(\d+)\}\}/g, (m, i) => (d.variables[Number(i) - 1] ? ejemploDe(d.variables[Number(i) - 1]) : m));
+/** {{1}}, {{2}}… con el ejemplo del dato elegido para cada variable; las que no tienen dato se dejan como están. */
+const conEjemplos = (texto: string, variables: string[]) =>
+  texto.replace(/\{\{\s*(\d+)\s*\}\}/g, (m, i) => (variables[Number(i) - 1] ? ejemploDe(variables[Number(i) - 1]) : m));
+
+/** Cuántas variables numeradas ({{1}}…{{n}}) usa la plantilla del proveedor. */
+const cuantasVariables = (p: PlantillaProveedor) => Math.max(0, ...p.variables.filter((v) => /^\d+$/.test(v)).map(Number));
+
+/** Texto que guarda el chat: cuerpo y botones, en la misma forma que channels/campaign_templates.render_text. */
+const textoDePlantilla = (p: PlantillaProveedor) =>
+  p.cuerpo + (p.botones.length ? "\n\n" + p.botones.map((b) => `[${b.titulo}]`).join("  ") : "");
 
 /** Error de una acción del hub → mensaje para el usuario. */
 function mensajeGuardado(r: { errorCode: string; errorMessage: string; info?: unknown }) {
@@ -139,6 +163,10 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
   const [editando, setEditando] = useState<Numero | null>(null);
   const [form, setForm] = useState<Borrador>(VACIO);
   const [guardando, setGuardando] = useState(false);
+  // Twilio: la plantilla consultada y el Content SID con que se consultó (solo vale si sigue siendo el capturado)
+  const [consultada, setConsultada] = useState<{ id: string; plantilla: PlantillaProveedor } | null>(null);
+  const [consultando, setConsultando] = useState(false);
+  const [errorConsulta, setErrorConsulta] = useState<string | null>(null);
 
   const sesionVencida = (r: { errorCode: string; errorMessage: string }) => { toast.error(mensajeError(r)); signOut({ redirectTo: "/login" }); };
 
@@ -156,13 +184,45 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
   const nombreEquipo = (id: string | null) => (id ? conf?.equipos.find((e) => e.idEquipo === id)?.nombre ?? "—" : "Sin equipo");
   const nombreBot = (id: string | null) => (id ? conf?.bots.find((b) => b.idBot === id)?.nombre ?? "—" : "Sin bot");
 
+  /** Lee la plantilla en Twilio (Lambda hub-acciones) y deja una variable por cada {{n}} que use, conservando lo elegido. */
+  const consultaPlantilla = async (id: string) => {
+    if (!idMarca || !id) return;
+    setConsultando(true);
+    setErrorConsulta(null);
+    try {
+      const r = await consultaPlantillaProveedor({ idMarca, modulo: MODULO, idPlantilla: id });
+      if (!r.successful) {
+        if (r.errorCode === "SESION_EXPIRADA") return sesionVencida(r);
+        setConsultada(null);
+        // Los de Twilio traen la causa en errorMessage; mensajeError los traduciría como errores del envío de la oferta
+        setErrorConsulta(["PROVEEDOR_NO_CONFIGURADO", "ERROR_PROVEEDOR"].includes(r.errorCode) ? r.errorMessage : mensajeError(r));
+        return;
+      }
+      const n = cuantasVariables(r.info);
+      setConsultada({ id, plantilla: r.info });
+      setForm((x) => (x.plantillaId.trim() === id ? { ...x, variables: Array.from({ length: n }, (_, i) => x.variables[i] ?? "") } : x));
+    } finally {
+      setConsultando(false);
+    }
+  };
+
   const abreAlta = () => {
     const hayActivo = conf?.numeros.some((n) => n.esActivo) ?? false;
     setEditando(null);
     setForm({ ...VACIO, idEquipo: conf?.equipos.find((e) => e.esActivo)?.idEquipo ?? "", esActivo: !hayActivo });
+    setConsultada(null);
+    setErrorConsulta(null);
     setAbierto(true);
   };
-  const abreEdicion = (n: Numero) => { setEditando(n); setForm(aBorrador(n)); setAbierto(true); };
+  const abreEdicion = (n: Numero) => {
+    const b = aBorrador(n);
+    setEditando(n);
+    setForm(b);
+    setConsultada(null);
+    setErrorConsulta(null);
+    setAbierto(true);
+    if (n.proveedor === "twilio" && b.plantillaId) consultaPlantilla(b.plantillaId);   // la vista previa de lo guardado
+  };
 
   /** Guarda en hub_cleber. Sin equipos en el módulo crea "Valuación" para que los valuadores vean sus conversaciones. */
   const guarda = async (p: Omit<GuardaNumero, "idMarca" | "modulo">, exito: string) => {
@@ -191,23 +251,31 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
   const f = form;
   const prov = PROVEEDORES[f.proveedor];
   const ventana = Number(f.ventana);
+  const idPlantilla = f.plantillaId.trim();
+  const esTwilio = f.proveedor === "twilio";
+  const vigente = esTwilio && consultada?.id === idPlantilla ? consultada.plantilla : null;
+  // Editando sin cambiar el Content SID: si no se pudo consultar, se conserva lo guardado (variables y texto)
+  const guardadaSinCambio = esTwilio && editando?.proveedor === "twilio" && idPlantilla === aBorrador(editando).plantillaId;
   const errorForm =
     !f.nombre.trim() ? "Captura el nombre para mostrar"
     : f.telefono.replace(/\D/g, "").length < 10 ? "Captura el número de teléfono (al menos 10 dígitos)"
-    : !f.idCuenta.trim() ? `Captura el ${prov.etiquetaCuenta}`
+    : prov.campoCuenta && !f.idCuenta.trim() ? `Captura el ${prov.etiquetaCuenta}`
     : f.ventana === "" || !Number.isInteger(ventana) || ventana < 0 || ventana > 720 ? "La ventana de reapertura va de 0 a 720 horas"
-    : f.plantillaId.trim() && f.variables.some((v) => !v) ? "Elige el dato de cada variable de la plantilla"
+    : esTwilio && idPlantilla && !vigente && !guardadaSinCambio ? "Consulta la plantilla de Twilio antes de guardar"
+    : idPlantilla && f.variables.some((v) => !v) ? "Elige el dato de cada variable de la plantilla"
     : null;
 
   const guardaForm = async () => {
     if (errorForm) { toast.error(errorForm); return; }
     // Las demás plantillas del número se conservan; la de la oferta se reemplaza (o se quita si no hay id)
     const otras = Object.fromEntries(Object.entries(editando?.plantillas ?? {}).filter(([k]) => k !== LLAVE_PLANTILLA));
-    const plantilla = plantillaDe(f);
+    // Twilio: el chat guarda el texto de la plantilla consultada (el envío ya no tiene que pedírselo a Twilio)
+    const plantilla = plantillaDe(vigente ? { ...f, texto: textoDePlantilla(vigente) } : f);
     const ok = await guarda({
       ...(editando ? { idNumero: editando.idNumero } : {}),
       nombre: f.nombre.trim(), telefono: f.telefono.trim(), proveedor: f.proveedor,
-      configProveedor: { [prov.campoCuenta]: f.idCuenta.trim() },
+      // Twilio guarda {}: así también se limpia el Account SID que haya quedado de antes
+      configProveedor: prov.campoCuenta ? { [prov.campoCuenta]: f.idCuenta.trim() } : {},
       idEquipo: f.idEquipo || (editando ? null : undefined), idBotDefault: f.idBot || null,
       ventanaReaperturaHoras: ventana, esActivo: f.esActivo,
       plantillas: { ...otras, ...(plantilla ? { [LLAVE_PLANTILLA]: plantilla } : {}) },
@@ -219,6 +287,15 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
     guarda({ idNumero: n.idNumero, esActivo: !n.esActivo }, n.esActivo ? "Número desactivado" : "Número activado");
 
   const edita = (cambio: Partial<Borrador>) => setForm((x) => ({ ...x, ...cambio }));
+  const selectorDato = (i: number) => (
+    <Select value={f.variables[i] || "none"} onValueChange={(x) => edita({ variables: f.variables.map((y, j) => (j === i ? (x === "none" ? "" : x) : y)) })}>
+      <SelectTrigger className="h-8"><SelectValue placeholder="Elige un dato" /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none">Elige un dato</SelectItem>
+        {DATOS.map((o) => <SelectItem key={o.llave} value={o.llave}>{o.etiqueta}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
   const mueve = (i: number, delta: number) => {
     const v = [...f.variables];
     [v[i], v[i + delta]] = [v[i + delta], v[i]];
@@ -280,7 +357,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
             const p = PROVEEDORES[n.proveedor];
             const plantilla = plantillaDeNumero(n);
             const idPlantilla = plantilla && (plantilla.contentSid ?? plantilla.templateName);
-            const cuenta = n.configProveedor?.[p.campoCuenta];
+            const cuenta = cuentaDe(n);
             return (
               <Card key={n.idNumero}>
                 <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
@@ -319,6 +396,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                     </div>
                     <div className="pt-2 border-t space-y-1">
                       {cuenta && <p className="text-xs text-gray-500">{p.etiquetaCuenta}: {cuenta.slice(0, 10)}…</p>}
+                      {n.proveedor === "twilio" && <p className="text-xs text-gray-500">Cuenta de Twilio del ambiente</p>}
                       {p.credencial && (
                         <p className="text-xs text-gray-500">
                           Credencial en Secrets Manager: <span className="font-mono">hub/dev/numbers/{n.idNumero}</span> ({p.credencial})
@@ -358,16 +436,18 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="wa-cuenta">{prov.etiquetaCuenta}</Label>
-              <Input id="wa-cuenta" placeholder={prov.placeholderCuenta} value={f.idCuenta} onChange={(e) => edita({ idCuenta: e.target.value })} />
-              {prov.credencial ? (
-                <p className="text-xs text-gray-500">
-                  La credencial ({prov.credencial}) no se captura aquí: va en AWS Secrets Manager,
-                  en <span className="font-mono">hub/dev/numbers/{editando?.idNumero ?? "<id del número>"}</span>.
-                </p>
-              ) : <p className="text-xs text-gray-500">ValueText usa las credenciales de Salesforce del ambiente.</p>}
-            </div>
+            {prov.campoCuenta ? (
+              <div className="space-y-2">
+                <Label htmlFor="wa-cuenta">{prov.etiquetaCuenta}</Label>
+                <Input id="wa-cuenta" placeholder={prov.placeholderCuenta} value={f.idCuenta} onChange={(e) => edita({ idCuenta: e.target.value })} />
+                {prov.credencial ? (
+                  <p className="text-xs text-gray-500">
+                    La credencial ({prov.credencial}) no se captura aquí: va en AWS Secrets Manager,
+                    en <span className="font-mono">hub/dev/numbers/{editando?.idNumero ?? "<id del número>"}</span>.
+                  </p>
+                ) : <p className="text-xs text-gray-500">{prov.notaCredenciales}</p>}
+              </div>
+            ) : <p className="text-xs text-gray-500">{prov.notaCredenciales}</p>}
             <div className="space-y-2">
               <Label>Equipo</Label>
               {conf.equipos.length > 0 ? (
@@ -408,9 +488,17 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
               <p className="text-sm font-medium">Plantilla de la oferta</p>
               <div className="space-y-2">
                 <Label htmlFor="wa-plantilla">{prov.etiquetaPlantilla}</Label>
-                <Input id="wa-plantilla" placeholder={f.proveedor === "twilio" ? "HXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : "nombre_plantilla_aprobada"}
-                  value={f.plantillaId} onChange={(e) => edita({ plantillaId: e.target.value })} />
+                <div className="flex gap-2">
+                  <Input id="wa-plantilla" placeholder={esTwilio ? "HXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : "nombre_plantilla_aprobada"}
+                    value={f.plantillaId} onChange={(e) => { edita({ plantillaId: e.target.value }); setErrorConsulta(null); }} />
+                  {esTwilio && (
+                    <Button type="button" variant="outline" disabled={!idPlantilla || consultando} onClick={() => consultaPlantilla(idPlantilla)}>
+                      {consultando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}Consultar
+                    </Button>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500">{prov.pistaPlantilla} Sin plantilla, el envío falla con &quot;Falta configurar la plantilla&quot;.</p>
+                {errorConsulta && <p className="text-xs text-red-600">No se pudo consultar la plantilla: {errorConsulta}</p>}
               </div>
               {f.proveedor === "meta" && (
                 <div className="space-y-2">
@@ -418,39 +506,70 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                   <Input id="wa-idioma" placeholder="es_MX" value={f.idioma} onChange={(e) => edita({ idioma: e.target.value })} />
                 </div>
               )}
-              <div className="space-y-2">
-                <Label>Variables</Label>
-                {f.variables.map((v, i) => (
-                  <div key={i} className="flex items-center gap-1">
-                    <span className="font-mono text-xs w-10 shrink-0">{`{{${i + 1}}}`}</span>
-                    <Select value={v || "none"} onValueChange={(x) => edita({ variables: f.variables.map((y, j) => (j === i ? (x === "none" ? "" : x) : y)) })}>
-                      <SelectTrigger className="h-8"><SelectValue placeholder="Elige un dato" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Elige un dato</SelectItem>
-                        {DATOS.map((o) => <SelectItem key={o.llave} value={o.llave}>{o.etiqueta}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" disabled={i === 0} onClick={() => mueve(i, -1)} aria-label="Subir"><ArrowUp className="h-4 w-4" /></Button>
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" disabled={i === f.variables.length - 1} onClick={() => mueve(i, 1)} aria-label="Bajar"><ArrowDown className="h-4 w-4" /></Button>
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => edita({ variables: f.variables.filter((_, j) => j !== i) })} aria-label="Quitar"><X className="h-4 w-4" /></Button>
+              {esTwilio ? (
+                vigente ? (
+                  <>
+                    <p className="text-xs text-gray-500">
+                      Plantilla <span className="font-mono">{vigente.nombre ?? idPlantilla}</span>{vigente.idioma ? ` · ${vigente.idioma}` : ""}
+                    </p>
+                    {f.variables.length > 0 && (
+                      <div className="space-y-2">
+                        <Label>Variables</Label>
+                        {f.variables.map((_, i) => (
+                          <div key={i} className="flex items-center gap-1">
+                            <span className="font-mono text-xs w-10 shrink-0">{`{{${i + 1}}}`}</span>
+                            {selectorDato(i)}
+                          </div>
+                        ))}
+                        <p className="text-xs text-gray-500">Qué dato de la oferta va en cada variable de la plantilla.</p>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label>Vista previa</Label>
+                      <div className="rounded-md border bg-muted p-3 space-y-2">
+                        <p className="text-sm whitespace-pre-wrap">{conEjemplos(vigente.cuerpo, f.variables)}</p>
+                        {vigente.botones.map((b, i) => (
+                          <div key={i} className="rounded-md border bg-background py-1.5 text-center text-sm text-blue-600">
+                            {conEjemplos(b.titulo, f.variables)}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500">Con datos de ejemplo. Así se verá la oferta en el chat del dashboard.</p>
+                    </div>
+                  </>
+                ) : idPlantilla && !errorConsulta ? (
+                  <p className="text-xs text-gray-500">
+                    {consultando ? "Consultando la plantilla en Twilio…"
+                      : guardadaSinCambio ? "Consulta la plantilla para ver su vista previa; si no, se conserva lo guardado."
+                      : "Consulta la plantilla para ver su vista previa y elegir el dato de cada variable."}
+                  </p>
+                ) : null
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Variables</Label>
+                    {f.variables.map((_, i) => (
+                      <div key={i} className="flex items-center gap-1">
+                        <span className="font-mono text-xs w-10 shrink-0">{`{{${i + 1}}}`}</span>
+                        {selectorDato(i)}
+                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" disabled={i === 0} onClick={() => mueve(i, -1)} aria-label="Subir"><ArrowUp className="h-4 w-4" /></Button>
+                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" disabled={i === f.variables.length - 1} onClick={() => mueve(i, 1)} aria-label="Bajar"><ArrowDown className="h-4 w-4" /></Button>
+                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => edita({ variables: f.variables.filter((_, j) => j !== i) })} aria-label="Quitar"><X className="h-4 w-4" /></Button>
+                      </div>
+                    ))}
+                    <Button type="button" variant="outline" size="sm" onClick={() => edita({ variables: [...f.variables, ""] })}><Plus className="mr-1 h-3 w-3" />Agregar variable</Button>
+                    <p className="text-xs text-gray-500">En el mismo orden que las variables de la plantilla aprobada.</p>
                   </div>
-                ))}
-                <Button type="button" variant="outline" size="sm" onClick={() => edita({ variables: [...f.variables, ""] })}><Plus className="mr-1 h-3 w-3" />Agregar variable</Button>
-                <p className="text-xs text-gray-500">En el mismo orden que las variables de la plantilla aprobada.</p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="wa-texto">Texto en el chat</Label>
-                <Textarea id="wa-texto" rows={4} placeholder="Hola {{1}}, gracias por agendar el servicio de tu {{2}}…" value={f.texto} onChange={(e) => edita({ texto: e.target.value })} />
-                <p className="text-xs text-gray-500">
-                  {f.proveedor === "twilio"
-                    ? <>Opcional: si lo dejas vacío, el chat muestra el texto de la plantilla tal como lo tiene Twilio, con sus variables y botones. </>
-                    : <>Cómo se ve el mensaje en el dashboard. </>}
-                  Usa {"{{1}}"}, {"{{2}}"}… para las variables.
-                </p>
-                {f.texto.trim() && (
-                  <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground whitespace-pre-wrap">{vistaPrevia(f)}</div>
-                )}
-              </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="wa-texto">Texto en el chat</Label>
+                    <Textarea id="wa-texto" rows={4} placeholder="Hola {{1}}, gracias por agendar el servicio de tu {{2}}…" value={f.texto} onChange={(e) => edita({ texto: e.target.value })} />
+                    <p className="text-xs text-gray-500">Cómo se ve el mensaje en el dashboard. Usa {"{{1}}"}, {"{{2}}"}… para las variables.</p>
+                    {f.texto.trim() && (
+                      <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground whitespace-pre-wrap">{conEjemplos(f.texto, f.variables)}</div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
           <DialogFooter>
