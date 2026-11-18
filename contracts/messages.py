@@ -40,6 +40,8 @@ class IncomingMessage:
     media: list[Media] = field(default_factory=list)
     from_agent_system: bool = False  # un humano ya atiende desde otro sistema (p. ej. Salesforce)
     received_at: str = ""           # ISO 8601 UTC
+    button_payload: str = ""        # el cliente pulso un boton de respuesta rapida de una plantilla: su id (p. ej. oferta_interesa)
+    button_text: str = ""           # y su texto
 
     @property
     def ordering_key(self) -> str:
@@ -60,7 +62,7 @@ class IncomingMessage:
             "from": self.from_number, "to": self.to_number, "phoneNumberId": self.phone_number_id,
             "body": self.body, "contactName": self.contact_name,
             "media": [m.to_dict() for m in self.media], "fromAgentSystem": self.from_agent_system,
-            "receivedAt": self.received_at,
+            "receivedAt": self.received_at, "buttonPayload": self.button_payload, "buttonText": self.button_text,
         }
 
     @classmethod
@@ -81,6 +83,8 @@ class IncomingMessage:
             media=[Media.from_dict(m) for m in optional(data, "media", list, [], name)],
             from_agent_system=optional(data, "fromAgentSystem", bool, False, name),
             received_at=optional(data, "receivedAt", str, "", name),
+            button_payload=optional(data, "buttonPayload", str, "", name),
+            button_text=optional(data, "buttonText", str, "", name),
         )
 
 

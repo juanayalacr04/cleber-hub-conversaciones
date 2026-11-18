@@ -32,7 +32,7 @@ Navegador           │ API Gateway REST v1 (z66x2zyooj)                        
  │                  │  /webhook/{proveedor}     sin authorizer (firma propia) ─► Lambda router            ▲
  │                  └──────────────────────────────────────────────────────────────────────┘           │
  │                                                                                                      │ VPC (subredes privadas)
- │                  Lambda router ──► SQS FIFO hub-entrantes ──► Lambda entrantes ──invoke──► Lambda bot ──► Abacus
+ │                  Lambda router ──► SQS FIFO hub-entrantes ──► Lambda msj-entrantes ──invoke──► Lambda bot ──► Abacus
  │                                         (grupo = número + cliente)        │                          │
  │                  EventBridge Scheduler ──► Lambda jobs                    ├──► Twilio / Meta / ValueText (por NAT)
  │                  Lambda TomaUnidades.enviaOferta ──invoke──► Lambda entry-point                 │
@@ -52,7 +52,7 @@ Navegador           │ API Gateway REST v1 (z66x2zyooj)                        
 | Hoy (Cloud Function) | En AWS | Disparador | Tiempo máx. | Notas |
 |----------------------|--------|-----------|-------------|-------|
 | `router` | `hub-router` | API Gateway `/webhook/*` | 30 s | Valida firma y **siempre encola** (en Lambda no hay "seguir trabajando después de responder 200") |
-| `queue-incoming` | `hub-entrantes` | SQS FIFO, lote de 1, fallos parciales | 300 s | Un mensaje a la vez por grupo (número + cliente) |
+| `queue-incoming` | `hub-msj-entrantes` | SQS FIFO, lote de 1, fallos parciales | 300 s | Un mensaje a la vez por grupo (número + cliente) |
 | `bot` | `hub-bot` | Invocación directa | 300 s | Concurrencia reservada propia. Se quita `X-Service-Secret` |
 | `actions-execute` | `hub-acciones-bot` | API Gateway (API key del bot) | 120 s | Ver §9, límite de 29 s |
 | `user-actions-execute` | `hub-acciones-usuario` | API Gateway con authorizer Google | 29 s | Deja de verificar el token de Firebase: usa `X-User-Email`. Campañas: ver abajo |
@@ -215,5 +215,5 @@ Sin cambios respecto a `DISENO_MIGRACION_POSTGRES.md` §9, salvo que el script e
 | I3 | NAT Gateway | Las Lambdas en VPC necesitan salida a internet | Confirmar si ya existe en la VPC de PostgREST |
 | I4 | Acceso a PostgREST desde las Lambdas | Identidad de sistema | El mismo NLB interno y patrón que las Lambdas de Valuación |
 | I5 | Tiempo real | Servicio nuevo | AppSync Events (§6) |
-| I6 | Concurrencia de la cuenta | Se comparte con todas las Lambdas de Cleber | Concurrencia reservada para `hub-entrantes` y `hub-bot` |
+| I6 | Concurrencia de la cuenta | Se comparte con todas las Lambdas de Cleber | Concurrencia reservada para `hub-msj-entrantes` y `hub-bot` |
 | I7 | Dominio | URLs de webhook estables entre despliegues | Dominio propio del hub en el API Gateway |

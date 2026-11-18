@@ -28,12 +28,17 @@ class Headers(dict):
 
 
 class Peticion:
-    def __init__(self, method="POST", path="/", headers=None, args=None, cuerpo: bytes = b""):
+    def __init__(self, method="POST", path="/", headers=None, args=None, cuerpo: bytes = b"", query_string: bytes | None = None):
         self.method = (method or "POST").upper()
         self.path = path or "/"
         self.headers = Headers(headers)
         self.args = dict(args or {})
         self._cuerpo = cuerpo or b""
+        # La query tal como llegó (Twilio firma la URL completa). Sin ella se rearma desde args.
+        if query_string is None:
+            from urllib.parse import urlencode
+            query_string = urlencode(self.args).encode("utf-8")
+        self.query_string = query_string
 
     @classmethod
     def de_evento(cls, event: dict) -> "Peticion":
@@ -42,7 +47,9 @@ class Peticion:
         path = event.get("path") or event.get("rawPath") or "/"
         cuerpo = event.get("body") or ""
         datos = base64.b64decode(cuerpo) if event.get("isBase64Encoded") else cuerpo.encode("utf-8")
-        return cls(method, path, event.get("headers"), event.get("queryStringParameters"), datos)
+        crudo = event.get("rawQueryString")
+        return cls(method, path, event.get("headers"), event.get("queryStringParameters"), datos,
+                   crudo.encode("utf-8") if crudo is not None else None)
 
     def get_data(self, as_text: bool = False):
         return self._cuerpo.decode("utf-8") if as_text else self._cuerpo

@@ -238,9 +238,9 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [x] 2.1 Cliente de PostgREST (`core/postgrest.py`) y credenciales en AWS Secrets Manager
 - [x] 2.2 Puntos de entrada de Lambda (`handlers.py`, adaptador de API Gateway) y despliegue (`dev/deploy_aws.ps1`)
 - [ ] 2.3 Tablas y acciones `Hub.*` del núcleo en `hub_cleber` (`equipos`, `numeros`, `bots`, `conversaciones`, `mensajes`, `bitacora`) y `core/datos/` por entidad — hecho en parte (números, conversaciones de Valuación)
-- [ ] 2.4 🔒 **Entrada de mensajes:** `hub-router` → SQS FIFO `hub-entrantes` (con DLQ) → `hub-entrantes` → `hub-bot`. Reemplaza Pub/Sub (1.34) y las tres funciones de GCP (1.g)
-- [ ] 2.5 Firma del webhook de Twilio validada con `TWILIO_AUTH_TOKEN` del ambiente; `PUBLIC_BASE_URL` = URL pública final
-- [ ] 2.6 Reapuntar el webhook del número de pruebas de Twilio a AWS
+- [x] 2.4 🔒 **Entrada de mensajes** (probada en dev el 2026-11-18, solo Twilio; Lambdas `hub-router-dev` y `hub-msj-entrantes-dev`): `hub-router` → SQS FIFO `hub-entrantes` (con DLQ) → `hub-msj-entrantes` → `hub-bot`. Reemplaza Pub/Sub (1.34) y las tres funciones de GCP (1.g)
+- [x] 2.5 Firma del webhook de Twilio validada con `TWILIO_AUTH_TOKEN` del ambiente; `PUBLIC_BASE_URL` = URL pública final
+- [x] 2.6 Reapuntar el webhook del número de pruebas de Twilio a AWS (el cambio tardó unos minutos en aplicar)
 - [ ] 2.7 `hub-acciones-bot` (endpoint de acciones para bots, D14) en AWS; resolver el límite de 29 s del API Gateway (`DISENO_BACKEND_AWS.md` §9, I2)
 - [x] 2.8 `hub-acciones-usuario` con el authorizer de Google — corre en dev (vista previa de plantilla)
 - [ ] 2.9 `hub-jobs` con EventBridge Scheduler: inactividad, cierre y resúmenes del expediente
@@ -254,9 +254,8 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [ ] 2.12b Autenticación por sistema origen en ① (invocación directa con IAM para Valuación; `/internal` con API key para otros)
 - [ ] 2.13 **Contrato ② (bot):** IA Workflow de Abacus de Valuación, con su vocabulario de acciones como configuración; priming verificado (el bot responde sabiendo qué oferta se mandó)
 - [ ] 2.14 **Contrato ③ (salida):** eventos de la conversación a `TomaUnidades.recibeEventoHub` (contestó, pasó a asesor, resultado, cierre). Leer el `ButtonPayload` (`oferta_interesa` / `oferta_no_interesa`)
-
-### 2.c Módulo de Valuación
-
+  - **Hecho en el hub (18 nov 2026), sin desplegar:** el router conserva el `ButtonPayload`; `core/contrato_salida.py` entrega los eventos al terminar el turno llamando a `Valuacion.registraResultadoConversacion` por PostgREST (sin Lambda), y `modules/valuacion.py` emite `conversation.replied` (con el payload del botón como `accion`), `.handoff`, `.outcome` y `.closed` (opt-out). Un evento fallido queda en el log y en la bitácora (`evento_salida_fallido`).
+  - **Falta:** (a) en Valuación, autorizar a `sistema@hub-conversaciones.internal` en `valuacion.contexto_usuario` (decisión B); (b) el cierre que hace el asesor desde la bandeja y el cierre por inactividad todavía no emiten `conversation.closed`; (c) probarlo de punta a punta.
 - [ ] 2.15 🔒 ⚠️ **Números de WhatsApp de Valuación por marca piloto** (D17) y **plantilla de la oferta aprobada**. Trámite externo: arrancarlo ya
 - [x] 2.16 Pantalla de Números de WhatsApp con vista previa de la plantilla de Twilio
 - [x] 2.17 Pantallas de Ofertas y Conversaciones con datos reales — en dev

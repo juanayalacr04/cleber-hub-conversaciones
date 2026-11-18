@@ -15,7 +15,7 @@
     Requiere Python con pip y AWS CLI v2 con sesión iniciada. Para prd pide confirmación.
 
 .PARAMETER Funcion
-    Nombre corto de la función (ver $Funciones): entry-point, acciones-usuario.
+    Nombre corto de la función (ver $Funciones): entry-point, acciones-usuario, router, msj-entrantes.
 
 .PARAMETER Ambiente
     dev o prd. La función se llama hub-<funcion>-<ambiente>.
@@ -36,6 +36,7 @@
 .EXAMPLE
     .\dev\deploy_aws.ps1 acciones-usuario dev        # la crea con la configuración de hub-entry-point-dev, o la actualiza
     .\dev\deploy_aws.ps1 entry-point dev -SoloEmpaquetar
+    .\dev\deploy_aws.ps1 router dev -Var COLA_ENTRANTES_URL=https://sqs.us-east-1.amazonaws.com/<cuenta>/hub-entrantes-dev.fifo,PUBLIC_BASE_URL=https://<api>.execute-api.us-east-1.amazonaws.com/dev
     .\dev\deploy_aws.ps1 entry-point dev -RolArn arn:aws:iam::123:role/hub-lambda -Secret hub/dev/entorno `
         -EnvFile .env.aws.dev -SubnetIds subnet-a,subnet-b -SecurityGroupIds sg-1
 
@@ -46,7 +47,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('entry-point', 'acciones-usuario')]
+    [ValidateSet('entry-point', 'acciones-usuario', 'router', 'msj-entrantes')]
     [string]$Funcion,
 
     [Parameter(Mandatory, Position = 1)]
@@ -63,7 +64,9 @@ param(
     [string]$SecretosPrefijo,
     [string]$EnvFile,
     [string]$SubnetIds,
-    [string]$SecurityGroupIds
+    [string]$SecurityGroupIds,
+    # Solo al crear: variables propias de la función, además de las copiadas (p. ej. -Var COLA_ENTRANTES_URL=https://...)
+    [string[]]$Var
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,6 +78,10 @@ $Funciones = @{
     'entry-point'      = @{ Handler = 'handlers.entry_point'; Timeout = 60; Memoria = 512 }
     # Detrás del API Gateway: su límite es 29 s
     'acciones-usuario' = @{ Handler = 'handlers.acciones_usuario'; Timeout = 29; Memoria = 512 }
+    # Webhooks de los proveedores: valida la firma y publica en SQS. Detrás del API Gateway
+    'router'           = @{ Handler = 'handlers.router'; Timeout = 15; Memoria = 512 }
+    # Consumidor de la cola hub-entrantes (la Lambda es hub-msj-entrantes-<ambiente>): llama al bot (Abacus, hasta 120 s por llamada). La visibilidad de la cola debe ser >= 6x
+    'msj-entrantes'    = @{ Handler = 'handlers.entrantes'; Timeout = 300; Memoria = 512 }
 }
 
 # Lo que va en el paquete (el resto del repo: apps/, DB/, tests/, dev/, Arquitectura/... no)
@@ -194,6 +201,12 @@ try {
                     $valor = $linea.Substring($i + 1).Trim().Trim('"')
                     if ($valor) { $vars[$llave] = $valor }
                 }
+            }
+        }
+        foreach ($par in @($Var)) {
+            if ($par -and $par.Contains('=')) {
+                $i = $par.IndexOf('=')
+                $vars[$par.Substring(0, $i).Trim()] = $par.Substring($i + 1).Trim()
             }
         }
         Set-Content $envJson -Encoding ascii -Value (@{ Variables = $vars } | ConvertTo-Json -Compress)

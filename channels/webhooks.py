@@ -44,8 +44,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# En AWS el router no deduplica en Firestore: lo hace SQS FIFO (MessageDeduplicationId = id del proveedor, 5 min) y, sin
+# límite de tiempo, Hub.guardaMensaje (idempotente por id del proveedor). handlers.router lo apaga.
+DEDUPLICA_EN_FIRESTORE = True
+
+
 def _publish(publish, event: ChannelEvent, dedupe: tuple[str, str] | None = None, db=None) -> bool:
     """Deduplica (si hay ID), publica y devuelve True; False si no se pudo publicar (se suelta la marca para que el reintento pase)."""
+    if not DEDUPLICA_EN_FIRESTORE:
+        dedupe = None
     if dedupe and idempotency.is_duplicate(*dedupe, db=db):
         log.info("%s: duplicado ignorado, id=%s", dedupe[0], dedupe[1])
         return True
@@ -72,12 +79,15 @@ def handle_twilio(form, publish, db=None) -> tuple:
         return ("", 200) if _publish(publish, ChannelEvent.of(status), db=db) else ("", 500)
 
     from_number, to_number = form.get("From", ""), form.get("To", "")
-    body, profile_name = form.get("Body", "").strip(), form.get("ProfileName", "").strip()
+    # Un boton de respuesta rapida de una plantilla llega con su id (ButtonPayload) y su texto (ButtonText, que Twilio repite en Body)
+    button_payload, button_text = form.get("ButtonPayload", "").strip(), form.get("ButtonText", "").strip()
+    body, profile_name = (form.get("Body", "").strip() or button_text), form.get("ProfileName", "").strip()
     if not from_number or not body:
         return "", 200
     sid = form.get("MessageSid", "")
     message = IncomingMessage(message_id=sid or uuid.uuid4().hex, provider="twilio", from_number=normalize_mx_phone(from_number),
-                              to_number=to_number, body=body, contact_name=profile_name, received_at=_now())
+                              to_number=to_number, body=body, contact_name=profile_name, received_at=_now(),
+                              button_payload=button_payload, button_text=button_text)
     # Twilio reintenta si tardamos en contestar: se deduplica por MessageSid
     return ("", 200) if _publish(publish, ChannelEvent.of(message), ("twilio", sid), db=db) else ("", 500)
 

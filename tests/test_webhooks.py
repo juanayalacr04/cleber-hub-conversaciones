@@ -243,3 +243,23 @@ def test_ruta_desconocida_responde_404_sin_procesar(monkeypatch):
 def test_el_router_tolera_barra_final_y_prefijo_de_la_funcion():
     assert main.router(FakeRequest("GET", path="/webhook/twilio/")) == ("OK", 200)
     assert main.router(FakeRequest("GET", path="/router/webhook/valuetext")) == ("OK", 200)
+
+
+def test_twilio_boton_de_plantilla_conserva_payload_y_texto():
+    eventos = []
+    form = {"From": "whatsapp:+5218186019229", "To": "whatsapp:+5215500000001", "MessageSid": "SMb",
+            "Body": "Me interesa", "ButtonPayload": "oferta_interesa", "ButtonText": "Me interesa"}
+    assert webhooks.handle_twilio(form, eventos.append, db=FakeDB())[1] == 200
+    m = eventos[0].message
+    assert (m.button_payload, m.button_text, m.body) == ("oferta_interesa", "Me interesa", "Me interesa")
+    # viaja por la cola y se reconstruye igual
+    from contracts.messages import ChannelEvent
+    assert ChannelEvent.from_dict(eventos[0].to_dict()).message.button_payload == "oferta_interesa"
+
+
+def test_twilio_boton_sin_body_usa_el_texto_del_boton():
+    eventos = []
+    form = {"From": "whatsapp:+5218186019229", "To": "whatsapp:+5215500000001", "MessageSid": "SMc",
+            "Body": "", "ButtonPayload": "oferta_no_interesa", "ButtonText": "No, gracias"}
+    webhooks.handle_twilio(form, eventos.append, db=FakeDB())
+    assert eventos[0].message.body == "No, gracias" and eventos[0].message.button_payload == "oferta_no_interesa"

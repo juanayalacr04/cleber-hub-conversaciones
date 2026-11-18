@@ -21,7 +21,9 @@ Sin esa configuración el envío falla con PLANTILLA_NO_CONFIGURADA (y la oferta
 """
 import re
 
+from core import contrato_salida as salida
 from core.contrato_entrada import Envio, SinPlantilla, registra_fuente
+from core.tools import tool
 
 FUENTE = "valuacion"
 LLAVE_PLANTILLA = "ofertaValuacion"
@@ -92,3 +94,61 @@ def prepara_oferta(conversacion: dict, numero: dict, contexto: dict) -> Envio:
 
 
 registra_fuente(FUENTE, prepara_oferta)
+
+
+# --------------------------------------------------------------------------- contrato 3: eventos hacia Valuacion
+# Los emite el pipeline de entrada (core/entrada_mensajes.py) y salen al terminar el turno, ya contestado el cliente. Valuacion
+# decide que hace con cada uno (Valuacion.registraResultadoConversacion, acciones-valuacion.md 7.2):
+#   conversation.replied  el cliente contesto la oferta (la primera vez) o pulso un boton (accion = ButtonPayload)
+#   conversation.handoff  la conversacion paso a un asesor
+#   conversation.outcome  el bot clasifico el resultado (accion = su vocabulario)
+#   conversation.closed   se cerro (hoy: el cliente pidio no recibir mas mensajes)
+# Solo de conversaciones abiertas por la fuente "valuacion". Se entregan llamando a la funcion de la base `valuacion` con la
+# identidad del hub (sistema@hub-conversaciones.internal), que Valuacion debe autorizar en valuacion.exige_permiso(..., 'sistema').
+
+V = FUENTE
+
+salida.registra_destino(FUENTE, salida.Destino(accion="Valuacion.registraResultadoConversacion"))
+
+
+def _encola(turn, conv_data: dict, tipo: str, sufijo: str, accion: str | None = None, **extra) -> None:
+    """Agrega el evento a la salida del turno. No hace nada si la conversacion no es de la fuente, o no es el pipeline de AWS."""
+    conv = getattr(turn, "conv", None)
+    salidas = getattr(turn, "salida", None)
+    if salidas is None or salida.fuente_de(conv) != FUENTE:
+        return
+    mensaje = turn.incoming
+    carga = {"idConversacion": conv.get("idConversacion"), "idMarca": conv.get("idMarca"), "estado": conv.get("estado"),
+             "idMensajeProveedor": mensaje.message_id, "recibidoEn": mensaje.received_at or None, **extra}
+    salidas.append(salida.Evento(id_evento=f"{sufijo}-{conv.get('idConversacion')}-{mensaje.message_id}", tipo=tipo,
+                                 accion=accion, carga={k: v for k, v in carga.items() if v is not None}))
+
+
+@tool("first_customer_reply", vertical=V)
+def _primera_respuesta(conv_data: dict, params: dict) -> None:
+    turn = params["turn"]
+    if turn.incoming.button_payload:
+        return                                   # lo cubre customer_button: un solo evento por mensaje
+    _encola(turn, conv_data, salida.RESPONDIO, "replied", texto=turn.incoming.body)
+
+
+@tool("customer_button", vertical=V)
+def _boton(conv_data: dict, params: dict) -> None:
+    _encola(params["turn"], conv_data, salida.RESPONDIO, "button", accion=params.get("payload"),
+            boton={"payload": params.get("payload"), "texto": params.get("text")})
+
+
+@tool("handoff_applied", vertical=V)
+def _handoff(conv_data: dict, params: dict) -> None:
+    _encola(params["turn"], conv_data, salida.HANDOFF, "handoff", motivo=params.get("motivo"), disparador=params.get("trigger"))
+
+
+@tool("outcome_classified", vertical=V)
+def _resultado(conv_data: dict, params: dict) -> None:
+    _encola(params["turn"], conv_data, salida.RESULTADO, "outcome", accion=params.get("motivo"))
+
+
+@tool("opt_out", vertical=V)
+def _opt_out(conv_data: dict, params: dict) -> None:
+    if params.get("action") == "close":
+        _encola(params["turn"], conv_data, salida.CERRADA, "closed", motivo="opt_out")

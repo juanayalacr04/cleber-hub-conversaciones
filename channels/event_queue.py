@@ -61,6 +61,37 @@ class PubSubPublisher:
             raise
 
 
+class SqsPublisher:
+    """Publicador de SQS FIFO (AWS, DISENO_BACKEND_AWS.md §4.3).
+
+    MessageGroupId = `ordering_key` (número del bot + cliente): SQS entrega un mensaje a la vez por grupo, así que dos
+    mensajes seguidos del mismo cliente no corren en paralelo. MessageDeduplicationId = id del evento del proveedor: un
+    reintento del proveedor dentro de 5 minutos no entra dos veces (después lo frena Hub.guardaMensaje). Un evento sin id
+    (estados de entrega) usa la deduplicación por contenido de la cola.
+    """
+
+    def __init__(self, queue_url: str, client=None):
+        self.queue_url, self._client = queue_url, client
+
+    def _get_client(self):
+        if self._client is None:
+            import boto3
+            self._client = boto3.client("sqs")
+        return self._client
+
+    def publish(self, event: ChannelEvent) -> None:
+        import hashlib
+        import json
+        cuerpo = json.dumps(event.to_dict(), ensure_ascii=False)
+        dedupe = event.event_id or hashlib.sha256(cuerpo.encode("utf-8")).hexdigest()
+        self._get_client().send_message(
+            QueueUrl=self.queue_url, MessageBody=cuerpo,
+            MessageGroupId=event.ordering_key[:128] or "sin-clave",
+            MessageDeduplicationId=f"{event.kind}-{dedupe}"[:128],
+            MessageAttributes={"kind": {"DataType": "String", "StringValue": event.kind}},
+        )
+
+
 def from_env(env=None, direct=None):
     """Publicador según el entorno: Pub/Sub si hay `INCOMING_TOPIC`; si no, `direct` (procesar en proceso)."""
     env = os.environ if env is None else env

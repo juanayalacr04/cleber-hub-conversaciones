@@ -571,7 +571,7 @@ Lo que cualquier módulo necesita para conversar. Valuación lo estrena; Ventas 
 | Pieza | Contenido |
 |---|---|
 | **Datos** | Tablas del núcleo en `hub_cleber` (`equipos`, `numeros`, `bots`, `conversaciones`, `mensajes`, `bitacora`) y sus acciones `Hub.*`, con `core/datos/` por entidad |
-| **Entrada de mensajes** | `hub-router` (webhook con firma validada) → SQS FIFO `hub-entrantes` (grupo = número + cliente) → `hub-entrantes` → `hub-bot` → Abacus |
+| **Entrada de mensajes** | `hub-router` (webhook con firma validada) → SQS FIFO `hub-entrantes` (grupo = número + cliente) → `hub-msj-entrantes` → `hub-bot` → Abacus |
 | **Acciones** | `hub-acciones-usuario` (pantallas) y `hub-acciones-bot` (bots, D14) |
 | **Jobs** | `hub-jobs` con EventBridge Scheduler: inactividad, cierre y resúmenes del expediente |
 | **Tiempo real** | AppSync Events (o la opción que se decida, `DISENO_BACKEND_AWS.md` §6) en lugar de `onSnapshot` de Firestore |

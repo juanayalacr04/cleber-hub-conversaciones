@@ -43,19 +43,27 @@ def public_url(request, env=None) -> str:
         proto = (request.headers.get("X-Forwarded-Proto") or request.scheme).split(",")[0].strip()
         host = (request.headers.get("X-Forwarded-Host") or request.host).split(",")[0].strip()
         url = f"{proto}://{host}{request.path}"
-    query = request.query_string.decode("utf-8") if request.query_string else ""
+    query_string = getattr(request, "query_string", b"")
+    query = query_string.decode("utf-8") if query_string else ""
     return f"{url}?{query}" if query else url
 
 
 def twilio_authorized(url: str, form, headers, db=None, env=None) -> bool:
     """¿La firma de Twilio corresponde al token del número de WhatsApp involucrado?
 
-    El número es el destinatario (`To`) de un mensaje entrante o el remitente (`From`) de un callback de estado. El token sale del
-    número (o del bot, en el modelo antiguo), nunca de la petición.
+    En AWS todos los números están en una sola cuenta de Twilio por ambiente: la firma se valida con `TWILIO_AUTH_TOKEN` (del
+    secreto del ambiente, core/entorno.py) y no se busca el número. Sin esa variable (despliegue de GCP), el token sale del
+    número que recibe (`To`) o envía (`From`, en un callback de estado), nunca de la petición.
     """
     if allow_unauthenticated(env):
         return True
     received = headers.get("X-Twilio-Signature") or ""
+    token_ambiente = (_env(env).get("TWILIO_AUTH_TOKEN") or "").strip()
+    if token_ambiente:
+        if signatures.valid_twilio(token_ambiente, url, form, received):
+            return True
+        log.warning("webhook de Twilio rechazado: firma inválida (To=%s, url=%s)", form.get("To", ""), url)
+        return False
     for candidate in (form.get("To", ""), form.get("From", "")):
         if not candidate:
             continue
