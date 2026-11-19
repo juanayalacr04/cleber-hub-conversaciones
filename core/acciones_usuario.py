@@ -26,12 +26,14 @@ Acciones:
         info:   { mensaje, conversacion, duplicado } de Hub.registraMensajeAgente
         El asesor le escribe al cliente: autoriza con el usuario (postgrest en su nombre), envía por el proveedor del número
         y guarda el mensaje con su id de proveedor. Si la conversación esperaba asesor o estaba con el bot, el asesor la
-        toma. ERROR_PROVEEDOR si WhatsApp no lo aceptó (p. ej. fuera de la ventana de 24 h): no se guarda.
+        toma. FUERA_DE_VENTANA si pasaron más de 24 h desde el último mensaje del cliente (o nunca ha escrito): no se
+        envía. ERROR_PROVEEDOR si WhatsApp no lo aceptó: no se guarda.
 """
 import html
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 from urllib.parse import urlsplit
 
@@ -155,6 +157,21 @@ def envia_invitacion(email: str, params: dict) -> dict:
 
 
 MAX_TEXTO = 4096
+VENTANA_WHATSAPP = timedelta(hours=24)
+
+
+def _dentro_de_ventana(ultimo_mensaje_cliente: str | None, ahora: datetime | None = None) -> bool:
+    """WhatsApp solo deja escribir texto libre hasta 24 h después del último mensaje del cliente. Sin mensajes del cliente
+    (p. ej. solo se le envió la plantilla de la oferta), tampoco."""
+    if not ultimo_mensaje_cliente:
+        return False
+    try:
+        ultimo = datetime.fromisoformat(str(ultimo_mensaje_cliente).replace("Z", "+00:00"))
+    except ValueError:
+        return True   # fecha que no se entiende: que decida el proveedor
+    if ultimo.tzinfo is None:
+        ultimo = ultimo.replace(tzinfo=timezone.utc)
+    return (ahora or datetime.now(timezone.utc)) - ultimo <= VENTANA_WHATSAPP
 
 
 def envia_mensaje_agente(email: str, params: dict) -> dict:
@@ -165,6 +182,10 @@ def envia_mensaje_agente(email: str, params: dict) -> dict:
         raise Rechazo("CAMPO_INVALIDO", f"El mensaje pasa de {MAX_TEXTO} caracteres", {"campo": "texto"})
     autorizado = postgrest.llama("Hub.autorizaMensajeAgente", {"idConversacion": id_conversacion}, como=email)
     conversacion, numero = autorizado.get("conversacion") or {}, autorizado.get("numero") or {}
+    if not _dentro_de_ventana(conversacion.get("ultimoMensajeClienteEn")):
+        # Mientras no hay envío de plantillas desde la pantalla, fuera de la ventana no se manda nada
+        raise Rechazo("FUERA_DE_VENTANA", "Pasaron más de 24 horas desde el último mensaje del cliente: WhatsApp solo permite "
+                                          "escribirle con una plantilla", {"ultimoMensajeClienteEn": conversacion.get("ultimoMensajeClienteEn")})
     canal = numeros.para_canal(numero)
     telefono = conversacion.get("telefonoCliente") or ""
     if canal.get("provider", "twilio") == "twilio" and not telefono.startswith("whatsapp:"):

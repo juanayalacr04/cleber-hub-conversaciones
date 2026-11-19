@@ -37,6 +37,8 @@ export interface ConversacionHub {
   ultimoMensajeEn: string;
   ultimoMensajeTexto: string | null;
   ultimoRemitente: "customer" | "bot" | "agent" | null;
+  /** Último mensaje del cliente: WhatsApp solo deja escribirle texto libre hasta 24 h después */
+  ultimoMensajeClienteEn: string | null;
   metadatos: Record<string, unknown>;
   cerradaEn: string | null;
   creadoEn: string;

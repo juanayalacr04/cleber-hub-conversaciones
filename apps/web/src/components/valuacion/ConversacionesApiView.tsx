@@ -47,6 +47,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 const REFRESCO_MS = 15_000;
+const VENTANA_MS = 24 * 60 * 60 * 1000;
 const BASE = "/valuacion/conversaciones";
 const TODOS: EstadoConversacion[] = ["bot", "waiting_agent", "with_agent", "closed"];
 
@@ -464,7 +465,9 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
   const esMia = !!userData?.idUsuario && conv.idAgente === userData.idUsuario;
   const abierta = conv.estado !== "closed";
   // Solo escribe quien tiene asignada la conversación. Un administrador que quiera escribir en la de otro la toma primero
-  const puedeEscribir = conv.estado === "with_agent" && esMia;
+  // WhatsApp solo deja escribir texto libre hasta 24 h después del último mensaje del cliente (sin plantillas por ahora)
+  const enVentana = !!conv.ultimoMensajeClienteEn && Date.now() - new Date(conv.ultimoMensajeClienteEn).getTime() <= VENTANA_MS;
+  const puedeEscribir = conv.estado === "with_agent" && esMia && enVentana;
   // Tomar: Hub.tomaConversacion solo acepta "Esperando"; con el bot o con otro valuador, el administrador se la asigna a sí mismo
   const puedeTomar = esAdmin && !!userData?.idUsuario && abierta && !esMia;
   const toma = () => conv.estado === "waiting_agent"
@@ -518,10 +521,13 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
       return;
     }
     if (r.errorCode === "SESION_EXPIRADA") { toast.error(mensajeError(r)); signOut({ redirectTo: "/login" }); return; }
-    toast.error(["ERROR_PROVEEDOR", "SIN_PERMISO", "CAMPO_INVALIDO"].includes(r.errorCode) ? r.errorMessage : mensajeError(r));
+    toast.error(["ERROR_PROVEEDOR", "SIN_PERMISO", "CAMPO_INVALIDO", "FUERA_DE_VENTANA"].includes(r.errorCode) ? r.errorMessage : mensajeError(r));
     if (r.errorCode === "ESTADO_INVALIDO") carga();
   }
   const aviso = puedeEscribir ? null
+    : conv.estado === "with_agent" && esMia ? (conv.ultimoMensajeClienteEn
+      ? "Pasaron más de 24 horas desde el último mensaje del cliente: WhatsApp no permite escribirle hasta que vuelva a escribir"
+      : "El cliente todavía no ha escrito: WhatsApp no permite escribirle hasta que conteste")
     : conv.estado === "waiting_agent" ? "Toma la conversación para poder enviar mensajes"
     : conv.estado === "bot" ? "La está atendiendo el bot. Tómala para escribirle al cliente"
     : conv.estado === "closed" ? "La conversación está cerrada. Puedes reabrirla para continuar"

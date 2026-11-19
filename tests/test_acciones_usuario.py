@@ -1,6 +1,7 @@
 """Acciones del dashboard (core/acciones_usuario.py), su Lambda (handlers.acciones_usuario) y la consulta de la plantilla
 en Twilio (channels/campaign_templates.describe), sin red ni base."""
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -235,11 +236,13 @@ def agente(monkeypatch):
         llamadas = []
         enviados = []
         sid = "SMx"
+        ultimo_cliente = None
 
     def llama(accion, params=None, como=None, **k):
         Agente.llamadas.append((accion, params, como))
         if accion == "Hub.autorizaMensajeAgente":
-            return {"conversacion": {"idConversacion": "c1", "telefonoCliente": "+528112345678"}, "numero": NUMERO}
+            return {"conversacion": {"idConversacion": "c1", "telefonoCliente": "+528112345678",
+                                     "ultimoMensajeClienteEn": Agente.ultimo_cliente}, "numero": NUMERO}
         assert accion == "Hub.registraMensajeAgente"
         return {"mensaje": {"idMensaje": "m1"}, "conversacion": {"estado": "with_agent"}, "duplicado": False}
 
@@ -248,6 +251,7 @@ def agente(monkeypatch):
         return Agente.sid
 
     Agente.llamadas, Agente.enviados = [], []
+    Agente.ultimo_cliente = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     monkeypatch.setattr(postgrest, "llama", llama)
     monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-amb")
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok-amb")
@@ -265,6 +269,20 @@ def test_mensaje_del_agente_autoriza_envia_y_guarda_en_nombre_del_usuario(agente
     assert [(a, c) for a, _, c in agente.llamadas] == [("Hub.autorizaMensajeAgente", "ana@cleber.com"),
                                                        ("Hub.registraMensajeAgente", "ana@cleber.com")]
     assert agente.llamadas[1][1] == {"idConversacion": "c1", "texto": "Hola, soy tu valuador", "idMensajeProveedor": "SMx"}
+
+
+@pytest.mark.parametrize("ultimo", [None, "hace_25_h"])
+def test_fuera_de_la_ventana_de_24_horas_no_se_envia(agente, ultimo):
+    agente.ultimo_cliente = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat() if ultimo else None
+    r = acciones_usuario.maneja(MENSAJE, "ana@cleber.com")
+    assert r["errorCode"] == "FUERA_DE_VENTANA" and "24 horas" in r["errorMessage"]
+    assert not agente.enviados and [a for a, _, _ in agente.llamadas] == ["Hub.autorizaMensajeAgente"]
+
+
+def test_ventana_con_fecha_de_la_base():
+    ahora = datetime(2026, 11, 19, 12, tzinfo=timezone.utc)
+    assert acciones_usuario._dentro_de_ventana("2026-11-18T13:00:00+00:00", ahora)
+    assert not acciones_usuario._dentro_de_ventana("2026-11-18T11:59:00Z", ahora)
 
 
 def test_mensaje_que_whatsapp_no_acepta_no_se_guarda(agente):
