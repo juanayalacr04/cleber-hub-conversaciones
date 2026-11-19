@@ -6,20 +6,20 @@
  *   2. Hub.registraInicioSesion: registra el acceso. SIN_PERMISO = el correo no está dado de alta en el hub (o está
  *      inactivo) → acceso negado. Ya no se lee users/{uid} de Firestore ni se reclama la invitación ahí.
  *   3. Hub.consultaUsuarioActual: marcas que puede ver y su rol por marca y módulo. De ahí sale `userData`.
- * Con el id_token se abre además la sesión de Firebase (signInWithCredential), solo para lo que todavía lee Firestore
- * (Ventas y Servicio); si falla, el dashboard sigue funcionando sin ella.
+ * Ya no se abre sesión de Firebase: `user` queda en null (lo usaban las pantallas de Ventas y Servicio que leen
+ * Firestore, ocultas hasta su mudanza).
  */
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from "react";
-import { User, GoogleAuthProvider, signInWithCredential, signOut as firebaseSignOut, onAuthStateChanged } from "firebase/auth";
 import { signIn as nextAuthSignIn, signOut as nextAuthSignOut, useSession } from "next-auth/react";
-import { auth } from "@/lib/firebase";
 import { consultaUsuarioActual, registraInicioSesion, type UsuarioHub } from "@/lib/hub/usuario";
+// Solo el tipo (no carga Firebase): lo esperan las pantallas de Ventas y Servicio. `user` es siempre null.
+import type { User } from "firebase/auth";
 
 export type ModuloHub = "ventas" | "servicio" | "valuacion";
 
 export interface UserData {
-  /** uid de Firebase si hay sesión de Firebase (lo usan las pantallas que leen Firestore); si no, idUsuario del hub */
+  /** idUsuario del hub (antes, el uid de Firebase) */
   id: string;
   idUsuario: string;
   email: string;
@@ -105,8 +105,7 @@ function construyeUserData(u: UsuarioHub, idMarca: string | null, uidFirebase: s
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { data: session, status: sessionStatus } = useSession();
-  const [user, setUser] = useState<User | null>(null);
-  const [bridging, setBridging] = useState(false);
+  const user: User | null = null;
   const [usuarioHub, setUsuarioHub] = useState<UsuarioHub | null>(null);
   const [perfilPendiente, setPerfilPendiente] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
@@ -129,7 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (selectedOrgId && organizations.some((o) => o.id === selectedOrgId)) return selectedOrgId;
     return usuarioHub.marcas[0]?.idMarca ?? organizations[0]?.id ?? null;
   })();
-  const userData = usuarioHub ? construyeUserData(usuarioHub, idMarca, user?.uid ?? null) : null;
+  const userData = usuarioHub ? construyeUserData(usuarioHub, idMarca, null) : null;
 
   /** Usuario y marcas visibles (Hub.consultaUsuarioActual). */
   const cargaUsuario = useCallback(async () => {
@@ -147,7 +146,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     denegado.current = true;
     setAccessDenied(true);
     setUsuarioHub(null);
-    await firebaseSignOut(auth).catch(() => {});
     await nextAuthSignOut({ redirect: false });
   }, []);
 
@@ -200,28 +198,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const currentOrgName = organizations.find((o) => o.id === idMarca)?.name
     ?? usuarioHub?.marcas.find((m) => m.idMarca === idMarca)?.nombre ?? null;
 
-  // Sesión de Firebase (solo lectura de Firestore). La de NextAuth manda.
-  useEffect(() => onAuthStateChanged(auth, setUser), []);
+  // Sin sesión se puede volver a intentar el acceso; si no se pudo renovar el id_token, de vuelta al login
   useEffect(() => {
-    if (sessionStatus === "loading") return;
-    if (sessionStatus === "unauthenticated") {
-      denegado.current = false;
-      if (auth.currentUser) firebaseSignOut(auth).catch(() => {});
-      return;
-    }
-    if (session?.error === "RENOVACION_FALLIDA") {
-      firebaseSignOut(auth).finally(() => nextAuthSignOut({ redirectTo: "/login" }));
-      return;
-    }
-    const idToken = session?.idToken;
-    if (!idToken || denegado.current || auth.currentUser) return;
-    let vivo = true;
-    setBridging(true);
-    signInWithCredential(auth, GoogleAuthProvider.credential(idToken))
-      .catch((e) => console.error("No se pudo abrir la sesión de Firebase (lo que lee Firestore no estará disponible):", e))
-      .finally(() => vivo && setBridging(false));
-    return () => { vivo = false; };
-  }, [sessionStatus, session?.idToken, session?.error]);
+    if (sessionStatus === "unauthenticated") denegado.current = false;
+    if (session?.error === "RENOVACION_FALLIDA") nextAuthSignOut({ redirectTo: "/login" });
+  }, [sessionStatus, session?.error]);
 
   const signInWithGoogle = async () => {
     setAccessDenied(false);
@@ -230,11 +211,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await firebaseSignOut(auth).catch(() => {});
     await nextAuthSignOut({ redirectTo: "/login" });
   };
 
-  const loading = sessionStatus === "loading" || perfilPendiente || bridging
+  const loading = sessionStatus === "loading" || perfilPendiente
     || (sessionStatus === "authenticated" && !usuarioHub && !accessDenied && !userDataError && !session?.error);
 
   return (

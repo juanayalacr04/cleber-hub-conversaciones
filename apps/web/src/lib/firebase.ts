@@ -1,8 +1,16 @@
-import { getApp, getApps, initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
+import { getAuth, type Auth } from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
+/**
+ * Firebase del cliente: SOLO lo usan las pantallas de Ventas y Servicio que todavía leen Firestore (se mudan a
+ * hub_cleber en su fase). Valuación, el login y la sesión ya no dependen de Firebase.
+ *
+ * Sin NEXT_PUBLIC_FIREBASE_API_KEY no se inicializa nada: importar este módulo no falla (antes getAuth lanzaba
+ * auth/invalid-api-key y tiraba toda la app), y `auth`, `db` y `storage` quedan en null. Ventas y Servicio no se
+ * muestran mientras tanto (lib/modules.ts).
+ */
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -12,12 +20,11 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+export const firebaseConfigurado = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
 
-// La sesión de Firebase la abre AuthContext con el id_token de NextAuth (signInWithCredential); no hay login propio.
-export const auth = getAuth(app);
-// Una sola base para todos los módulos: la `(default)` o, si el proyecto la comparte con otra aplicación, una con nombre
-// (NEXT_PUBLIC_FIRESTORE_DATABASE). Debe ser la misma que usa la función (FIRESTORE_DATABASE) y la de firebase.json.
-export const db = getFirestore(app, process.env.NEXT_PUBLIC_FIRESTORE_DATABASE || "(default)");
-// Archivos adjuntos de la bandeja. Requiere el bucket de Storage del proyecto (pendiente de habilitar).
-export const storage = getStorage(app);
+const app: FirebaseApp | null = firebaseConfigurado ? (getApps().length ? getApp() : initializeApp(firebaseConfig)) : null;
+
+// Tipados como no nulos para no tocar las pantallas de Ventas y Servicio que los usan; solo se usan si firebaseConfigurado.
+export const auth = (app ? getAuth(app) : null) as Auth;
+export const db = (app ? getFirestore(app, process.env.NEXT_PUBLIC_FIRESTORE_DATABASE || "(default)") : null) as Firestore;
+export const storage = (app ? getStorage(app) : null) as FirebaseStorage;

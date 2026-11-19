@@ -14,13 +14,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
-import { collection, getDocs, limit, query, where } from "firebase/firestore";
 import { Loader2, MoreVertical, Pencil, Plus, Trash2, UserCog, Users } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { db } from "@/lib/firebase";
 import { consultaAgenciasMarca } from "@/lib/hub/agencias";
 import { consultaConfiguracionModulo } from "@/lib/hub/configuracion";
 import {
@@ -129,11 +127,8 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
   useEffect(() => {
     if (!idMarca) return;
     let vivo = true;
-    // Los equipos siguen en Firestore, bajo el documento de organizations cuyo sfBrandCode es el id (código) de la marca
-    getDocs(query(collection(db, "organizations"), where("sfBrandCode", "==", idMarca), limit(1)))
-      .then((o) => (o.docs[0] ? getDocs(query(collection(db, "teams"), where("organizationId", "==", o.docs[0].id))) : null))
-      .then((s) => vivo && setEquipos(s ? s.docs.map((d) => ({ id: d.id, nombre: (d.data().name as string) ?? d.id, vertical: d.data().vertical ?? null })) : []))
-      .catch(() => vivo && setEquipos([]));
+    // Los equipos de Ventas y Servicio seguían en Firestore (ya no configurado en la web): sin ellos hasta su mudanza
+    setEquipos([]);
     consultaConfiguracionModulo({ idMarca, modulo: "valuacion" })
       .then((r) => vivo && setEquiposValuacion(r.successful
         ? r.info.equipos.filter((e) => e.esActivo).map((e) => ({ id: e.idEquipo, nombre: e.nombre, vertical: "valuacion" }))

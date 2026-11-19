@@ -29,9 +29,17 @@ export interface ModuleDef {
   nav?: NavItem[];
 }
 
-export const MODULES: ModuleDef[] = [
+/**
+ * Ventas, Servicio y General todavía leen Firestore, que ya no está configurado en la web: se ocultan hasta que se
+ * muden a hub_cleber (fases 3 y 4). Para volver a mostrarlos, regresarlos a MODULES.
+ */
+export const MODULOS_EN_MUDANZA: ModuleDef[] = [
   { id: "servicio", label: "Servicio", description: "Taller y posventa", vertical: "servicio", icon: "wrench" },
   { id: "ventas", label: "Ventas", description: "Prospectos y citas", vertical: "ventas", icon: "tag" },
+  { id: "general", label: "General", description: "Resumen de los módulos", vertical: null, icon: "grid" },
+];
+
+export const MODULES: ModuleDef[] = [
   {
     id: "valuacion", label: "Valuación", description: "Avalúo de autos usados", vertical: null, icon: "gauge",
     // Prototipo con datos inventados (src/lib/valuacion/store.ts). El valuador también configura.
@@ -53,7 +61,6 @@ export const MODULES: ModuleDef[] = [
       { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
     ],
   },
-  { id: "general", label: "General", description: "Resumen de los módulos", vertical: null, icon: "grid" },
 ];
 
 export function getModule(id: string): ModuleDef | undefined {
