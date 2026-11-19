@@ -2,7 +2,8 @@
     Hub.consultaConversaciones — dashboard (bandeja y kanban) o sistema
 
     Conversaciones de un módulo en una marca, de la más reciente a la más vieja (por último mensaje), con los
-    permisos por equipo de ve_conversacion: el administrador del módulo ve todas; los demás, las de su equipo.
+    permisos por equipo y agencia de ve_conversacion: el administrador del módulo ve todas; los demás, las de su equipo
+    y, si la conversación tiene agencia, solo las de sus agencias.
 
     Params:
       idMarca, modulo (string)
@@ -32,6 +33,7 @@ DECLARE
   v_antes    timestamptz;
   v_limite   integer;
   v_visibles text[];
+  v_agencias text[];
   v_lista    jsonb;
   v_err_estado text; v_err_mensaje text; v_err_detalle text; v_err_info text; v_err_contexto text;
 BEGIN
@@ -51,6 +53,7 @@ BEGIN
   v_antes    := hub_cleber.param_fecha_hora(v_params, 'antesDe', false);
   v_limite   := coalesce(hub_cleber.param_entero(v_params, 'limite', false, 1, 200), 50);
   v_visibles := hub_cleber.equipos_visibles(v_actor, v_marca, v_modulo);
+  v_agencias := hub_cleber.agencias_visibles(v_actor, v_marca, v_modulo);
 
   SELECT coalesce(jsonb_agg(hub_cleber.conversacion_json(c) ORDER BY c.ultimo_mensaje_en DESC, c.id_conversacion), '[]')
     INTO v_lista
@@ -60,6 +63,7 @@ BEGIN
            WHERE c.id_marca = v_marca AND c.modulo = v_modulo
              AND c.estado = ANY (v_estados)
              AND (v_visibles IS NULL OR c.id_equipo = ANY (v_visibles))
+             AND (c.id_agencia IS NULL OR v_agencias IS NULL OR c.id_agencia = ANY (v_agencias))
              AND (v_equipo IS NULL OR c.id_equipo = v_equipo)
              AND (v_agente IS NULL OR c.id_agente = v_agente)
              AND (v_antes IS NULL OR c.ultimo_mensaje_en < v_antes)

@@ -223,6 +223,73 @@ def test_enlace_segun_el_origen(invita):
         assert r["errorCode"] == "CAMPO_REQUERIDO" and not correo, malo
 
 
+# --------------------------------------------------------------------------- Hub.enviaMensajeAgente
+
+MENSAJE = {"action": "Hub.enviaMensajeAgente", "params": {"idConversacion": "c1", "texto": "Hola, soy tu valuador"}}
+NUMERO = {"idNumero": "n1", "idMarca": "TO", "modulo": "valuacion", "proveedor": "twilio", "telefono": "+5215550000000"}
+
+
+@pytest.fixture
+def agente(monkeypatch):
+    class Agente:
+        llamadas = []
+        enviados = []
+        sid = "SMx"
+
+    def llama(accion, params=None, como=None, **k):
+        Agente.llamadas.append((accion, params, como))
+        if accion == "Hub.autorizaMensajeAgente":
+            return {"conversacion": {"idConversacion": "c1", "telefonoCliente": "+528112345678"}, "numero": NUMERO}
+        assert accion == "Hub.registraMensajeAgente"
+        return {"mensaje": {"idMensaje": "m1"}, "conversacion": {"estado": "with_agent"}, "duplicado": False}
+
+    def envia(bot, to, from_, text, media_url=None):
+        Agente.enviados.append({"bot": bot, "to": to, "from": from_, "text": text})
+        return Agente.sid
+
+    Agente.llamadas, Agente.enviados = [], []
+    monkeypatch.setattr(postgrest, "llama", llama)
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-amb")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok-amb")
+    outbound.configure(send_text=envia)
+    yield Agente
+    outbound.configure()
+
+
+def test_mensaje_del_agente_autoriza_envia_y_guarda_en_nombre_del_usuario(agente):
+    r = acciones_usuario.maneja(MENSAJE, "Ana@Cleber.com")
+    assert r["successful"] and r["info"]["conversacion"]["estado"] == "with_agent"
+    (envio,) = agente.enviados
+    assert envio["to"] == "whatsapp:+528112345678" and envio["from"] == "whatsapp:+5215550000000"
+    assert envio["text"] == "Hola, soy tu valuador" and envio["bot"]["twilioConfig"]["accountSid"] == "AC-amb"
+    assert [(a, c) for a, _, c in agente.llamadas] == [("Hub.autorizaMensajeAgente", "ana@cleber.com"),
+                                                       ("Hub.registraMensajeAgente", "ana@cleber.com")]
+    assert agente.llamadas[1][1] == {"idConversacion": "c1", "texto": "Hola, soy tu valuador", "idMensajeProveedor": "SMx"}
+
+
+def test_mensaje_que_whatsapp_no_acepta_no_se_guarda(agente):
+    agente.sid = None
+    r = acciones_usuario.maneja(MENSAJE, "ana@cleber.com")
+    assert r["errorCode"] == "ERROR_PROVEEDOR" and "24 horas" in r["errorMessage"]
+    assert [a for a, _, _ in agente.llamadas] == ["Hub.autorizaMensajeAgente"]
+
+
+def test_mensaje_sin_permiso_no_se_envia(agente, monkeypatch):
+    def niega(accion, params=None, como=None, **k):
+        raise postgrest.ErrorHub("SIN_PERMISO", "La atiende otro asesor")
+    monkeypatch.setattr(postgrest, "llama", niega)
+    r = acciones_usuario.maneja(MENSAJE, "ana@cleber.com")
+    assert r == {"successful": False, "errorCode": "SIN_PERMISO", "errorMessage": "La atiende otro asesor"}
+    assert not agente.enviados
+
+
+def test_mensaje_vacio_o_largo(agente):
+    vacio = acciones_usuario.maneja({**MENSAJE, "params": {"idConversacion": "c1", "texto": "  "}}, "a@b.c")
+    largo = acciones_usuario.maneja({**MENSAJE, "params": {"idConversacion": "c1", "texto": "x" * 4097}}, "a@b.c")
+    assert vacio["errorCode"] == "CAMPO_REQUERIDO" and largo["errorCode"] == "CAMPO_INVALIDO"
+    assert not agente.enviados
+
+
 # --------------------------------------------------------------------------- Lambda
 
 def evento(body, method="POST", email="ana@cleber.com"):

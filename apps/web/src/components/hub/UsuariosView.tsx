@@ -8,7 +8,8 @@
  * Alta: correo, rol y agencias. La marca es la de la pantalla y no se cambia. Quien administra la marca (o el super admin)
  * asigna cualquier agencia de su catálogo (catálogo de Cleber, lib/hub/agencias.ts).
  *
- * Los equipos (idEquipo) siguen en Firestore (teams) hasta la Fase 4; valuación no usa equipos.
+ * Equipos (idEquipo): los de Ventas y Servicio siguen en Firestore (teams) hasta la Fase 4; los de Valuación ya están en
+ * hub_cleber (Hub.consultaConfiguracionModulo). Un usuario que no administra el módulo solo ve las conversaciones de su equipo.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -21,6 +22,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
 import { consultaAgenciasMarca } from "@/lib/hub/agencias";
+import { consultaConfiguracionModulo } from "@/lib/hub/configuracion";
 import {
   cambiaDisponibilidad, consultaRolesModulo, consultaUsuarios, enviaInvitacion, guardaUsuario, invitaUsuario, quitaUsuarioDeMarca,
   type ConsultaUsuarios, type ModuloHub, type RolModulo, type UsuarioEnMarca,
@@ -37,8 +39,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 const MODULOS: ModuloHub[] = ["ventas", "servicio", "valuacion"];
 const NOMBRE_MODULO: Record<ModuloHub, string> = { ventas: "Ventas", servicio: "Servicio", valuacion: "Valuación" };
-/** Módulos con equipos (teams.vertical en Firestore) */
-const CON_EQUIPO: ModuloHub[] = ["ventas", "servicio"];
+/** Módulos con equipos: Ventas y Servicio en Firestore (teams.vertical), Valuación en hub_cleber */
+const CON_EQUIPO: ModuloHub[] = ["ventas", "servicio", "valuacion"];
 const SIN_ROL = "__sin_rol__";
 const SIN_EQUIPO = "__sin_equipo__";
 
@@ -86,14 +88,17 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
   const [datos, setDatos] = useState<ConsultaUsuarios | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [roles, setRoles] = useState<RolModulo[]>([]);
-  const [equipos, setEquipos] = useState<{ id: string; nombre: string; vertical: string | null }[]>([]);
+  const [equiposFirestore, setEquipos] = useState<{ id: string; nombre: string; vertical: string | null }[]>([]);
+  const [equiposValuacion, setEquiposValuacion] = useState<{ id: string; nombre: string; vertical: string | null }[]>([]);
+  const equipos = useMemo(() => [...equiposFirestore.filter((e) => e.vertical !== "valuacion"), ...equiposValuacion],
+    [equiposFirestore, equiposValuacion]);
   const [catalogo, setCatalogo] = useState<Agencia[]>([]);
   const [errorCatalogo, setErrorCatalogo] = useState<string | null>(null);
   const [todos, setTodos] = useState(modulo === null);
 
   // Alta
   const [invitando, setInvitando] = useState(false);
-  const [alta, setAlta] = useState<{ email: string; modulo: ModuloHub | ""; rol: string; agencias: string[] }>({ email: "", modulo: "", rol: "", agencias: [] });
+  const [alta, setAlta] = useState<{ email: string; modulo: ModuloHub | ""; rol: string; idEquipo: string; agencias: string[] }>({ email: "", modulo: "", rol: "", idEquipo: "", agencias: [] });
   // Edición
   const [editando, setEditando] = useState<UsuarioEnMarca | null>(null);
   const [asignaciones, setAsignaciones] = useState<Record<ModuloHub, Asignacion> | null>(null);
@@ -129,6 +134,11 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
       .then((o) => (o.docs[0] ? getDocs(query(collection(db, "teams"), where("organizationId", "==", o.docs[0].id))) : null))
       .then((s) => vivo && setEquipos(s ? s.docs.map((d) => ({ id: d.id, nombre: (d.data().name as string) ?? d.id, vertical: d.data().vertical ?? null })) : []))
       .catch(() => vivo && setEquipos([]));
+    consultaConfiguracionModulo({ idMarca, modulo: "valuacion" })
+      .then((r) => vivo && setEquiposValuacion(r.successful
+        ? r.info.equipos.filter((e) => e.esActivo).map((e) => ({ id: e.idEquipo, nombre: e.nombre, vertical: "valuacion" }))
+        : []))
+      .catch(() => vivo && setEquiposValuacion([]));
     setCatalogo([]);
     setErrorCatalogo(null);
     consultaAgenciasMarca(idMarca)
@@ -164,7 +174,7 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
   const moduloAlta: ModuloHub | "" = modulo && editables.includes(modulo) ? modulo : alta.modulo;
   const abreAlta = () => {
     const m = modulo && editables.includes(modulo) ? modulo : modulosEditables.length === 1 ? modulosEditables[0] : "";
-    setAlta({ email: "", modulo: m, rol: "", agencias: [] });
+    setAlta({ email: "", modulo: m, rol: "", idEquipo: "", agencias: [] });
     setInvitando(true);
   };
   const altaLista = EMAIL.test(alta.email.trim()) && !!moduloAlta && !!alta.rol && alta.agencias.length > 0;
@@ -174,7 +184,8 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
     setGuardando(true);
     try {
       const email = alta.email.trim().toLowerCase();
-      const r = await invitaUsuario({ email, idMarca, modulo: moduloAlta, rol: alta.rol, agencias: alta.agencias });
+      const r = await invitaUsuario({ email, idMarca, modulo: moduloAlta, rol: alta.rol, agencias: alta.agencias,
+        ...(CON_EQUIPO.includes(moduloAlta) && alta.idEquipo ? { idEquipo: alta.idEquipo } : {}) });
       if (!r.successful) {
         const causa = (r.info as { causa?: string } | undefined)?.causa;
         if (causa === "YA_TIENE_ROL") { toast.error(`${email} ya tiene rol en ${NOMBRE_MODULO[moduloAlta]} en esta marca: edítalo desde la lista`); return; }
@@ -373,7 +384,7 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
             {!(modulo && editables.includes(modulo)) && (
               <div className="space-y-2">
                 <Label htmlFor="a-modulo">Módulo</Label>
-                <Select value={alta.modulo} onValueChange={(v) => setAlta((a) => ({ ...a, modulo: v as ModuloHub, rol: "" }))}>
+                <Select value={alta.modulo} onValueChange={(v) => setAlta((a) => ({ ...a, modulo: v as ModuloHub, rol: "", idEquipo: "" }))}>
                   <SelectTrigger id="a-modulo"><SelectValue placeholder="Elige el módulo" /></SelectTrigger>
                   <SelectContent>
                     {modulosEditables.map((m) => <SelectItem key={m} value={m}>{NOMBRE_MODULO[m]}</SelectItem>)}
@@ -394,6 +405,22 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
                 <p className="text-xs text-muted-foreground">{rolesDe(moduloAlta).find((r) => r.rol === alta.rol)?.descripcion}</p>
               )}
             </div>
+
+            {moduloAlta && CON_EQUIPO.includes(moduloAlta) && alta.rol && (
+              <div className="space-y-2">
+                <Label htmlFor="a-eq">Equipo</Label>
+                <Select value={alta.idEquipo || SIN_EQUIPO} onValueChange={(v) => setAlta((a) => ({ ...a, idEquipo: v === SIN_EQUIPO ? "" : v }))}>
+                  <SelectTrigger id="a-eq"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SIN_EQUIPO}>Sin equipo</SelectItem>
+                    {equipos.filter((e) => e.vertical === moduloAlta).map((e) => <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {!alta.idEquipo && !rolesDe(moduloAlta).find((r) => r.rol === alta.rol)?.esAdministrador && (
+                  <p className="text-xs text-muted-foreground">Sin equipo no verá conversaciones: solo los administradores ven todas.</p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Agencias a las que tiene acceso</Label>

@@ -152,6 +152,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/toma_conversacion.sql
 \echo 'Functions/Acciones/asigna_conversacion.sql'
 \i Functions/Acciones/asigna_conversacion.sql
+\echo 'Functions/Acciones/asigna_agente_automatico.sql'
+\i Functions/Acciones/asigna_agente_automatico.sql
 \echo 'Functions/Acciones/transfiere_equipo.sql'
 \i Functions/Acciones/transfiere_equipo.sql
 \echo 'Functions/Acciones/devuelve_al_bot.sql'

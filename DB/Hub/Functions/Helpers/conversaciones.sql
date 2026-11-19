@@ -179,6 +179,22 @@ AS $$
   END;
 $$;
 
+-- Agencias cuyas conversaciones ve el usuario en el módulo de la marca. NULL = todas (sistema, super admin o
+-- administrador del módulo); si no, sus agencias en la marca (usuarios_marcas.agencias). Una conversación sin agencia
+-- (id_agencia NULL) no se filtra por agencia.
+CREATE OR REPLACE FUNCTION hub_cleber.agencias_visibles(p_usuario hub_cleber.usuarios, p_id_marca text, p_modulo text)
+RETURNS text[]
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT CASE
+    WHEN coalesce((p_usuario).es_sistema, false) OR coalesce((p_usuario).es_super_admin, false)
+         OR hub_cleber.es_administrador_modulo(p_usuario, p_id_marca, p_modulo) THEN NULL
+    ELSE coalesce((SELECT um.agencias FROM hub_cleber.usuarios_marcas um
+                    WHERE um.id_usuario = (p_usuario).id_usuario AND um.id_marca = p_id_marca), '{}')
+  END;
+$$;
+
 CREATE OR REPLACE FUNCTION hub_cleber.ve_conversacion(p_usuario hub_cleber.usuarios, p_conv hub_cleber.conversaciones)
 RETURNS boolean
 LANGUAGE sql
@@ -186,7 +202,10 @@ STABLE
 AS $$
   SELECT hub_cleber.tiene_modulo(p_usuario, (p_conv).id_marca, (p_conv).modulo)
      AND (hub_cleber.equipos_visibles(p_usuario, (p_conv).id_marca, (p_conv).modulo) IS NULL
-          OR (p_conv).id_equipo = ANY (hub_cleber.equipos_visibles(p_usuario, (p_conv).id_marca, (p_conv).modulo)));
+          OR (p_conv).id_equipo = ANY (hub_cleber.equipos_visibles(p_usuario, (p_conv).id_marca, (p_conv).modulo)))
+     AND ((p_conv).id_agencia IS NULL
+          OR hub_cleber.agencias_visibles(p_usuario, (p_conv).id_marca, (p_conv).modulo) IS NULL
+          OR (p_conv).id_agencia = ANY (hub_cleber.agencias_visibles(p_usuario, (p_conv).id_marca, (p_conv).modulo)));
 $$;
 
 -- Conversación por id, bloqueada para escribir si p_para_escribir. CONVERSACION_NO_ENCONTRADA si no existe o el
@@ -407,7 +426,7 @@ AS $$
     'idEquipo', c.id_equipo, 'idBot', c.id_bot, 'canal', c.canal, 'direccion', c.direccion,
     'telefonoCliente', c.telefono_cliente, 'nombreCliente', c.nombre_cliente, 'claveCliente', c.clave_cliente,
     'estado', c.estado, 'idAgente', c.id_agente, 'prioridad', c.prioridad, 'etiquetas', to_jsonb(c.etiquetas),
-    'fuente', c.fuente, 'idExterno', c.id_externo, 'resultado', c.resultado, 'resultadoEn', c.resultado_en,
+    'fuente', c.fuente, 'idExterno', c.id_externo, 'idAgencia', c.id_agencia, 'resultado', c.resultado, 'resultadoEn', c.resultado_en,
     'motivoHandoff', c.motivo_handoff, 'idSesionBot', c.id_sesion_bot,
     'ultimoMensajeEn', c.ultimo_mensaje_en, 'ultimoMensajeTexto', c.ultimo_mensaje_texto,
     'ultimoRemitente', c.ultimo_remitente, 'ultimoMensajeClienteEn', c.ultimo_mensaje_cliente_en,

@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.conversaciones (
   etiquetas                   text[]      NOT NULL DEFAULT '{}',
   fuente                      text,
   id_externo                  text,
+  id_agencia                  text,                                -- agencia del sistema que la abrió (Valuación); NULL = sin filtro por agencia
   resultado                   text,
   resultado_en                timestamptz,
   motivo_handoff              text,

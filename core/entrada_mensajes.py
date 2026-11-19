@@ -367,15 +367,21 @@ def _accion_opt_out(t: Turno) -> str:
 def _aplica_handoff(t: Turno, motivo: str) -> None:
     """Pasa la conversación a asesor según el modo de asignación del equipo.
 
-    salesforce: with_agent sin asesor (se asigna en Salesforce). Los demás: waiting_agent, y la toma un asesor desde la
-    bandeja. La asignación automática (round_robin, least_busy) llega con Ventas y Servicio.
+    salesforce: with_agent sin asesor (se asigna en Salesforce). Los demás: waiting_agent; con round_robin o least_busy
+    la base elige al asesor (Hub.asignaAgenteAutomatico) y, si no hay ninguno disponible, queda esperando a que la tomen.
     """
     modo = (t.ctx.equipo or {}).get("modoAsignacion")
     estado = "with_agent" if modo == "salesforce" else "waiting_agent"
-    if modo in ("round_robin", "least_busy"):
-        log.info("asignación %s pendiente en hub_cleber: la conversación %s queda esperando asesor", modo, t.conv_id)
     _ev(t, "handoff_aplicado", estado_destino=estado, modo_asignacion=modo, motivo=motivo)
     t.refresca(conversaciones.actualiza(t.conv_id, estado=estado, motivoHandoff=motivo))
+    if modo in ("round_robin", "least_busy"):
+        try:
+            conv, id_agente = conversaciones.asigna_automatico(t.conv_id)
+        except ErrorHub as e:   # la conversación ya quedó esperando: la toma un asesor
+            log.error("turno.asignacion_error conv=%s modo=%s codigo=%s mensaje=%s", t.conv_id, modo, e.codigo, e.mensaje)
+            return
+        t.refresca(conv)
+        _ev(t, "asignacion_automatica", modo=modo, agente=id_agente or "sin asesor disponible")
 
 
 def _handoff_bloqueado(t: Turno, trigger: str) -> bool:

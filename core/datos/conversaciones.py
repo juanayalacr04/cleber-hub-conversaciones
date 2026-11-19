@@ -29,3 +29,13 @@ def actualiza(id_conversacion: str, **campos) -> dict:
     conv = postgrest.llama("Hub.actualizaConversacion", {"idConversacion": id_conversacion, **campos})["conversacion"]
     tiempo_real.conversacion(conv)
     return conv
+
+
+def asigna_automatico(id_conversacion: str) -> tuple[dict, str | None]:
+    """Hub.asignaAgenteAutomatico: si el equipo asigna en automático (round_robin, least_busy), le da la conversación
+    (que debe estar en waiting_agent) a un asesor. Regresa (conversación al día, idAgente o None si quedó esperando)."""
+    info = postgrest.llama("Hub.asignaAgenteAutomatico", {"idConversacion": id_conversacion})
+    conv = info["conversacion"]
+    if info.get("idAgente"):
+        tiempo_real.conversacion(conv)
+    return conv, info.get("idAgente")

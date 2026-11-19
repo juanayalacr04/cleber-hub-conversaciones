@@ -8,7 +8,8 @@
       2. Cerrada reciente: la última cerrada del número + cliente se reabre si no fue cierre manual y se cerró hace
          menos de numeros.ventana_reapertura_horas. Si al cerrarse la traía un asesor (estado_antes_cierre), vuelve
          con él; si no, vuelve al bot. El resultado "inactividad" se limpia.
-      3. Nueva: con la marca, el módulo, el equipo y el bot default del número.
+      3. Nueva: con la marca, el módulo, el equipo y el bot default del número, y la agencia de la última conversación
+         del cliente en el número (si tenía).
 
     Params:
       idNumero (string)
@@ -98,10 +99,15 @@ BEGIN
 
   -- 3. Nueva
   IF v_origen = 'nueva' THEN
+    -- La agencia sale de la última conversación del cliente en el número (p. ej. la de su oferta de Valuación): así la
+    -- sigue viendo el valuador de esa agencia
     INSERT INTO hub_cleber.conversaciones (id_marca, modulo, id_numero, id_equipo, id_bot, direccion,
-                                           telefono_cliente, nombre_cliente, clave_cliente)
+                                           telefono_cliente, nombre_cliente, clave_cliente, id_agencia)
     VALUES (v_numero.id_marca, v_numero.modulo, v_numero.id_numero, v_numero.id_equipo, v_numero.id_bot_default, 'inbound',
-            v_telefono, v_nombre, v_clave)
+            v_telefono, v_nombre, v_clave,
+            (SELECT c.id_agencia FROM hub_cleber.conversaciones c
+              WHERE c.id_numero = v_numero.id_numero AND c.telefono_cliente = v_telefono AND c.id_agencia IS NOT NULL
+              ORDER BY c.creado_en DESC LIMIT 1))
     RETURNING * INTO v_conv;
   ELSIF (v_nombre IS NOT NULL AND v_conv.nombre_cliente IS NULL) OR (v_clave IS NOT NULL AND v_conv.clave_cliente IS NULL) THEN
     UPDATE hub_cleber.conversaciones SET

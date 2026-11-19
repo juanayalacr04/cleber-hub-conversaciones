@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.equipos (
   max_conversaciones_agente  integer,                                 -- NULL = sin límite
   accion_opt_out             text,                                    -- close / handoff; NULL = lo decide el bot
   umbrales_semaforo          jsonb       NOT NULL DEFAULT '{}',
+  ultimo_agente_asignado     uuid,                                    -- puntero del round robin (Hub.asignaAgenteAutomatico)
   es_activo                  boolean     NOT NULL DEFAULT true,
   creado_en                  timestamptz NOT NULL DEFAULT now(),
   actualizado_en             timestamptz NOT NULL DEFAULT now(),

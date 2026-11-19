@@ -14,11 +14,19 @@ import type { ModuloHub } from "@/lib/hub/usuarios";
 
 export type Proveedor = "twilio" | "meta" | "valuetext";
 
+export type ModoAsignacion = "manual" | "round_robin" | "least_busy" | "salesforce";
+
 export interface Equipo {
   idEquipo: string;
   idMarca: string;
   modulo: ModuloHub;
   nombre: string;
+  /** manual: la toma o la asigna un administrador; round_robin / least_busy: el hub la asigna al pasar a asesor */
+  modoAsignacion: ModoAsignacion;
+  /** Tope de conversaciones "Con agente" por asesor para la asignación automática; null = sin tope */
+  maxConversacionesAgente: number | null;
+  /** Qué hacer cuando el cliente escribe "stop": close / handoff; null = lo decide el bot */
+  accionOptOut: "close" | "handoff" | null;
   esActivo: boolean;
 }
 
@@ -102,7 +110,10 @@ export async function consultaConfiguracionModulo(p: { idMarca: string; modulo: 
   return api.call<ConfiguracionModulo>("hub", "consulta_configuracion_modulo", "Hub.consultaConfiguracionModulo", p);
 }
 
-export async function guardaEquipo(p: { idEquipo?: string; idMarca: string; modulo: ModuloHub; nombre: string; esActivo?: boolean }) {
+export async function guardaEquipo(p: {
+  idEquipo?: string; idMarca: string; modulo: ModuloHub; nombre?: string; esActivo?: boolean;
+  modoAsignacion?: ModoAsignacion; maxConversacionesAgente?: number | null; accionOptOut?: "close" | "handoff" | null;
+}) {
   return api.call<{ equipo: Equipo; creado: boolean }>("hub", "guarda_equipo", "Hub.guardaEquipo", p);
 }
 

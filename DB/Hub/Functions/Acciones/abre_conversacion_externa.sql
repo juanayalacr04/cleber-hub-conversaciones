@@ -15,6 +15,8 @@
       telefono (string)            del cliente; se normaliza a E.164
       nombreCliente?, claveCliente? (string)
       contexto? (object)           se guarda en metadatos.contexto (lo usa el módulo para la plantilla y el bot)
+      idAgencia? (string)          agencia que atiende (Valuación): un asesor que no administra el módulo solo ve y recibe
+                                   las de sus agencias
     Info: { conversacion: Conversacion, numero: Numero, creada: boolean }
     Errores: ESTADO_INVALIDO con info.motivo SIN_NUMERO (el módulo no tiene número activo en la marca) o
              CONVERSACION_ABIERTA.
@@ -80,10 +82,10 @@ BEGIN
   END IF;
 
   INSERT INTO hub_cleber.conversaciones (id_marca, modulo, id_numero, id_equipo, id_bot, direccion, telefono_cliente,
-                                         nombre_cliente, clave_cliente, fuente, id_externo, metadatos)
+                                         nombre_cliente, clave_cliente, fuente, id_externo, id_agencia, metadatos)
   VALUES (v_numero.id_marca, v_numero.modulo, v_numero.id_numero, v_numero.id_equipo, v_numero.id_bot_default, 'outbound',
           v_telefono, hub_cleber.param_texto(v_params, 'nombreCliente', false), hub_cleber.param_texto(v_params, 'claveCliente', false),
-          v_fuente, v_externo, CASE WHEN v_contexto IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('contexto', v_contexto) END)
+          v_fuente, v_externo, hub_cleber.param_texto(v_params, 'idAgencia', false), CASE WHEN v_contexto IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('contexto', v_contexto) END)
   RETURNING * INTO v_conv;
 
   RETURN cleber.construye_respuesta_exitosa(jsonb_build_object(

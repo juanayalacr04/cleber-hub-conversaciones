@@ -52,7 +52,7 @@ class BaseFalsa:
         cid = f"c{next(self._ids)}"
         self.conversaciones[cid] = {"idConversacion": cid, "idMarca": "HO", "modulo": "valuacion", "fuente": p["fuente"],
                                     "idExterno": p["idExterno"], "telefonoCliente": p["telefono"], "metadatos": {"contexto": p["contexto"]},
-                                    "version": 1}
+                                    "idAgencia": p.get("idAgencia"), "version": 1}
         return {"conversacion": self.conversaciones[cid], "numero": self.numero, "creada": True}
 
     def guardaMensaje(self, p):
@@ -162,6 +162,16 @@ def test_al_cliente_envia_al_telefono_del_cliente(base, envios):
     r = contrato_entrada.maneja(_con(alCliente=True))
     assert r["successful"] and envios.enviados[0]["phone"] == "+525512345678"
     assert "telefonoOriginal" not in base.conversaciones["c1"]["metadatos"]["contexto"]
+
+
+def test_la_agencia_de_la_oferta_queda_en_la_conversacion(base, envios):
+    assert contrato_entrada.maneja(_con(alCliente=True, idAgencia=107))["successful"]
+    assert base.conversaciones["c1"]["idAgencia"] == "107"
+
+
+def test_sin_agencia_la_conversacion_no_lleva(base, envios):
+    assert contrato_entrada.maneja(_con(alCliente=True))["successful"]
+    assert base.conversaciones["c1"]["idAgencia"] is None
 
 
 def test_sin_destino_explicito_no_se_envia_a_nadie(base, envios):

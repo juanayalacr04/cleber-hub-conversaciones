@@ -7,9 +7,12 @@ errorMessage, info }`.
     info = postgrest.llama("Hub.obtieneOAbreConversacion", {"idNumero": ..., "telefonoCliente": ...})
     info = postgrest.llama("Hub.tomaConversacion", {"idConversacion": ...}, token=id_token_del_usuario)
 
-Dos modos:
+Tres modos:
   - Sistema (sin token): PostgREST por la red interna (`URL_API_DB`), con `X-User-Email` de servicio. Es lo que usan el
     pipeline, los jobs y el contrato ①. Mismo patrón que las Lambdas de Valuación (toma-unidades-en-taller/index.mjs).
+  - En nombre de un usuario (`como=email`): igual que el de sistema, pero con el email del usuario en `X-User-Email`, para
+    que plpgsql decida los permisos con él. Solo para el backend que ya validó ese email: hub-acciones-usuario lo toma del
+    authorizer de Google (handlers.acciones_usuario), nunca del cuerpo de la petición.
   - Usuario (con token): por el API Gateway (`API_GATEWAY_URL`), con el id_token de Google del usuario en
     `X-Id-Token`; el authorizer lo valida e inyecta su email. Lo usan las acciones del dashboard (Q21), para que plpgsql
     decida los permisos con el usuario real. Mismo contrato que `apps/web/src/lib/api.ts`.
@@ -92,14 +95,14 @@ def _base(nombre: str) -> str:
     return valor.rstrip("/")
 
 
-def _peticion(accion: str, token: str | None) -> tuple[str, dict]:
+def _peticion(accion: str, token: str | None, como: str | None = None) -> tuple[str, dict]:
     """URL y headers de la llamada según el modo."""
     perfil, funcion = perfil_de(accion), funcion_de(accion)
     headers = {"Content-Type": "application/json", "Prefer": "params=single-object"}
     if token is None:
         url = f"{_base('URL_API_DB')}/rpc/{funcion}"
         headers["Content-Profile"] = perfil.schema
-        headers["X-User-Email"] = EMAIL_SISTEMA
+        headers["X-User-Email"] = como or EMAIL_SISTEMA
         if os.environ.get("CLEBER_API_KEY"):
             headers["x-api-key"] = os.environ["CLEBER_API_KEY"]
         return url, headers
@@ -117,10 +120,11 @@ def _peticion(accion: str, token: str | None) -> tuple[str, dict]:
     return url, headers
 
 
-def respuesta(accion: str, params: dict | None = None, *, token: str | None = None, timeout: int = TIMEOUT) -> dict:
+def respuesta(accion: str, params: dict | None = None, *, token: str | None = None, como: str | None = None,
+              timeout: int = TIMEOUT) -> dict:
     """Respuesta completa de la acción (`successful`, `info`, `errorCode`...). Lanza ErrorHub solo por transporte."""
     try:
-        url, headers = _peticion(accion, token)
+        url, headers = _peticion(accion, token, como)
     except ErrorHub as e:
         e.accion = e.accion or accion
         raise
@@ -152,9 +156,10 @@ def respuesta(accion: str, params: dict | None = None, *, token: str | None = No
     return datos
 
 
-def llama(accion: str, params: dict | None = None, *, token: str | None = None, timeout: int = TIMEOUT) -> dict:
+def llama(accion: str, params: dict | None = None, *, token: str | None = None, como: str | None = None,
+          timeout: int = TIMEOUT) -> dict:
     """`info` de la acción. Una respuesta fallida se lanza como ErrorHub con su errorCode, errorMessage e info."""
-    datos = respuesta(accion, params, token=token, timeout=timeout)
+    datos = respuesta(accion, params, token=token, como=como, timeout=timeout)
     if not datos.get("successful"):
         raise ErrorHub(datos.get("errorCode") or "ERROR_DESCONOCIDO", datos.get("errorMessage") or "",
                        datos.get("info") if isinstance(datos.get("info"), dict) else None, accion)

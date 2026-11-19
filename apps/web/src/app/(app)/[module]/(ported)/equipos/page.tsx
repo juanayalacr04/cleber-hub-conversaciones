@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { EquiposValuacionView } from "@/components/valuacion/EquiposValuacionView";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -76,6 +77,14 @@ interface WhatsAppNumber {
 }
 
 export default function TeamsPage() {
+  const { module: moduleId } = useParams<{ module: string }>();
+  const mod = getModule(moduleId);
+  if (mod?.id === "valuacion") return <EquiposValuacionView mod={mod} />;
+  return <TeamsPageFirestore />;
+}
+
+/** Equipos de Ventas y Servicio (Firestore). Los de Valuación están en hub_cleber (EquiposValuacionView). */
+function TeamsPageFirestore() {
   const { userData, user, organizations: authOrgs } = useAuth();
   const { module: moduleId } = useParams<{ module: string }>();
   const vertical = getModule(moduleId)?.vertical ?? null;

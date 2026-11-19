@@ -21,6 +21,12 @@ Acciones:
         INVITE_EMAIL_API_KEY en x-api-key, si el ambiente la tiene). El enlace es el origen que manda la web, así cada ambiente apunta a su propia URL.
         Solo a quien ya tiene rol en ese módulo y marca. Un fallo del envío es ERROR_CORREO: el alta ya quedó hecha y se
         puede reenviar.
+    Hub.enviaMensajeAgente           quien puede escribir en la conversación (Hub.autorizaMensajeAgente decide, con el usuario)
+        params: idConversacion, texto (hasta 4096)
+        info:   { mensaje, conversacion, duplicado } de Hub.registraMensajeAgente
+        El asesor le escribe al cliente: autoriza con el usuario (postgrest en su nombre), envía por el proveedor del número
+        y guarda el mensaje con su id de proveedor. Si la conversación esperaba asesor o estaba con el bot, el asesor la
+        toma. ERROR_PROVEEDOR si WhatsApp no lo aceptó (p. ej. fuera de la ventana de 24 h): no se guarda.
 """
 import html
 import json
@@ -30,7 +36,7 @@ from typing import Callable
 from urllib.parse import urlsplit
 
 from core import http, outbound, postgrest
-from core.datos import numeros
+from core.datos import bots, numeros
 from core.postgrest import ErrorHub
 
 log = logging.getLogger(__name__)
@@ -148,9 +154,33 @@ def envia_invitacion(email: str, params: dict) -> dict:
     return {"enviado": True}
 
 
+MAX_TEXTO = 4096
+
+
+def envia_mensaje_agente(email: str, params: dict) -> dict:
+    """El asesor le escribe al cliente: autoriza (permisos con el usuario), envía por el proveedor y guarda."""
+    id_conversacion = _texto(params, "idConversacion")
+    texto = _texto(params, "texto")
+    if len(texto) > MAX_TEXTO:
+        raise Rechazo("CAMPO_INVALIDO", f"El mensaje pasa de {MAX_TEXTO} caracteres", {"campo": "texto"})
+    autorizado = postgrest.llama("Hub.autorizaMensajeAgente", {"idConversacion": id_conversacion}, como=email)
+    conversacion, numero = autorizado.get("conversacion") or {}, autorizado.get("numero") or {}
+    canal = numeros.para_canal(numero)
+    telefono = conversacion.get("telefonoCliente") or ""
+    if canal.get("provider", "twilio") == "twilio" and not telefono.startswith("whatsapp:"):
+        telefono = f"whatsapp:{telefono}"
+    sid = outbound.send_text(bots.canal(canal), telefono, canal.get("phoneNumber") or "", texto)
+    if not sid:
+        raise Rechazo("ERROR_PROVEEDOR", "WhatsApp no aceptó el mensaje. Si pasaron más de 24 horas desde el último mensaje "
+                                         "del cliente, solo se le puede escribir con una plantilla")
+    return postgrest.llama("Hub.registraMensajeAgente", {"idConversacion": id_conversacion, "texto": texto,
+                                                         "idMensajeProveedor": sid}, como=email)
+
+
 ACCIONES: dict[str, Callable[[str, dict], dict]] = {
     "Hub.consultaPlantillaProveedor": consulta_plantilla_proveedor,
     "Hub.enviaInvitacion": envia_invitacion,
+    "Hub.enviaMensajeAgente": envia_mensaje_agente,
 }
 
 

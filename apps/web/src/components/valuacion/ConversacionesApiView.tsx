@@ -12,8 +12,11 @@
  *
  * `/valuacion/conversaciones?c=<id>` abre la vista conversación con esa conversación seleccionada (enlace desde Ofertas).
  * Cerrar: el botón "Cerrar conversación" abre DialogoCierreConversacion: el motivo del cierre (Hub.cierraConversacion, con los
- * permisos de la base) y, si viene de una oferta, el estatus de la oferta y si se cierra también. Responder y tomar llegan con las
- * acciones del backend.
+ * permisos de la base) y, si viene de una oferta, el estatus de la oferta y si se cierra también.
+ * Atender (como en Ventas y Servicio): asignar a un valuador, transferir de equipo y tomar (administradores del módulo), devolver
+ * al bot (su valuador o un administrador) y reabrir. Responder va por el backend (Hub.enviaMensajeAgente): al escribirle al
+ * cliente, el valuador toma la conversación si esperaba asesor o estaba con el bot. Los permisos los decide la base; la pantalla
+ * solo oculta lo que el usuario no puede hacer.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -21,21 +24,25 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
-  ArrowLeft, Bot, Columns, FileText, HelpCircle, List, Loader2, MessageCircle, MessageSquare, Phone, RefreshCw, Search, Send,
-  User, UserCircle, XCircle,
+  ArrowLeft, ArrowRightLeft, Bot, Columns, FileText, Hand, HelpCircle, List, Loader2, MessageCircle, MessageSquare, Phone, RefreshCw,
+  RotateCcw, Search, Send, User, UserCircle, UserPlus, XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import type { ApiResponse } from "@/lib/api";
+import { consultaConfiguracionModulo, type Equipo } from "@/lib/hub/configuracion";
 import {
-  consultaConversaciones, consultaMensajes, type ConversacionHub, type EstadoConversacion, type MensajeHub,
+  asignaConversacion, consultaConversaciones, consultaMensajes, devuelveAlBot, enviaMensajeAgente, reabreConversacion,
+  tomaConversacion, transfiereEquipo, type ConversacionHub, type EstadoConversacion, type MensajeHub,
 } from "@/lib/hub/conversaciones";
-import { consultaUsuarios } from "@/lib/hub/usuarios";
+import { consultaUsuarios, type UsuarioEnMarca } from "@/lib/hub/usuarios";
 import { mensajeError } from "@/lib/valuacion/tipos";
 import { DialogoCierreConversacion } from "@/components/valuacion/DialogoCierreConversacion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -384,6 +391,27 @@ export function ConversacionesApiView() {
 
 // ---------- Chat de una conversación (panel de la vista conversación y ficha /valuacion/conversaciones/[id]) ----------
 
+/** Valuadores, equipos y si quien consulta administra Valuación en la marca (sin permiso, listas vacías y esAdmin = false). */
+function useEquipoDeTrabajo(idMarca: string | null) {
+  const [datos, setDatos] = useState<{ usuarios: UsuarioEnMarca[]; equipos: Equipo[]; esAdmin: boolean }>({ usuarios: [], equipos: [], esAdmin: false });
+  useEffect(() => {
+    if (!idMarca) return;
+    let vigente = true;
+    Promise.all([consultaUsuarios({ idMarca, modulo: "valuacion" }), consultaConfiguracionModulo({ idMarca, modulo: "valuacion" })])
+      .then(([u, c]) => {
+        if (!vigente) return;
+        setDatos({
+          usuarios: u.successful ? u.info.usuarios : [],
+          esAdmin: u.successful && u.info.permisos.modulos.includes("valuacion"),
+          equipos: c.successful ? c.info.equipos.filter((e) => e.esActivo) : [],
+        });
+      })
+      .catch(() => {});
+    return () => { vigente = false; };
+  }, [idMarca]);
+  return datos;
+}
+
 type DetailView = "messages" | "offer";
 
 const QUIEN: Record<Exclude<MensajeHub["remitente"], "system">, string> = { customer: "Cliente", bot: "Bot de valuación", agent: "Valuador" };
@@ -399,6 +427,10 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
   const [conContexto, setConContexto] = useState(false);
   const [view, setView] = useState<DetailView>("messages");
   const [dialogoCierre, setDialogoCierre] = useState(false);
+  const { userData } = useAuth();
+  const { usuarios, equipos, esAdmin } = useEquipoDeTrabajo(conv?.idMarca ?? null);
+  const [trabajando, setTrabajando] = useState<string | null>(null);
+  const [texto, setTexto] = useState("");
 
   const carga = useCallback(async () => {
     const r = await consultaMensajes({ idConversacion, incluyeSistema: conContexto, limite: 200 });
@@ -428,6 +460,73 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
 
   const ctx = contextoDe(conv);
   let diaAnterior = "";
+  const actual = conv;
+  const esMia = !!userData?.idUsuario && conv.idAgente === userData.idUsuario;
+  const abierta = conv.estado !== "closed";
+  // Solo escribe quien tiene asignada la conversación. Un administrador que quiera escribir en la de otro la toma primero
+  const puedeEscribir = conv.estado === "with_agent" && esMia;
+  // Tomar: Hub.tomaConversacion solo acepta "Esperando"; con el bot o con otro valuador, el administrador se la asigna a sí mismo
+  const puedeTomar = esAdmin && !!userData?.idUsuario && abierta && !esMia;
+  const toma = () => conv.estado === "waiting_agent"
+    ? tomaConversacion(version)
+    : asignaConversacion({ ...version, idAgente: userData?.idUsuario ?? "" });
+  // A quién se le puede asignar, con las mismas reglas que Hub.asignaConversacion: activo, con un rol que escribe (no CONSULTA)
+  // y que vea la conversación (administrador del módulo, o de su equipo y, si tiene agencia, con esa agencia). Más quien ya la tiene.
+  const asignables = usuarios.filter((u) => {
+    const rol = u.modulos.valuacion;
+    if (u.idUsuario === conv.idAgente) return true;
+    return u.esActivo && u.esDisponible && !!rol && rol.rol !== "CONSULTA"
+      && (u.esSuperAdmin || rol.rol === "ADMINISTRADOR"
+        || (!!conv.idEquipo && rol.idEquipo === conv.idEquipo && (!conv.idAgencia || u.agencias.includes(conv.idAgencia))));
+  });
+  // Quien la atiende puede no estar en la lista (p. ej. un super admin que no es de la marca): se agrega para que se vea su nombre
+  if (conv.idAgente && !asignables.some((u) => u.idUsuario === conv.idAgente)) {
+    const nombre = esMia ? (userData?.name || "Tú") : (agentes[conv.idAgente] || "Valuador");
+    asignables.unshift({ idUsuario: conv.idAgente, nombre, email: "" } as UsuarioEnMarca);
+  }
+  const otrosEquipos = equipos.filter((e) => e.idEquipo !== conv.idEquipo);
+  const version = { idConversacion: actual.idConversacion, versionEsperada: actual.version };
+
+  /** Corre una acción sobre la conversación y deja la pantalla con el resultado (o la vuelve a consultar si cambió). */
+  async function ejecuta(nombre: string, accion: () => Promise<ApiResponse<{ conversacion: ConversacionHub }>>, exito: string) {
+    setTrabajando(nombre);
+    const r = await accion();
+    setTrabajando(null);
+    if (r.successful) { setConv(r.info.conversacion); toast.success(exito); onCambio?.(); carga(); return; }
+    if (r.errorCode === "SESION_EXPIRADA") { toast.error(mensajeError(r)); signOut({ redirectTo: "/login" }); return; }
+    const info = (r.info ?? {}) as { motivo?: string };
+    if (r.errorCode === "CONFLICTO_VERSION" || (r.errorCode === "ESTADO_INVALIDO" && info.motivo === "ESTADO_ACTUAL")) {
+      toast.error("La conversación cambió mientras tanto. Se actualizó: revisa e intenta de nuevo.");
+      carga(); onCambio?.();
+      return;
+    }
+    if (info.motivo === "CONVERSACION_ABIERTA") { toast.error("El cliente ya tiene otra conversación abierta en este número."); return; }
+    toast.error(r.errorCode === "SIN_PERMISO" || r.errorCode === "CAMPO_INVALIDO" ? r.errorMessage : mensajeError(r));
+  }
+
+  async function envia() {
+    const t = texto.trim();
+    if (!t || trabajando) return;
+    setTrabajando("enviar");
+    const r = await enviaMensajeAgente({ idConversacion: actual.idConversacion, texto: t });
+    setTrabajando(null);
+    if (r.successful) {
+      setTexto("");
+      setConv(r.info.conversacion);
+      setMensajes((ms) => (ms.some((m) => m.idMensaje === r.info.mensaje.idMensaje) ? ms : [...ms, r.info.mensaje]));
+      onCambio?.();
+      return;
+    }
+    if (r.errorCode === "SESION_EXPIRADA") { toast.error(mensajeError(r)); signOut({ redirectTo: "/login" }); return; }
+    toast.error(["ERROR_PROVEEDOR", "SIN_PERMISO", "CAMPO_INVALIDO"].includes(r.errorCode) ? r.errorMessage : mensajeError(r));
+    if (r.errorCode === "ESTADO_INVALIDO") carga();
+  }
+  const aviso = puedeEscribir ? null
+    : conv.estado === "waiting_agent" ? "Toma la conversación para poder enviar mensajes"
+    : conv.estado === "bot" ? "La está atendiendo el bot. Tómala para escribirle al cliente"
+    : conv.estado === "closed" ? "La conversación está cerrada. Puedes reabrirla para continuar"
+    : esAdmin ? "La atiende otro valuador. Tómala para escribirle al cliente"
+    : "La atiende otro valuador";
 
   return (
     <div className="flex flex-col h-full">
@@ -479,6 +578,55 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
         )}
       </div>
 
+      {/* Atender: mismas acciones que Ventas y Servicio */}
+      <div className="flex gap-2 py-2 border-b overflow-x-auto items-center flex-wrap" role="group" aria-label="Atender la conversación">
+        {abierta && esAdmin && asignables.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <UserPlus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <Select value={conv.idAgente ?? ""} disabled={!!trabajando}
+              onValueChange={(id) => { if (id && id !== conv.idAgente) ejecuta("asignar", () => asignaConversacion({ ...version, idAgente: id }), "Conversación asignada"); }}>
+              <SelectTrigger className={cn("h-8 text-xs", compact ? "w-[150px]" : "w-[200px]")} aria-label="Asignar a un valuador">
+                <SelectValue placeholder="Asignar valuador..." />
+              </SelectTrigger>
+              <SelectContent>
+                {asignables.map((u) => <SelectItem key={u.idUsuario} value={u.idUsuario}>{u.nombre || u.email}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {abierta && esAdmin && otrosEquipos.length > 0 && (
+          <Select value="" disabled={!!trabajando}
+            onValueChange={(id) => { if (id) ejecuta("transferir", () => transfiereEquipo({ ...version, idEquipo: id }), "Conversación transferida de equipo"); }}>
+            <SelectTrigger className={cn("h-8 text-xs", compact ? "w-[150px]" : "w-[180px]")} aria-label="Transferir a otro equipo">
+              <div className="flex items-center gap-1.5"><ArrowRightLeft className="h-3 w-3" aria-hidden="true" />Transferir equipo</div>
+            </SelectTrigger>
+            <SelectContent>
+              {otrosEquipos.map((e) => <SelectItem key={e.idEquipo} value={e.idEquipo}>{e.nombre}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+        {puedeTomar && (
+          <Button size="sm" className="h-8" disabled={!!trabajando} onClick={() => ejecuta("tomar", toma, "Tomaste la conversación")}>
+            {trabajando === "tomar" ? <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" /> : <Hand className="mr-1 h-3 w-3" aria-hidden="true" />}
+            Tomar conversación
+          </Button>
+        )}
+        {conv.estado === "with_agent" && (esMia || esAdmin) && (
+          <Button variant="outline" size="sm" className="h-8" disabled={!!trabajando}
+            onClick={() => ejecuta("bot", () => devuelveAlBot(version), "La conversación volvió al bot")}>
+            {trabajando === "bot" ? <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" /> : <RotateCcw className="mr-1 h-3 w-3" aria-hidden="true" />}
+            Devolver al bot
+          </Button>
+        )}
+        {conv.estado === "closed" && (
+          <Button variant="outline" size="sm" className="h-8" disabled={!!trabajando}
+            onClick={() => ejecuta("reabrir", () => reabreConversacion(version), "Conversación reabierta: la atiende el bot")}>
+            {trabajando === "reabrir" ? <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" /> : <RefreshCw className="mr-1 h-3 w-3" aria-hidden="true" />}
+            Reabrir
+          </Button>
+        )}
+      </div>
+
       {view === "messages" && (
         <>
           <div className="flex-1 overflow-y-auto py-4 space-y-2">
@@ -517,10 +665,14 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
           </div>
           <div className="border-t pt-4">
             <Card className="p-2">
-              <div className="flex gap-2">
-                <Input disabled aria-label="Mensaje" placeholder="Responder desde aquí llega con la bandeja de valuadores" className="flex-1" />
-                <Button disabled aria-label="Enviar mensaje"><Send className="h-4 w-4" aria-hidden="true" /></Button>
-              </div>
+              <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); envia(); }}>
+                <Input aria-label="Mensaje" placeholder="Escribe un mensaje..." className="flex-1" value={texto} maxLength={4096}
+                  disabled={!puedeEscribir || trabajando === "enviar"} onChange={(e) => setTexto(e.target.value)} />
+                <Button type="submit" aria-label="Enviar mensaje" disabled={!puedeEscribir || !texto.trim() || !!trabajando}>
+                  {trabajando === "enviar" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
+                </Button>
+              </form>
+              {aviso && <p className="text-xs text-muted-foreground mt-2 text-center">{aviso}</p>}
             </Card>
           </div>
         </>

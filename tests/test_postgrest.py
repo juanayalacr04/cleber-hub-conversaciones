@@ -62,6 +62,13 @@ def test_modo_sistema(entorno, red):
     assert h["Prefer"] == "params=single-object"
 
 
+def test_en_nombre_de_un_usuario_va_por_la_ruta_interna_con_su_email(entorno, red):
+    postgrest.llama("Hub.autorizaMensajeAgente", {"idConversacion": "c1"}, como="ana@cleber.com")
+    (ll,) = red.llamadas
+    assert ll["url"] == "http://postgrest.interno/rpc/autoriza_mensaje_agente"
+    assert ll["headers"]["X-User-Email"] == "ana@cleber.com" and ll["headers"]["Content-Profile"] == "hub_cleber"
+
+
 def test_modo_sistema_sin_api_key_no_manda_el_header(entorno, red, monkeypatch):
     monkeypatch.delenv("CLEBER_API_KEY")
     postgrest.llama("Hub.resuelveNumero", {"telefono": "+525512345678"})

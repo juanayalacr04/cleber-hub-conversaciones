@@ -6,7 +6,7 @@ módulo que la registra (`modules/valuacion.py` registra "valuacion").
 
     Petición:  { "action": "Hub.abreConversacion", "params": { fuente, idExterno, idMarca, modulo, telefono,
                                                                telefonoDestino? | alCliente?,
-                                                               nombreCliente?, claveCliente?, contexto? } }
+                                                               nombreCliente?, claveCliente?, contexto?, idAgencia? } }
     Respuesta: envelope de la convención
                { successful: true,  info: { idConversacion, creada, enviada, idMensajeProveedor } }
                { successful: false, errorCode, errorMessage, info? }
@@ -181,7 +181,7 @@ def _abre(fuente: str, preparar: Preparador, params: dict, telefono: str, contex
     abierta = postgrest.llama("Hub.abreConversacionExterna", {
         "fuente": fuente, "idExterno": str(params["idExterno"]), "idMarca": params["idMarca"], "modulo": params["modulo"],
         "telefono": telefono, "nombreCliente": params.get("nombreCliente"), "claveCliente": params.get("claveCliente"),
-        "contexto": contexto,
+        "contexto": contexto, "idAgencia": str(params["idAgencia"]) if params.get("idAgencia") not in (None, "") else None,
     })
     conv, creada = abierta["conversacion"], abierta["creada"]
     envio_previo = (conv.get("metadatos") or {}).get("envio")

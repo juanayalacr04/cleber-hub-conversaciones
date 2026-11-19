@@ -72,6 +72,15 @@ class BaseFalsa:
         self.bitacora.append(p)
         return {"idBitacora": str(len(self.bitacora))}
 
+    agente_automatico = "u-valuador"
+
+    def asignaAgenteAutomatico(self, p):
+        c = self.conversaciones[p["idConversacion"]]
+        if c["estado"] == "waiting_agent" and self.agente_automatico:
+            c.update(estado="with_agent", idAgente=self.agente_automatico)
+            c["version"] += 1
+        return {"conversacion": dict(c), "idAgente": c.get("idAgente"), "modo": self.equipo["modoAsignacion"]}
+
     def actualizaConversacion(self, p):
         c = self.conversaciones[p["idConversacion"]]
         for k, v in p.items():
@@ -198,6 +207,33 @@ def test_handoff_por_el_tool_generico_externo(env, monkeypatch):
     c = env.base.conv()
     assert c["estado"] == "waiting_agent" and c["motivoHandoff"] == "precio"
     assert env.enviados[-1]["text"] == "Te comunico con un asesor."
+
+
+@pytest.mark.parametrize("modo", ["round_robin", "least_busy"])
+def test_handoff_con_asignacion_automatica_queda_con_el_asesor(env, monkeypatch, modo):
+    monkeypatch.setattr(entrada_mensajes.ho, "check_business_hours", lambda *a, **k: True)
+    env.base.equipo["modoAsignacion"] = modo
+    env.estado["result"] = ok("Te comunico con un asesor.", [{"toolName": "Transferir_a_Asesor", "input": {"motivo": "precio"}}])
+    env.corre("quiero hablar con alguien")
+    c = env.base.conv()
+    assert c["estado"] == "with_agent" and c["idAgente"] == "u-valuador" and c["motivoHandoff"] == "precio"
+
+
+def test_handoff_automatico_sin_asesor_disponible_queda_esperando(env, monkeypatch):
+    monkeypatch.setattr(entrada_mensajes.ho, "check_business_hours", lambda *a, **k: True)
+    env.base.equipo["modoAsignacion"] = "round_robin"
+    env.base.agente_automatico = None
+    env.estado["result"] = ok("Te comunico.", [{"toolName": "Transferir_a_Asesor", "input": {"motivo": "x"}}])
+    env.corre("asesor")
+    assert env.base.conv()["estado"] == "waiting_agent"
+
+
+def test_handoff_manual_no_pide_asignacion(env, monkeypatch):
+    monkeypatch.setattr(entrada_mensajes.ho, "check_business_hours", lambda *a, **k: True)
+    monkeypatch.setattr(env.base, "asignaAgenteAutomatico", lambda p: pytest.fail("en manual no se asigna"), raising=False)
+    env.estado["result"] = ok("Te comunico.", [{"toolName": "Transferir_a_Asesor", "input": {"motivo": "x"}}])
+    env.corre("asesor")
+    assert env.base.conv()["estado"] == "waiting_agent"
 
 
 def test_handoff_fuera_de_horario_avisa_y_no_escala(env, monkeypatch):
