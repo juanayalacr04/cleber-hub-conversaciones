@@ -7,6 +7,7 @@ import pytest
 import handlers
 from channels import campaign_templates as ct
 from core import acciones_usuario, http, outbound, postgrest
+from core.postgrest import ErrorHub
 from core.outbound import FAILED, NOT_CONFIGURED, TemplateError
 
 CONTENIDO = {"sid": "HX1", "friendly_name": "oferta_valuacion", "language": "es_MX", "types": {"twilio/quick-reply": {
@@ -139,6 +140,87 @@ def test_errores_del_proveedor(hub, kind, codigo):
 def test_error_inesperado(hub, monkeypatch):
     monkeypatch.setattr(postgrest, "llama", lambda *a, **k: 1 / 0)
     assert acciones_usuario.maneja(PETICION, "a@b.c")["errorCode"] == "ERROR_INTERNO"
+
+
+# --------------------------------------------------------------------------- Hub.enviaInvitacion
+
+INVITA = {"action": "Hub.enviaInvitacion", "params": {"email": "Nuevo@Cleber.com", "idMarca": "to", "modulo": "valuacion", "nombreMarca": "Toyota <b>",
+                                                      "origen": "https://dev.hub.test"}}
+
+
+@pytest.fixture
+def invita(monkeypatch):
+    class Invita:
+        permisos_destino = {"existe": True, "rol": "asesor", "esAdministrador": False}
+        correos = []
+        respuesta = {"successful": True, "info": [{"email": "nuevo@cleber.com", "status": "sent", "_id": "1", "reject_reason": None}]}
+        falla = None
+
+    def llama(accion, params=None, **k):
+        if accion == "Hub.consultaPermisosUsuario":
+            return {"existe": True, "esAdministrador": True} if params["email"] == "ana@cleber.com" else Invita.permisos_destino
+        assert accion == "Hub.consultaRolesModulo"
+        return {"roles": [{"rol": "asesor", "nombre": "Asesor de valuación"}]}
+
+    def request(url, data=None, headers=None, method="POST", timeout=30):
+        if Invita.falla:
+            raise Invita.falla
+        Invita.correos.append((url, headers, json.loads(data)))
+        return 200, json.dumps(Invita.respuesta)
+
+    Invita.correos = []
+    monkeypatch.setattr(postgrest, "llama", llama)
+    monkeypatch.setattr(http, "request", request)
+    monkeypatch.setenv("INVITE_EMAIL_WEBHOOK_URL", "https://correo.test/enviar")
+    monkeypatch.setenv("INVITE_EMAIL_API_KEY", "k-correo")
+    return Invita
+
+
+def test_envia_invitacion(invita):
+    assert acciones_usuario.maneja(INVITA, "ana@cleber.com") == {"successful": True, "info": {"enviado": True}}
+    (url, headers, cuerpo), = invita.correos
+    assert url == "https://correo.test/enviar" and headers["x-api-key"] == "k-correo" and cuerpo["action"] == "Cleber.enviarEmail"
+    p = cuerpo["params"]
+    assert p["to"] == ["nuevo@cleber.com"] and p["cc"] == [] and p["bcc"] == []
+    assert p["fromName"] == "CLEBER - HUB Conversaciones" and "Toyota &lt;b&gt;" in p["subject"]
+    assert p["content"].startswith("<!DOCTYPE html>") and "Asesor de valuación" in p["content"]
+    assert 'href="https://dev.hub.test"' in p["content"]
+    assert p["subject"].startswith("Invitación al módulo de Valuación") and "<h2>Invitación al módulo de Valuación</h2>" in p["content"]
+
+
+def test_invitacion_solo_a_quien_tiene_rol(invita):
+    invita.permisos_destino = {"existe": True, "rol": None, "esAdministrador": False}
+    assert acciones_usuario.maneja(INVITA, "ana@cleber.com")["errorCode"] == "ESTADO_INVALIDO"
+    assert not invita.correos
+
+
+def test_invitacion_con_fallo_del_envio_o_sin_configurar(invita, monkeypatch):
+    invita.falla = OSError("sin red")
+    assert acciones_usuario.maneja(INVITA, "ana@cleber.com")["errorCode"] == "ERROR_CORREO"
+    invita.falla = None
+    invita.respuesta = {"successful": True, "info": [{"email": "nuevo@cleber.com", "status": "rejected", "reject_reason": "hard-bounce"}]}
+    assert acciones_usuario.maneja(INVITA, "ana@cleber.com")["errorCode"] == "ERROR_CORREO"
+    invita.respuesta = {"successful": False, "errorMessage": "x"}
+    assert acciones_usuario.maneja(INVITA, "ana@cleber.com")["errorCode"] == "ERROR_CORREO"
+    monkeypatch.delenv("INVITE_EMAIL_WEBHOOK_URL")
+    assert acciones_usuario.maneja(INVITA, "ana@cleber.com")["errorCode"] == "CONFIGURACION"
+
+
+def test_invitacion_sin_api_key_no_manda_el_header(invita, monkeypatch):
+    monkeypatch.setenv("INVITE_EMAIL_API_KEY", "")
+    assert acciones_usuario.maneja(INVITA, "ana@cleber.com")["successful"]
+    assert "x-api-key" not in invita.correos[0][1]
+
+
+def test_enlace_segun_el_origen(invita):
+    def enlace(origen):
+        invita.correos.clear()
+        r = acciones_usuario.maneja({**INVITA, "params": {**INVITA["params"], "origen": origen}}, "ana@cleber.com")
+        return r, invita.correos and invita.correos[0][2]["params"]["content"]
+    assert 'href="http://localhost:3000"' in enlace("http://localhost:3000/")[1]
+    for malo in ("", "javascript:alert(1)", "https://malo.test/ruta", "https://u:p@malo.test", "ftp://malo.test"):
+        r, correo = enlace(malo)
+        assert r["errorCode"] == "CAMPO_REQUERIDO" and not correo, malo
 
 
 # --------------------------------------------------------------------------- Lambda

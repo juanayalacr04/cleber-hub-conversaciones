@@ -4,10 +4,12 @@
  * Editor de usuarios del hub (hub_cleber, decisión Q39): Hub.consultaUsuarios, consultaRolesModulo, invitaUsuario,
  * guardaUsuario, quitaUsuarioDeMarca y cambiaDisponibilidad. Contratos: DB/Hub/Functions/Acciones/*.sql.
  *
- * Pendiente del diseño (DISENO_MIGRACION_POSTGRES.md §6.2): escribir accesos/{email} en Firestore, mandar el correo de
- * invitación y validar agencias contra su API. Hoy las acciones se llaman directo con el token del usuario.
+ * El correo de invitación sale por la Lambda hub-acciones-usuario (Hub.enviaInvitacion), después del alta.
+ * Pendiente del diseño (DISENO_MIGRACION_POSTGRES.md §6.2): escribir accesos/{email} en Firestore y validar agencias
+ * contra su API. Las demás acciones se llaman directo con el token del usuario.
  */
 
+import { headers } from "next/headers";
 import { api } from "@/lib/api";
 
 export type ModuloHub = "ventas" | "servicio" | "valuacion";
@@ -53,6 +55,15 @@ export async function invitaUsuario(p: {
   email: string; idMarca: string; modulo: ModuloHub; rol: string; idEquipo?: string; agencias?: string[]; nombre?: string;
 }) {
   return api.call<{ usuario: { idUsuario: string }; creado: boolean }>("hub", "invita_usuario", "Hub.invitaUsuario", { ...p });
+}
+
+/** Manda el correo de invitación a quien ya tiene rol en el módulo y la marca. Sirve también para reenviarlo. */
+export async function enviaInvitacion(p: { email: string; idMarca: string; modulo: ModuloHub; nombreMarca?: string }) {
+  // El enlace del correo apunta al ambiente desde el que se invita (dev/qa/prd/local); la Lambda solo valida que sea un origen (esquema y host, sin ruta)
+  const h = await headers();
+  const host = h.get("x-forwarded-host") || h.get("host");
+  const proto = h.get("x-forwarded-proto")?.split(",")[0].trim() || (host?.startsWith("localhost") ? "http" : "https");
+  return api.lambda<{ enviado: boolean }>("hub-acciones", "Hub.enviaInvitacion", { ...p, ...(host ? { origen: `${proto}://${host}` } : {}) });
 }
 
 export async function guardaUsuario(p: {

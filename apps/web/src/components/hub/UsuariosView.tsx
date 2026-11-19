@@ -22,7 +22,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
 import { consultaAgenciasMarca } from "@/lib/hub/agencias";
 import {
-  cambiaDisponibilidad, consultaRolesModulo, consultaUsuarios, guardaUsuario, invitaUsuario, quitaUsuarioDeMarca,
+  cambiaDisponibilidad, consultaRolesModulo, consultaUsuarios, enviaInvitacion, guardaUsuario, invitaUsuario, quitaUsuarioDeMarca,
   type ConsultaUsuarios, type ModuloHub, type RolModulo, type UsuarioEnMarca,
 } from "@/lib/hub/usuarios";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -180,7 +180,10 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
         if (causa === "YA_TIENE_ROL") { toast.error(`${email} ya tiene rol en ${NOMBRE_MODULO[moduloAlta]} en esta marca: edítalo desde la lista`); return; }
         fallo(r, "No se pudo dar de alta"); return;
       }
-      toast.success(r.info.creado ? `${email} dado de alta en ${currentOrgName ?? idMarca}` : `${email} ya existía: se le agregó ${currentOrgName ?? idMarca}`);
+      const textoAlta = r.info.creado ? `${email} dado de alta en ${currentOrgName ?? idMarca}` : `${email} ya existía: se le agregó ${currentOrgName ?? idMarca}`;
+      const correo = await enviaInvitacion({ email, idMarca, modulo: moduloAlta, nombreMarca: currentOrgName ?? undefined });
+      if (correo.successful) toast.success(`${textoAlta}. Se le envió la invitación por correo`);
+      else toast.warning(`${textoAlta}, pero no se pudo enviar el correo: ${correo.errorMessage ?? "error"}. Avísale tú o reenvía la invitación`);
       setInvitando(false);
       carga();
     } finally {
