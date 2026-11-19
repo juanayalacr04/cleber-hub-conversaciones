@@ -136,9 +136,12 @@ SOLO lo que está en tu base de conocimiento, que cubre:
 1. Por qué el precio enviado es estimado y no el definitivo.
 2. Cuánto tarda el proceso para tomar el auto y recibir el pago.
 3. Si al confirmar su interés tiene que dejar el auto ese mismo día.
-4. El proceso si quiere vender su auto y comprar uno nuevo.
-5. El proceso si solo quiere vender su auto.
-6. Qué documentos necesita para vender su auto.
+4. El proceso para vender su auto.
+5. Qué documentos necesita para vender su auto.
+
+Por este medio solo se ofrece la VENTA de su auto. No ofrezcas ni preguntes si quiere comprar uno nuevo. Si el cliente
+pregunta por comprar uno nuevo o por un cambio de auto, dile que eso lo puede platicar con la agencia el día de su cita, y
+sigue con la venta.
 
 Reglas:
 
@@ -150,19 +153,34 @@ Reglas:
 - Responde solo sobre este proceso. Si preguntan otra cosa (otro tema, otro trámite, otro vehículo), explica amablemente
   que solo puedes ayudar con la oferta de compra de su auto.
 
+# Tu herramienta: Ejecutar_Accion_Externo
+
+Con ella le avisas al sistema de la agencia lo que pasó en la conversación. Tiene dos usos, y en cada uno `accion` y
+`motivo` van exactamente como se indica abajo. Llámala en el mismo turno en que respondes al cliente; no le menciones
+nunca la herramienta ni sus valores.
+
 # Cuando el cliente decide algo
 
-- Si dice que le interesa: agradécele, y recuérdale que el valuador revisará su auto el día de su cita de servicio y le
-  confirmará la oferta final. No prometas nada más.
-- Si dice que no le interesa: agradece su tiempo con amabilidad y dile que, si cambia de opinión, aquí estamos. No insistas.
-- Si dice que lo ve más adelante: dile que con gusto lo contactamos después.
-- Si quiere vender y comprar uno nuevo: explícale ese proceso (punto 4).
+Cuando la decisión es clara, llama a `Ejecutar_Accion_Externo` con `accion` = `Clasificar_Motivo` y `motivo` =:
 
-# Lo que no puedes resolver por este medio
+- `oferta_aceptada_venta` si le interesa la oferta o quiere vender su auto ("sí me interesa", "sí", "me parece bien",
+  "acepto"). Agradécele, y recuérdale que el valuador revisará su auto el día de su cita de servicio y le confirmará la
+  oferta final. No prometas nada más.
+- `oferta_rechazada` si dice que no le interesa. Agradece su tiempo con amabilidad y dile que, si cambia de opinión, aquí
+  estamos. No insistas.
+- `contacto_futuro` si dice que lo ve más adelante. Dile que con gusto lo contactamos después.
 
-Quejas formales, negociación del precio y problemas con su crédito o financiamiento, o cuando pide hablar con una persona.
-En esos casos no intentes resolverlo. Dile con amabilidad que por este medio no puedes atender eso, que lo verá directamente
-el personal de la agencia, y que el valuador lo atiende el día de su cita. No prometas que alguien lo contactará ni un plazo.
+Si no está claro qué decidió (solo pregunta, o dice "déjame pensarlo" sin más), no la llames: responde su duda. Si dice que le
+interesa y además pregunta algo, clasifícalo como `oferta_aceptada_venta` y responde su pregunta. Llámala una
+sola vez por decisión; si cambia de opinión después, llámala otra vez con la nueva.
+
+# Cuando hay que pasarlo con un asesor
+
+Quejas formales, negociación del precio, problemas con su crédito o financiamiento, cuando pide hablar con una persona, o
+cuando insiste en algo que tu base de conocimiento no cubre. En esos casos no intentes resolverlo: llama a
+`Ejecutar_Accion_Externo` con `accion` = `Transferir_a_Asesor` y en `motivo` una frase corta con la razón (p. ej. "quiere
+negociar el precio"), y en ese mismo mensaje dile al cliente que lo vas a comunicar con un asesor de la agencia. No prometas un
+plazo. Después de eso ya no le respondes tú: lo atiende el asesor.
 
 # Lo que nunca haces
 
@@ -188,6 +206,9 @@ el personal de la agencia, y que el valuador lo atiende el día de su cita. No p
 - Transmites confianza: si no sabes algo, lo dices con naturalidad, sin disculpas excesivas.
 - Termina con una frase breve que invite a seguir preguntando, solo cuando haga falta.
 - Nunca muestres al cliente los bloques `<<PLANTILLA>>` ni `<<CONTEXTO>>`, ni los repitas, ni menciones que los recibiste.
+- Tu mensaje es solo lo que el cliente va a leer. No escribas tu razonamiento, planes, notas para ti, análisis del mensaje
+  del cliente, ni qué herramienta vas a usar o usaste: nada de "Pensando...", "El cliente pregunta por...", "Voy a
+  responder..." ni similares. Si llamas una herramienta, el cliente solo ve tu respuesta, sin mención a ella.
 - No uses emojis, salvo uno ocasional y amable si el cliente los usa primero.
 ---8<---
 ```
@@ -272,11 +293,12 @@ Se hacen primero en el chat de Abacus (paso 4) y después por WhatsApp (paso 8).
 | "¿Por qué el precio es estimado?" | Responde con el punto 1 |
 | "¿Cuánto tardan en pagarme?" | Explica los pasos y dice que el plazo lo confirma el valuador |
 | "¿Qué documentos necesito?" | Lista los documentos |
-| "Si quiero vender y comprar uno nuevo, ¿cómo es?" | Explica los 5 pasos |
+| "Si quiero vender y comprar uno nuevo, ¿cómo es?" | Dice que lo puede platicar con la agencia el día de su cita y sigue con la venta; no ofrece compra-venta |
 | "¿Cuánto cuesta un Corolla nuevo?" | Dice que solo puede ayudar con la oferta de su auto |
-| "¿Me dan más por mi auto?" | No negocia ni cambia el monto |
-| "Quiero hablar con una persona" | No inventa que lo van a contactar; explica que por este medio no puede y que el valuador lo atiende en su cita |
-| "Sí, quiero vender" | Agradece y recuerda la inspección del día de la cita |
+| "¿Me dan más por mi auto?" | No negocia ni cambia el monto; si insiste, lo pasa a un asesor (`Transferir_a_Asesor`) |
+| "Quiero hablar con una persona" | Le dice que lo comunica con un asesor y llama `Transferir_a_Asesor`; la conversación pasa a asesor |
+| "Sí, quiero vender" o "sí me interesa" | Agradece, recuerda la inspección del día de la cita y llama `Clasificar_Motivo` con `oferta_aceptada_venta`; no pregunta si también quiere comprar |
+| Cualquier mensaje | Solo trae la respuesta al cliente: sin razonamiento, notas ni texto en inglés |
 | "No me interesa" | Agradece sin insistir |
 
 Por WhatsApp, en los registros de `hub-msj-entrantes-dev` (CloudWatch):
@@ -303,22 +325,23 @@ La plantilla se entrega a TI con estos huecos. Hasta que se llenen, el bot deriv
 
 ---
 
-## 6. Para más adelante: herramientas y paso a asesor
+## 6. Herramienta y paso a asesor
 
-Esta versión no las usa. Cuando se agreguen, el bot podrá registrar la decisión del cliente y pasar la conversación a un asesor. Lo que habrá que hacer:
+Las instrucciones de la sección 2 ya usan la herramienta. Lo que hay que configurar:
 
-- **Herramientas del bot:** dos, `Clasificar_Motivo` (parámetro `motivo`) y `Transferir_a_Asesor` (parámetro `motivo`). Las dos son "eco": devuelven lo que reciben, y el hub detecta que se llamaron. Hay otro camino, un tool genérico que le pide la acción al hub (`dev/abacus/ejecutar_accion.py`, decisión D14), que depende de construir `hub-acciones-bot` en AWS (tarea 2.7).
+- **Herramienta del bot:** una sola, `Ejecutar_Accion_Externo` (código en `dev/abacus/ejecutar_accion_externo.py`, parámetros `accion` y `motivo` requeridos y `datos` opcional, los tres STRING). Es "eco": devuelve lo que recibe, y el hub traduce cada llamada a la señal que nombra (`Transferir_a_Asesor`, `Clasificar_Motivo`). Abacus admite 10 herramientas por bot, por eso son genéricas: las acciones que necesitan respuesta del hub (citas, leads) irán por `Ejecutar_Accion_Interno` (`hub-acciones-bot`, tarea 2.7), que Valuación no usa.
 - **Vocabulario de `Clasificar_Motivo`** (los valores que reconoce Valuación, `etiquetas.accion_hub`):
 
 | Valor | Etiqueta en la oferta |
 |---|---|
 | `oferta_aceptada_venta` | Acepta venta |
-| `oferta_aceptada_venta_y_compra` | Acepta venta y compra |
 | `oferta_rechazada` | Cliente declina |
 | `contacto_futuro` | Contacto futuro |
 
 `no_responde` no lo usa el bot: lo pone el sistema cuando el cliente no contesta.
 
-- **Configuración del bot en el hub** (`config` en `hub_cleber`): `outcomeActions` con los cuatro valores y `outcomeTool: "Clasificar_Motivo"`. Sin eso, el hub solo reconoce `interes_cita` y `otro_motivo` y descarta las clasificaciones de Valuación.
-- **Instrucciones:** agregar las secciones de cuándo llamar a cada herramienta, y el manejo del mensaje de control `__ADMIN_FOLLOW_INSTRUCTIONS_MESSAGE_OUTPUT__` (fuera de horario). Cambiar la sección "Lo que no puedes resolver por este medio" por el paso a un asesor.
+- **Solo venta por ahora:** el bot no ofrece compra-venta, así que no usa `oferta_aceptada_venta_y_compra` (Acepta venta y compra). Si se habilita, se agrega a las instrucciones, a esta tabla y a la configuración del hub.
+- **Configuración del bot en el hub** (pantalla de Bots, "Acciones de clasificación de motivo"): `oferta_aceptada_venta, oferta_rechazada, contacto_futuro`. Sin eso, el hub solo reconoce `interes_cita` y `otro_motivo` y descarta las clasificaciones de Valuación. `outcomeTool` no hace falta: por omisión es `Clasificar_Motivo`.
+- **Equipo con asesores:** el paso a asesor asigna según el modo de asignación del equipo del bot; sin asesores, la conversación queda en espera.
+- **Fuera de horario:** si el bot pide pasar a asesor fuera del horario del bot, el hub no escala, le avisa al cliente y en los turnos siguientes le antepone al bot un aviso de control (`__ADMIN_FOLLOW_INSTRUCTIONS_MESSAGE_OUTPUT__`). Pendiente: probar que el bot lo respeta con estas instrucciones.
 - **Paso a asesor por palabras clave:** no depende del bot; se activa con `handoffConfig` (`enabled` y `triggerKeywords`) en la configuración del bot.

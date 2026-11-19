@@ -39,7 +39,7 @@ def test_chatllm_usa_el_host_dedicado_y_manda_el_ultimo_mensaje(monkeypatch):
     assert engine.send_to_bot(bot, MSGS, conv_id="c1")["success"] is True
     call = s.calls[0]
     assert call["url"] == "https://cleber.abacus.ai/api/v0/getConversationResponse"
-    assert call["payload"] == {"deploymentToken": "T", "deploymentId": "D", "message": "quiero cotizar", "executeUsercodeTools": True, "externalSessionId": "c1"}
+    assert call["payload"] == {"deploymentToken": "T", "deploymentId": "D", "message": "quiero cotizar", "executeUsercodeTools": True, "excludeThinkingSegments": True, "externalSessionId": "c1"}
     assert call["headers"]["User-Agent"] == "WhatsAppProxy/2.0"
 
 

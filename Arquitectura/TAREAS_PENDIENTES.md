@@ -242,11 +242,12 @@ Arrancan el día 1 y corren en paralelo. Ninguna es desarrollo.
 - [x] 2.5 Firma del webhook de Twilio validada con `TWILIO_AUTH_TOKEN` del ambiente; `PUBLIC_BASE_URL` = URL pública final
 - [x] 2.6 Reapuntar el webhook del número de pruebas de Twilio a AWS (el cambio tardó unos minutos en aplicar)
 - [ ] 2.7 `hub-acciones-bot` (endpoint de acciones para bots, D14) en AWS; resolver el límite de 29 s del API Gateway (`DISENO_BACKEND_AWS.md` §9, I2)
+  - **Dos tools genéricos por bot (19 nov 2026)**, porque Abacus admite 10 por bot: `Ejecutar_Accion_Interno` (pide la acción al hub y espera su resultado: esta tarea, para Ventas y Servicio) y `Ejecutar_Accion_Externo` (eco: señales que el hub lee al terminar el turno). El externo ya está: `ai/parsing.py::expande_acciones_externas` traduce cada llamada al tool que nombra (`Transferir_a_Asesor`, `Clasificar_Motivo`) y la detección de siempre lo atiende; código para Abacus en `dev/abacus/ejecutar_accion_externo.py`. Valuación solo usa el externo, así que esta tarea no bloquea su piloto. Al construir el interno, renombrar el tool de `dev/abacus/ejecutar_accion.py` / `crear_tool.py` a `Ejecutar_Accion_Interno`
 - [x] 2.8 `hub-acciones-usuario` con el authorizer de Google — corre en dev (vista previa de plantilla)
 - [ ] 2.9 `hub-jobs` con EventBridge Scheduler: inactividad, cierre y resúmenes del expediente
 - [ ] 2.10 **Tiempo real** en AWS (propuesta: AppSync Events, `DISENO_BACKEND_AWS.md` §6). La bandeja y el chat dejan `onSnapshot` de Firestore
 - [ ] 2.11 Conversación de punta a punta en dev por Twilio: entra, contesta el bot, handoff, el asesor contesta, cierre (antes 1.29, solo Twilio)
-  - **Probado en dev (18 nov 2026):** envío de la oferta, el cliente contesta, contesta el bot de Abacus con el contexto de la oferta, y el cierre desde la pantalla de Conversaciones. **Falta:** el paso a asesor (el bot de pruebas no trae herramientas y las palabras clave de handoff no estaban configuradas) y que el asesor conteste desde la pantalla (hoy solo lectura)
+  - **Probado en dev (18 nov 2026):** envío de la oferta, el cliente contesta, contesta el bot de Abacus con el contexto de la oferta, y el cierre desde la pantalla de Conversaciones. **Probado en dev (19 nov 2026):** el paso a asesor pedido por el bot con `Ejecutar_Accion_Externo` (la conversación queda esperando asesor). **Falta:** que el asesor la tome y conteste desde la pantalla (hoy solo lectura)
 - [ ] 2.11b ⚠️ Reentrada bot → acciones con Abacus real (antes 1.45)
 
 ### 2.b Contratos con Valuación

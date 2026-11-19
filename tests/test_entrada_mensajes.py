@@ -190,6 +190,16 @@ def test_handoff_pedido_por_el_bot_pasa_a_esperar_asesor(env, monkeypatch):
     assert env.enviados[-1]["text"] == "Te comunico con un asesor."
 
 
+def test_handoff_por_el_tool_generico_externo(env, monkeypatch):
+    monkeypatch.setattr(entrada_mensajes.ho, "check_business_hours", lambda *a, **k: True)
+    env.estado["result"] = ok("Te comunico con un asesor.", [
+        {"toolName": "Ejecutar_Accion_Externo", "input": {"accion": "Transferir_a_Asesor", "motivo": "precio"}}])
+    env.corre("quiero hablar con alguien")
+    c = env.base.conv()
+    assert c["estado"] == "waiting_agent" and c["motivoHandoff"] == "precio"
+    assert env.enviados[-1]["text"] == "Te comunico con un asesor."
+
+
 def test_handoff_fuera_de_horario_avisa_y_no_escala(env, monkeypatch):
     monkeypatch.setattr(entrada_mensajes.ho, "check_business_hours", lambda *a, **k: False)
     monkeypatch.setattr(entrada_mensajes.ho, "build_out_of_hours_message", lambda *a, **k: "Fuera de horario")
@@ -344,6 +354,14 @@ def test_handoff_y_resultado_salen_con_su_vocabulario(salida):
     assert ("conversation.handoff", None) in _tipos(salida)
     handoff = next(p for _, p in salida.eventos if p["tipo"] == "conversation.handoff")
     assert handoff["carga"]["motivo"] == "precio" and handoff["carga"]["estado"] == "waiting_agent"
+
+
+def test_resultado_por_el_tool_generico_externo_llega_a_valuacion(salida):
+    salida.base.bot["config"].update(outcomeActions=["oferta_aceptada_venta"], outcomeTool="Clasificar_Motivo")
+    salida.estado["result"] = ok("Perfecto, registro tu decisión.", [
+        {"toolName": "Ejecutar_Accion_Externo", "input": {"accion": "Clasificar_Motivo", "motivo": "oferta_aceptada_venta"}}])
+    salida.corre("sí acepto la venta", message_id="SM4")
+    assert ("conversation.outcome", "oferta_aceptada_venta") in _tipos(salida)
 
 
 def test_opt_out_avisa_el_cierre(salida):

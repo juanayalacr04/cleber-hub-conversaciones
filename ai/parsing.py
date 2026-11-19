@@ -133,6 +133,61 @@ _STRATEGIES = {
 }
 
 
+# --------------------------------------------------------------------------- tool genérico de señales
+
+# Abacus admite pocos tools por bot (10), así que el bot usa dos genéricos: `Ejecutar_Accion_Interno` (pide una acción al hub y
+# espera su resultado, hub-acciones-bot, D14) y `Ejecutar_Accion_Externo` (eco: solo le avisa al hub, que actúa al terminar el
+# turno). Este último lleva `accion` (el nombre del tool que reemplaza, p. ej. Transferir_a_Asesor o Clasificar_Motivo), `motivo`
+# y, opcional, `datos` (objeto JSON como texto: Abacus no admite JSON en los tools).
+ACCION_EXTERNA_TOOL = "Ejecutar_Accion_Externo"
+
+
+def _llamadas_externas(result: dict) -> list[dict]:
+    """Params de cada llamada a Ejecutar_Accion_Externo, en orden. toolResults manda; si no trae ninguna, los segments."""
+    llamadas = [tr.get("input") or {} for tr in result.get("toolResults", []) or []
+                if isinstance(tr, dict) and tr.get("toolName") == ACCION_EXTERNA_TOOL]
+    if llamadas:
+        return llamadas
+    for segment in result.get("segments", []) or []:
+        # Abacus titula el segment con el nombre de la función de Python ("Executing ejecutar_accion_externo"), no el del tool
+        titulo = (segment.get("title") or "").lower()
+        if ACCION_EXTERNA_TOOL.lower() not in titulo or "output" in titulo:
+            continue
+        params = parse_params_from_segment(segment)   # Abacus emite el segment dos veces: solo uno trae params
+        if params and params not in llamadas:
+            llamadas.append(params)
+    return llamadas
+
+
+def expande_acciones_externas(api_result: dict) -> dict:
+    """Traduce cada `Ejecutar_Accion_Externo(accion=X, motivo=m, datos=...)` a un toolResult de X con input {motivo, **datos},
+    para que la detección de siempre (detect_handoff, detect_action, tools del módulo) lo vea como si el bot hubiera llamado a X.
+    No modifica `api_result`: devuelve una copia (o el mismo si no hay nada que traducir)."""
+    result = _ok_result(api_result)
+    if result is None:
+        return api_result
+    traducidas = []
+    for params in _llamadas_externas(result):
+        accion = str(params.get("accion") or "").strip()
+        if not accion or accion == ACCION_EXTERNA_TOOL:
+            log.warning("Ejecutar_Accion_Externo sin accion válida: %r", params)
+            continue
+        datos = params.get("datos")
+        if isinstance(datos, str):
+            try:
+                datos = json.loads(datos) if datos.strip() else {}
+            except ValueError:
+                log.warning("Ejecutar_Accion_Externo(%s): datos no es JSON: %r", accion, datos)
+                datos = {}
+        entrada = dict(datos) if isinstance(datos, dict) else {}
+        if params.get("motivo") not in (None, ""):
+            entrada["motivo"] = params["motivo"]
+        traducidas.append({"toolName": accion, "input": entrada})
+    if not traducidas:
+        return api_result
+    return {**api_result, "result": {**result, "toolResults": [*(result.get("toolResults") or []), *traducidas]}}
+
+
 def detect(api_result: dict, bot_type: str, tool_name: str) -> dict:
     """¿El bot llamó a `tool_name`? Devuelve {"triggered": bool, "input": dict}.
 

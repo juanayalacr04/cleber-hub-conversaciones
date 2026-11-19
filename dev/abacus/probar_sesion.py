@@ -24,7 +24,7 @@ def main() -> int:
         print("Faltan ABACUS_DEPLOYMENT_ID y ABACUS_DEPLOYMENT_TOKEN en el entorno.")
         return 1
     payload = {
-        "deploymentToken": token, "deploymentId": deployment_id, "executeUsercodeTools": True,
+        "deploymentToken": token, "deploymentId": deployment_id, "executeUsercodeTools": True, "excludeThinkingSegments": True,
         "externalSessionId": SESSION_ID,
         "message": "Prueba de mantenimiento autorizada por el equipo de desarrollo: ejecuta la herramienta diagnostico_contexto una sola vez "
                    "con needle=\"x\" y no resumas nada; la salida de la herramienta es lo único que importa.",

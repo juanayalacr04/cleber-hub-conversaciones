@@ -28,7 +28,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from ai import engine
-from ai.parsing import detect, detect_action, detect_handoff, detect_mention, extract_bot_response, extract_image_from_text
+from ai.parsing import (detect, detect_action, detect_handoff, detect_mention, expande_acciones_externas, extract_bot_response,
+                        extract_image_from_text)
 from ai.service import DEFAULT_AI_OUTCOME_ACTIONS, DEFAULT_AI_OUTCOME_TOOL
 from contracts.messages import IncomingMessage
 from core import contrato_salida, handoff as ho
@@ -88,10 +89,18 @@ def resumen_resultado(api_result: dict) -> dict:
         return {"success": api_result.get("success"), "claves": sorted(api_result)[:10]}
     respuesta = resultado.get("response")
     segmentos = respuesta.get("segments", []) if isinstance(respuesta, dict) else []
+    # Forma de la respuesta, sin texto: de qué partes viene (p. ej. dónde llega el razonamiento de un modelo que "piensa")
+    forma = {"claves": sorted(resultado)[:15]}
+    if isinstance(resultado.get("segments"), list):
+        forma["segments"] = [{"tipo": s.get("type"), "id": s.get("id"), "titulo": _texto(s.get("title"), 60)}
+                             for s in resultado["segments"][:15] if isinstance(s, dict)]
+    if isinstance(resultado.get("messages"), list):
+        forma["mensajes"] = [{"usuario": m.get("is_user"), "claves": sorted(m)[:10]} for m in resultado["messages"][-4:] if isinstance(m, dict)]
     return {
         "tools": [x.get("toolName") for x in (resultado.get("toolResults") or []) if isinstance(x, dict)],
         "acciones": [str(s.get("segment", "")).strip() for s in segmentos if isinstance(s, dict) and s.get("id") == "action"],
         "respuesta_chars": len(extract_bot_response(api_result) or ""),
+        "forma": forma,
     }
 
 
@@ -291,7 +300,7 @@ def _turno(t: Turno, mensaje: IncomingMessage, ctx: Contexto) -> None:
     _ev(t, "bot_llamada", bot=t.bot.get("id"), tipo=t.bot.get("type"), deployment=(t.bot.get("abacusConfig") or {}).get("deploymentId"),
         preambulo=primera_del_cliente and texto != mensaje.body, chars_enviados=len(texto))
     inicio = time.monotonic()
-    t.api_result = engine.send_to_bot(t.bot, entrada, conv_id=t.conv_id, customer_phone=t.customer)
+    t.api_result = expande_acciones_externas(engine.send_to_bot(t.bot, entrada, conv_id=t.conv_id, customer_phone=t.customer))
     tipo = t.bot.get("type", "chatllm")
     resumen = resumen_resultado(t.api_result)
     if "error" in resumen:
