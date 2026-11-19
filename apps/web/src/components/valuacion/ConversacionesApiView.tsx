@@ -8,7 +8,9 @@
  *   Lista:     Hub.consultaConversaciones (permisos por equipo en la base)
  *   Mensajes:  Hub.consultaMensajes
  * Lo de la oferta (vehículo, monto, agencia) sale de metadatos.contexto, que guardó el envío (contrato ①): sin consultas
- * extra. Sin tiempo real todavía: se refresca cada 15 s mientras la página está visible.
+ * extra. Tiempo real (useTiempoReal, AppSync Events): la bandeja escucha /hub/<marca>/valuacion y el chat abierto
+ * /hub/<marca>/valuacion/<idConversacion>; un aviso vuelve a consultar (el chat, solo los mensajes nuevos). Como respaldo
+ * se refresca cada 60 s con conexión y cada 15 s sin ella, mientras la página está visible.
  *
  * `/valuacion/conversaciones?c=<id>` abre la vista conversación con esa conversación seleccionada (enlace desde Ofertas).
  * Cerrar: el botón "Cerrar conversación" abre DialogoCierreConversacion: el motivo del cierre (Hub.cierraConversacion, con los
@@ -19,7 +21,7 @@
  * solo oculta lo que el usuario no puede hacer.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -29,6 +31,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTiempoReal } from "@/hooks/useTiempoReal";
 import type { ApiResponse } from "@/lib/api";
 import { consultaConfiguracionModulo, type Equipo } from "@/lib/hub/configuracion";
 import {
@@ -46,7 +49,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-const REFRESCO_MS = 15_000;
+const REFRESCO_MS = 15_000;            // respaldo sin tiempo real
+const REFRESCO_EN_VIVO_MS = 60_000;    // respaldo con tiempo real (por si se perdió un aviso)
 const VENTANA_MS = 24 * 60 * 60 * 1000;
 const BASE = "/valuacion/conversaciones";
 const TODOS: EstadoConversacion[] = ["bot", "waiting_agent", "with_agent", "closed"];
@@ -320,21 +324,25 @@ export function ConversacionesApiView() {
     if (c) { setSel(c); setView("converse"); }
   }, []);
 
-  const carga = useCallback(async () => {
+  const consulta = useCallback(async (silencioso: boolean) => {
     if (!idMarca) return;
-    setCargando(true);
+    if (!silencioso) setCargando(true);
     const r = await consultaConversaciones({ idMarca, modulo: "valuacion", estados: TODOS, limite: 200 });
-    setCargando(false);
+    if (!silencioso) setCargando(false);
     if (r.successful) { setConvs(r.info.conversaciones); setError(null); return; }
     if (r.errorCode === "SESION_EXPIRADA") { toast.error(mensajeError(r)); signOut({ redirectTo: "/login" }); return; }
-    setError(mensajeError(r));
+    if (!silencioso) setError(mensajeError(r));
   }, [idMarca]);
+  const carga = useCallback(() => consulta(false), [consulta]);
 
+  // Tiempo real: cualquier cambio de una conversación del módulo en la marca vuelve a consultar la bandeja (sin spinner).
+  // El refresco periódico queda de respaldo: cada 15 s sin conexión de tiempo real, cada 60 s con ella.
+  const enVivo = useTiempoReal(idMarca ? `/hub/${idMarca}/valuacion` : null, () => consulta(true));
   useEffect(() => { setConvs(null); carga(); }, [carga]);
   useEffect(() => {
-    const t = setInterval(() => { if (document.visibilityState === "visible") carga(); }, REFRESCO_MS);
+    const t = setInterval(() => { if (document.visibilityState === "visible") consulta(true); }, enVivo ? REFRESCO_EN_VIVO_MS : REFRESCO_MS);
     return () => clearInterval(t);
-  }, [carga]);
+  }, [consulta, enVivo]);
 
   const term = q.trim().toLowerCase();
   const filtradas = useMemo(() => (convs ?? []).filter((c) =>
@@ -442,11 +450,29 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
       : mensajeError(r));
   }, [idConversacion, conContexto]);
 
+  // Con un aviso basta pedir lo posterior al último mensaje que ya se tiene (con la conversación al día)
+  const ultimoId = useRef<string | null>(null);
+  ultimoId.current = mensajes.length ? mensajes[mensajes.length - 1].idMensaje : null;
+  const cargaNuevos = useCallback(async () => {
+    const desde = ultimoId.current;
+    if (!desde) { carga(); return; }
+    const r = await consultaMensajes({ idConversacion, incluyeSistema: conContexto, desdeIdMensaje: desde, limite: 200 });
+    if (!r.successful) return;          // el refresco de respaldo lo vuelve a intentar
+    if (r.info.hayMas) { carga(); return; }
+    setConv(r.info.conversacion);
+    setMensajes((ms) => {
+      const ya = new Set(ms.map((m) => m.idMensaje));
+      const nuevos = r.info.mensajes.filter((m) => !ya.has(m.idMensaje));
+      return nuevos.length ? [...ms, ...nuevos] : ms;
+    });
+  }, [idConversacion, conContexto, carga]);
+
+  const enVivo = useTiempoReal(conv ? `/hub/${conv.idMarca}/${conv.modulo}/${idConversacion}` : null, cargaNuevos);
   useEffect(() => { carga(); }, [carga]);
   useEffect(() => {
-    const t = setInterval(() => { if (document.visibilityState === "visible") carga(); }, REFRESCO_MS);
+    const t = setInterval(() => { if (document.visibilityState === "visible") carga(); }, enVivo ? REFRESCO_EN_VIVO_MS : REFRESCO_MS);
     return () => clearInterval(t);
-  }, [carga]);
+  }, [carga, enVivo]);
 
   if (error || !conv) {
     return (

@@ -5,11 +5,12 @@ no trae los datos: la pantalla los pide a PostgreSQL (Hub.consultaConversaciones
 
     tiempo_real.conversacion(conv)      # conv = objeto Conversacion de hub_cleber
 
-Canales (AppSync Events, namespace `hub`):
+Canales (AppSync Events, namespace `hub`; quién puede escucharlos lo decide Hub.autorizaCanal):
     /hub/<idMarca>/<modulo>                      bandeja del módulo en la marca
     /hub/<idMarca>/<modulo>/<idConversacion>     chat abierto
 
-El publicador se inyecta con `configure` (la Lambda pone el de AppSync; las pruebas, uno falso). Sin publicador el aviso se
+El publicador se inyecta con `configure` (handlers._prepara pone el de core/appsync.py; las pruebas, uno falso). Guía de
+consola: Arquitectura/GUIA_TIEMPO_REAL.md. Sin publicador el aviso se
 descarta: un aviso perdido lo corrige el siguiente cambio de la conversación (lleva `version`) o la reconexión de la pantalla.
 Publicar nunca hace fallar la operación que lo originó.
 """
@@ -18,12 +19,18 @@ import logging
 log = logging.getLogger(__name__)
 
 _publicador = None
+_configurado = False
 
 
 def configure(publicador) -> None:
-    """`publicador(canal: str, eventos: list[dict])`; None lo quita."""
-    global _publicador
+    """`publicador(canal: str, eventos: list[dict])`; None = no publicar (queda configurado así)."""
+    global _publicador, _configurado
     _publicador = publicador
+    _configurado = True
+
+
+def esta_configurado() -> bool:
+    return _configurado
 
 
 def aviso_de(conv: dict) -> dict:

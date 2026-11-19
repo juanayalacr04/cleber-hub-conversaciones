@@ -423,6 +423,35 @@ BEGIN
   PERFORM pg_temp.como(c_admin);
   PERFORM pg_temp.error(pg_temp.llama('Hub.consultaPermisosUsuario', jsonb_build_object('email', c_admin, 'idMarca', c_marca, 'modulo', 'valuacion')),
                         'SIN_PERMISO', '7.7 Solo el sistema la usa');
+
+  -- 8. Canales de tiempo real (authorizer de AppSync). v_ext quedó en el equipo B; v_conv3 está en el equipo A.
+  PERFORM pg_temp.como(c_ag_a);
+  i := pg_temp.ok(pg_temp.llama('Hub.autorizaCanal', jsonb_build_object('canal', '/hub/' || lower(c_marca) || '/valuacion')),
+                  '8.1 Un valuador se suscribe a la bandeja de su módulo (marca en minúsculas)');
+  PERFORM pg_temp.igual(i->>'autorizado', 'true', '8.2 ... autorizado');
+  i := pg_temp.ok(pg_temp.llama('Hub.autorizaCanal', jsonb_build_object('canal', '/hub/' || c_marca || '/valuacion/' || v_conv3)),
+                  '8.3 ... y al chat de una conversación de su equipo');
+  PERFORM pg_temp.igual(i->>'autorizado', 'true', '8.4 ... autorizado');
+  i := pg_temp.ok(pg_temp.llama('Hub.autorizaCanal', jsonb_build_object('canal', '/hub/' || c_marca || '/valuacion/' || v_ext)),
+                  '8.5 ... pero no al de una de otro equipo');
+  PERFORM pg_temp.igual((i->>'autorizado') || '/' || (i->>'motivo'), 'false/SIN_ACCESO_CONVERSACION', '8.6 ... rechazado');
+  i := pg_temp.ok(pg_temp.llama('Hub.autorizaCanal', jsonb_build_object('canal', '/hub/' || c_marca || '/servicio')),
+                  '8.7 Ni a un módulo en el que no tiene rol');
+  PERFORM pg_temp.igual((i->>'autorizado') || '/' || (i->>'motivo'), 'false/SIN_ACCESO_MODULO', '8.8 ... rechazado');
+  i := pg_temp.ok(pg_temp.llama('Hub.autorizaCanal', jsonb_build_object('canal', '/otro/' || c_marca || '/valuacion')),
+                  '8.9 Un canal de otro namespace');
+  PERFORM pg_temp.igual((i->>'autorizado') || '/' || (i->>'motivo'), 'false/CANAL_INVALIDO', '8.10 ... rechazado');
+  i := pg_temp.ok(pg_temp.llama('Hub.autorizaCanal', jsonb_build_object('canal', '/hub/' || c_marca || '/valuacion', 'operacion', 'EVENT_PUBLISH')),
+                  '8.11 Publicar desde la pantalla');
+  PERFORM pg_temp.igual((i->>'autorizado') || '/' || (i->>'motivo'), 'false/OPERACION_NO_PERMITIDA', '8.12 ... rechazado (solo el backend publica)');
+  PERFORM pg_temp.como(c_admin);
+  i := pg_temp.ok(pg_temp.llama('Hub.autorizaCanal', jsonb_build_object('canal', '/hub/' || c_marca || '/valuacion/' || v_ext)),
+                  '8.13 El administrador escucha cualquier conversación del módulo');
+  PERFORM pg_temp.igual(i->>'autorizado', 'true', '8.14 ... autorizado');
+  PERFORM pg_temp.como('nadie@prueba-conv.invalid');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.autorizaCanal', jsonb_build_object('canal', '/hub/' || c_marca || '/valuacion')),
+                        'SIN_PERMISO', '8.15 Un email no registrado');
+
   PERFORM pg_temp.como(c_ag_b);
 
   PERFORM pg_temp.igual((SELECT string_agg(DISTINCT accion, ',' ORDER BY accion) FROM hub_cleber.bitacora

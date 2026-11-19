@@ -18,6 +18,8 @@ Una sola imagen con todo el paquete; cada Lambda cambia solo el handler (`handle
 Entorno de todas (además de lo de core/postgrest.py):
     SECRET_NAME          secreto con las variables del ambiente (core/entorno.py); trae TWILIO_ACCOUNT_SID y TWILIO_AUTH_TOKEN
     SECRETOS_EN=aws      credenciales de números y bots en Secrets Manager, con SECRETOS_PREFIJO (core/credentials.py)
+    APPSYNC_EVENTS_URL   endpoint HTTP de AppSync Events para los avisos de tiempo real (core/appsync.py); sin ella no se
+                         publican. El rol necesita appsync:EventPublish sobre el namespace `hub`
 hub-router además:
     COLA_ENTRANTES_URL   URL de la cola hub-entrantes-<ambiente>.fifo
     PUBLIC_BASE_URL      URL pública del API hasta el stage (https://<api>.execute-api.us-east-1.amazonaws.com/dev): Twilio
@@ -30,15 +32,21 @@ import modules  # noqa: F401  registra los handlers de cada módulo (y las fuent
 from channels import (check_campaign_ready, cola_sqs, delivery_statuses, describe_template, event_queue, render_template_text,
                       router as canal_router, send_campaign_template, send_handoff_template, send_whatsapp_message, webhooks)
 from contracts.messages import ChannelEvent
-from core import acciones_usuario as usuario, contrato_entrada as contrato, entorno, entrada_mensajes, http_lambda, outbound
+from core import (acciones_usuario as usuario, appsync, contrato_entrada as contrato, entorno, entrada_mensajes, http_lambda,
+                  outbound, tiempo_real)
 
 logging.getLogger().setLevel(logging.INFO)
 log = logging.getLogger(__name__)
 
 
 def _prepara() -> None:
-    """Una vez por instancia: secretos del ambiente y envíos de los canales."""
+    """Una vez por instancia: secretos del ambiente, avisos de tiempo real y envíos de los canales."""
     entorno.carga_secretos()
+    if not tiempo_real.esta_configurado():
+        publicador = appsync.Publicador.de_entorno()
+        if publicador is None:
+            log.warning("Sin APPSYNC_EVENTS_URL: no se publican avisos de tiempo real")
+        tiempo_real.configure(publicador)
     if not outbound.is_configured("campaign"):
         outbound.configure(send_text=send_whatsapp_message, send_template=send_handoff_template, send_campaign=send_campaign_template,
                            check_campaign=check_campaign_ready, delivery_statuses=delivery_statuses,

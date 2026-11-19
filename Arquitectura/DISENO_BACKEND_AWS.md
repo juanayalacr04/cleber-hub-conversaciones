@@ -146,10 +146,11 @@ Cuando el cliente contesta, el mensaje entra por el pipeline normal (`router` �
 
 Hoy el navegador escucha Firestore (`onSnapshot`) en 14 pantallas: bandeja, kanban, chat, notificaciones, semáforo y configuración.
 
-**Propuesta: AppSync Events.**
-- El backend **publica** por HTTP con IAM después de que la acción `Hub.*` confirma: `{idConversacion, version, estado, ultimoMensajeEn, …}`, lo mismo que se pensaba poner en el documento de aviso (`DISENO_MIGRACION_POSTGRES.md` §6.1).
+**Decidido: AppSync Events** (2026-11-19). Implementación y pasos de consola: [`GUIA_TIEMPO_REAL.md`](GUIA_TIEMPO_REAL.md).
+- El backend **publica** por HTTP con IAM después de que la acción `Hub.*` confirma: `{idConversacion, version, estado, ultimoMensajeEn, …}`, lo mismo que se pensaba poner en el documento de aviso (`DISENO_MIGRACION_POSTGRES.md` §6.1). Las acciones del asesor pasan por `hub-acciones-usuario` para que el backend pueda avisar.
 - El navegador **se suscribe** por WebSocket a canales `/hub/<idMarca>/<modulo>` (bandeja) y `/hub/<idMarca>/<modulo>/<idConversacion>` (chat abierto).
-- **Permisos**: un Lambda authorizer valida el `id_token` de Google (el mismo validador que el del API Gateway) y consulta en `hub_cleber` si el usuario tiene rol en esa marca y módulo. Reemplaza las reglas de Firestore y `accesos/{email}`.
+- **Permisos**: un Lambda authorizer **genérico** para todos los sistemas de Cleber (`infra/authorizer-appsync`, irá a su propio repo) valida el `id_token` de Google y pregunta a la función `<Prefijo>.autorizaCanal` del namespace (para `hub`: `Hub.autorizaCanal`, con las reglas de `tiene_modulo` y `ve_conversacion`). Agregar un sistema no cambia el authorizer. Reemplaza las reglas de Firestore y `accesos/{email}`.
+- La bandeja de la marca recibe los avisos de todas las conversaciones del módulo (ids y estados, sin texto ni datos del cliente), aunque el usuario solo vea las de su equipo; al volver a consultar solo recibe las suyas.
 - **Los eventos son avisos, no datos**: al recibirlo, la pantalla pide lo que cambió (`Hub.consultaConversaciones`, `Hub.consultaMensajes` con `desde`). Si se pierde uno, el siguiente lo corrige, y al reconectar la pantalla vuelve a consultar.
 
 | Opción | A favor | En contra |

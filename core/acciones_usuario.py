@@ -28,6 +28,12 @@ Acciones:
         y guarda el mensaje con su id de proveedor. Si la conversación esperaba asesor o estaba con el bot, el asesor la
         toma. FUERA_DE_VENTANA si pasaron más de 24 h desde el último mensaje del cliente (o nunca ha escrito): no se
         envía. ERROR_PROVEEDOR si WhatsApp no lo aceptó: no se guarda.
+    Hub.tomaConversacion, Hub.asignaConversacion, Hub.transfiereEquipo, Hub.devuelveAlBot, Hub.reabreConversacion,
+    Hub.cierraConversacion                operación del asesor (DB/Hub/Functions/Acciones/*.sql decide los permisos)
+        params e info: los de la acción Hub.* (info.conversacion al día)
+        Pasan por aquí, y no directo a PostgREST, para avisar en tiempo real a las demás pantallas (core/tiempo_real.py).
+
+Todo cambio de una conversación se avisa en tiempo real al terminar.
 """
 import html
 import json
@@ -37,7 +43,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 from urllib.parse import urlsplit
 
-from core import http, outbound, postgrest
+from core import http, outbound, postgrest, tiempo_real
 from core.datos import bots, numeros
 from core.postgrest import ErrorHub
 
@@ -194,14 +200,31 @@ def envia_mensaje_agente(email: str, params: dict) -> dict:
     if not sid:
         raise Rechazo("ERROR_PROVEEDOR", "WhatsApp no aceptó el mensaje. Si pasaron más de 24 horas desde el último mensaje "
                                          "del cliente, solo se le puede escribir con una plantilla")
-    return postgrest.llama("Hub.registraMensajeAgente", {"idConversacion": id_conversacion, "texto": texto,
+    info = postgrest.llama("Hub.registraMensajeAgente", {"idConversacion": id_conversacion, "texto": texto,
                                                          "idMensajeProveedor": sid}, como=email)
+    tiempo_real.conversacion(info.get("conversacion"))
+    return info
+
+
+# Operación del asesor: la acción Hub.* tal cual, en nombre del usuario (plpgsql decide los permisos con él), más el aviso
+# de tiempo real a las demás pantallas. Regresan { conversacion } de la acción.
+OPERACIONES_ASESOR = ("Hub.tomaConversacion", "Hub.asignaConversacion", "Hub.transfiereEquipo", "Hub.devuelveAlBot",
+                      "Hub.reabreConversacion", "Hub.cierraConversacion")
+
+
+def _operacion_asesor(accion: str) -> Callable[[str, dict], dict]:
+    def opera(email: str, params: dict) -> dict:
+        info = postgrest.llama(accion, params, como=email)
+        tiempo_real.conversacion(info.get("conversacion"))
+        return info
+    return opera
 
 
 ACCIONES: dict[str, Callable[[str, dict], dict]] = {
     "Hub.consultaPlantillaProveedor": consulta_plantilla_proveedor,
     "Hub.enviaInvitacion": envia_invitacion,
     "Hub.enviaMensajeAgente": envia_mensaje_agente,
+    **{accion: _operacion_asesor(accion) for accion in OPERACIONES_ASESOR},
 }
 
 

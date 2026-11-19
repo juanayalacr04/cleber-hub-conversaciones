@@ -7,7 +7,7 @@ import pytest
 
 import handlers
 from channels import campaign_templates as ct
-from core import acciones_usuario, http, outbound, postgrest
+from core import acciones_usuario, appsync, http, outbound, postgrest, tiempo_real
 from core.postgrest import ErrorHub
 from core.outbound import FAILED, NOT_CONFIGURED, TemplateError
 
@@ -306,6 +306,99 @@ def test_mensaje_vacio_o_largo(agente):
     largo = acciones_usuario.maneja({**MENSAJE, "params": {"idConversacion": "c1", "texto": "x" * 4097}}, "a@b.c")
     assert vacio["errorCode"] == "CAMPO_REQUERIDO" and largo["errorCode"] == "CAMPO_INVALIDO"
     assert not agente.enviados
+
+
+# --------------------------------------------------------------------------- tiempo real
+
+@pytest.fixture
+def avisos():
+    publicados = []
+    tiempo_real.configure(lambda canal, eventos: publicados.append((canal, eventos)))
+    yield publicados
+    tiempo_real.configure(None)
+
+
+def test_mensaje_del_agente_avisa_en_tiempo_real(agente, avisos):
+    acciones_usuario.maneja(MENSAJE, "ana@cleber.com")
+    assert [e[0]["estado"] for _, e in avisos] == ["with_agent", "with_agent"]       # bandeja y chat
+
+
+@pytest.mark.parametrize("accion", acciones_usuario.OPERACIONES_ASESOR)
+def test_operacion_del_asesor_en_nombre_del_usuario_y_con_aviso(monkeypatch, avisos, accion):
+    llamadas = []
+    conv = {"idConversacion": "c1", "idMarca": "TOYOTA", "modulo": "valuacion", "version": 4, "estado": "with_agent"}
+
+    def llama(a, params=None, como=None, **k):
+        llamadas.append((a, params, como))
+        return {"conversacion": conv}
+    monkeypatch.setattr(postgrest, "llama", llama)
+    params = {"idConversacion": "c1", "versionEsperada": 3}
+    r = acciones_usuario.maneja({"action": accion, "params": params}, "Ana@Cleber.com")
+    assert r == {"successful": True, "info": {"conversacion": conv}}
+    assert llamadas == [(accion, params, "ana@cleber.com")]
+    assert [c for c, _ in avisos] == ["/hub/TOYOTA/valuacion", "/hub/TOYOTA/valuacion/c1"]
+    assert avisos[0][1][0]["version"] == 4
+
+
+def test_operacion_rechazada_no_avisa(monkeypatch, avisos):
+    def niega(a, params=None, como=None, **k):
+        raise postgrest.ErrorHub("CONFLICTO_VERSION", "La conversación cambió mientras tanto", {"version": 5})
+    monkeypatch.setattr(postgrest, "llama", niega)
+    r = acciones_usuario.maneja({"action": "Hub.tomaConversacion", "params": {"idConversacion": "c1"}}, "ana@cleber.com")
+    assert r["errorCode"] == "CONFLICTO_VERSION" and r["info"] == {"version": 5}
+    assert not avisos
+
+
+def test_falla_al_publicar_no_rompe_la_operacion(monkeypatch):
+    def truena(canal, eventos):
+        raise RuntimeError("AppSync caído")
+    tiempo_real.configure(truena)
+    try:
+        monkeypatch.setattr(postgrest, "llama", lambda a, params=None, como=None, **k: {"conversacion": {"idConversacion": "c1"}})
+        r = acciones_usuario.maneja({"action": "Hub.devuelveAlBot", "params": {"idConversacion": "c1"}}, "ana@cleber.com")
+        assert r["successful"]
+    finally:
+        tiempo_real.configure(None)
+
+
+# --------------------------------------------------------------------------- publicador de AppSync
+
+class Credenciales:
+    def get_frozen_credentials(self):
+        from botocore.credentials import ReadOnlyCredentials
+        return ReadOnlyCredentials("AKIAPRUEBA", "secreto", None)
+
+
+def test_publicador_firma_con_iam_y_manda_el_canal(monkeypatch):
+    pytest.importorskip("botocore")      # viene en el runtime de Lambda y en requirements.txt
+    enviados = []
+
+    def request(url, data=None, headers=None, method="POST", timeout=30):
+        enviados.append({"url": url, "cuerpo": json.loads(data), "headers": headers, "timeout": timeout})
+        return 200, json.dumps({"successful": [{"identifier": "x", "index": 0}], "failed": []})
+    monkeypatch.setattr(http, "request", request)
+    pub = appsync.Publicador("abc.appsync-api.us-east-1.amazonaws.com", region="us-east-1", credenciales=Credenciales())
+    pub("/hub/TOYOTA/valuacion", [{"idConversacion": "c1", "version": 2}])
+    (e,) = enviados
+    assert e["url"] == "https://abc.appsync-api.us-east-1.amazonaws.com/event"
+    assert e["cuerpo"] == {"channel": "/hub/TOYOTA/valuacion", "events": ['{"idConversacion": "c1", "version": 2}']}
+    assert e["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256 Credential=AKIAPRUEBA/")
+    assert "/us-east-1/appsync/aws4_request" in e["headers"]["Authorization"]
+
+
+def test_publicador_lanza_si_appsync_rechaza_eventos(monkeypatch):
+    pytest.importorskip("botocore")
+    monkeypatch.setattr(http, "request", lambda *a, **k: (200, json.dumps({"successful": [], "failed": [{"index": 0}]})))
+    pub = appsync.Publicador("https://abc.appsync-api.us-east-1.amazonaws.com/event", credenciales=Credenciales())
+    with pytest.raises(RuntimeError, match="rechazó"):
+        pub("/hub/X/valuacion", [{"a": 1}])
+
+
+def test_publicador_de_entorno(monkeypatch):
+    monkeypatch.delenv("APPSYNC_EVENTS_URL", raising=False)
+    assert appsync.Publicador.de_entorno() is None
+    monkeypatch.setenv("APPSYNC_EVENTS_URL", "https://abc.appsync-api.us-east-1.amazonaws.com/")
+    assert appsync.Publicador.de_entorno().url == "https://abc.appsync-api.us-east-1.amazonaws.com/event"
 
 
 # --------------------------------------------------------------------------- Lambda
