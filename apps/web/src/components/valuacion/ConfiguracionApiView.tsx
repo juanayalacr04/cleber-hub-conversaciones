@@ -28,7 +28,7 @@ import { NuevaAgencia } from "./NuevaAgencia";
 interface Borrador {
   minYear: number; maxYear: number; minKm: number; maxKm: number;
   minMantenimientos: number; aniosHistorial: number; minPublicaciones: number;
-  pctDescuentoVenta: number; pctDescuentoVentaCompra: number;
+  pctDescuentoVenta: number; pctDescuentoVentaCompra: number; margenAjuste: number;
   citasEsperadasDia: number; pctMetaEnvio: number;
   tiposServicio: string[];
   esActivo: boolean;
@@ -37,6 +37,8 @@ type NumKey = Exclude<keyof Borrador, "tiposServicio" | "esActivo">;
 
 const aBorrador = (a: ConfiguracionAgencia): Borrador => ({
   ...a.criterios, ...a.montos,
+  // La base lo manda como numeric (texto en JSON si trae decimales): se normaliza a número
+  margenAjuste: Number(a.montos.margenAjuste ?? 15000),
   citasEsperadasDia: a.meta.citasEsperadasDia, pctMetaEnvio: a.meta.pctMetaEnvio,
   tiposServicio: [...a.criterios.tiposServicio], esActivo: a.esActivo,
 });
@@ -45,7 +47,7 @@ const aBorrador = (a: ConfiguracionAgencia): Borrador => ({
 const CAMPO_A_GRUPO: Record<string, string> = {
   minYear: "year", maxYear: "year", minKm: "km", maxKm: "km",
   minMantenimientos: "services", aniosHistorial: "services", minPublicaciones: "listings",
-  pctDescuentoVenta: "pctSale", pctDescuentoVentaCompra: "pctSaleBuy", tiposServicio: "serviceTypes",
+  pctDescuentoVenta: "pctSale", pctDescuentoVentaCompra: "pctSaleBuy", margenAjuste: "margin", tiposServicio: "serviceTypes",
   citasEsperadasDia: "appts", pctMetaEnvio: "goalPct",
 };
 
@@ -204,6 +206,7 @@ export function ConfiguracionApiView({ mod }: { mod: ModuleDef }) {
     listings: empty(d.minPublicaciones) ? "Captura un valor" : d.minPublicaciones < 1 ? "Debe ser al menos 1" : undefined,
     pctSale: pctErr(d.pctDescuentoVenta),
     pctSaleBuy: pctErr(d.pctDescuentoVentaCompra),
+    margin: empty(d.margenAjuste) ? "Captura un valor" : d.margenAjuste < 0 ? "No puede ser negativo" : undefined,
     serviceTypes: d.tiposServicio.length === 0 ? "Selecciona al menos un tipo de servicio" : undefined,
     appts: empty(d.citasEsperadasDia) ? "Captura un valor" : d.citasEsperadasDia < 0 ? "No puede ser negativo" : undefined,
     goalPct: pctErr(d.pctMetaEnvio),
@@ -243,7 +246,7 @@ export function ConfiguracionApiView({ mod }: { mod: ModuleDef }) {
         minMantenimientos: d.minMantenimientos, aniosHistorial: d.aniosHistorial,
         minPublicaciones: d.minPublicaciones, tiposServicio: d.tiposServicio,
       },
-      montos: { pctDescuentoVenta: d.pctDescuentoVenta, pctDescuentoVentaCompra: d.pctDescuentoVentaCompra },
+      montos: { pctDescuentoVenta: d.pctDescuentoVenta, pctDescuentoVentaCompra: d.pctDescuentoVentaCompra, margenAjuste: d.margenAjuste },
       meta: { citasEsperadasDia: d.citasEsperadasDia, pctMetaEnvio: d.pctMetaEnvio },
     });
     setGuardando(false);
@@ -318,6 +321,9 @@ export function ConfiguracionApiView({ mod }: { mod: ModuleDef }) {
               </Field>
               <Field label="% de oferta sobre venta y compra" hint="Descuento al promedio entre venta y compra" htmlFor="in-pctSaleBuy" {...fieldProps("pctSaleBuy")}>
                 <div className="vrange"><input id="in-pctSaleBuy" {...num("pctDescuentoVentaCompra", "pctSaleBuy")} /><span aria-hidden="true">%</span></div>
+              </Field>
+              <Field label="Margen de ajuste sin VoBo" hint="Cuánto puede subir o bajar el valuador el monto sugerido; fuera de este rango lo autoriza un gerente. Aplica desde el siguiente ajuste" htmlFor="in-margin" {...fieldProps("margin")}>
+                <div className="vrange"><span aria-hidden="true">± $</span><input id="in-margin" {...num("margenAjuste", "margin")} step={1000} /></div>
               </Field>
               <Field label="Tipos de servicio" hint="Solo se consideran citas con estos servicios" {...fieldProps("serviceTypes")} show>
                 <div className="vchecks">

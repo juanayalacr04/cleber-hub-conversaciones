@@ -214,3 +214,30 @@ AS $$
     FROM hub_cleber.usuarios u
    WHERE u.email = lower(btrim(p_email)) AND u.es_activo;
 $$;
+
+/**
+    Emails de los usuarios activos con alguno de p_roles en p_modulo, en la marca, y con la agencia entre las suyas
+    (la misma regla con la que valuación da permiso por agencia). Sin usuarios de sistema ni super admins que no
+    tengan ese rol. Lo usa valuación por valor para avisar del VoBo de un monto (valuacion.prepara_aviso_vobo): los
+    roles los decide el módulo (los que tienen el permiso autorizar).
+
+    SECURITY DEFINER: valuación no necesita permisos sobre las tablas de hub_cleber.
+*/
+CREATE OR REPLACE FUNCTION hub_cleber.emails_con_rol(p_modulo text, p_id_marca text, p_id_agencia text, p_roles text[])
+RETURNS text[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = hub_cleber, pg_temp
+AS $$
+  SELECT coalesce(array_agg(DISTINCT u.email ORDER BY u.email), '{}')
+    FROM hub_cleber.usuarios_roles_modulo rm
+    JOIN hub_cleber.usuarios_marcas uo ON uo.id_usuario = rm.id_usuario AND uo.id_marca = rm.id_marca
+    JOIN hub_cleber.usuarios u ON u.id_usuario = rm.id_usuario
+   WHERE rm.modulo = p_modulo
+     AND rm.id_marca = p_id_marca
+     AND rm.rol = ANY (p_roles)
+     AND p_id_agencia = ANY (uo.agencias)
+     AND u.es_activo
+     AND NOT u.es_sistema;
+$$;

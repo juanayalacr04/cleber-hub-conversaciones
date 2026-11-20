@@ -16,7 +16,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import {
   ArrowDown, ArrowUp, Ban, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Lock,
-  Loader2, MessageSquare, Minus, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Search, Send, X,
+  Loader2, MessageSquare, Minus, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Search, Send, ShieldCheck, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,16 +34,17 @@ import { addDays, fmtKm, fmtMoney, parseIso, todayIso } from "@/lib/valuacion/st
 import { diezDigitos, formatoDiez, telefonoMx } from "@/lib/valuacion/telefono";
 import { esProduccion } from "@/lib/ambiente";
 import {
-  ESTADOS, GRUPOS, MOTIVO_EVALUACION, detalleOferta, mensajeError, motivoNoVigente,
+  ESTADOS, GRUPOS, MOTIVO_EVALUACION, detalleOferta, mensajeError, montoRequiereVobo, motivoNoVigente, puedeAutorizarVobo,
   type EstadoOferta, type Etiqueta, type EvaluacionCita, type Grupo, type Oferta,
 } from "@/lib/valuacion/tipos";
 import {
-  calibraOferta, cierraOferta, consultaEtiquetas, consultaOferta, consultaOfertas, descartaOferta, enviaOferta, registraRespuesta, retomaOferta,
+  calibraOferta, cierraOferta, consultaEtiquetas, consultaOferta, consultaOfertas, descartaOferta, enviaOferta, notificaVobo,
+  registraRespuesta, resuelveVobo, retomaOferta,
   type DestinoEnvio,
 } from "@/lib/valuacion/acciones";
 
 type Orden = { por: "hora" | "modelo"; asc: boolean };
-type TipoDialogo = "descartar" | "retomar" | "cerrar" | "respuesta" | "enviar";
+type TipoDialogo = "descartar" | "retomar" | "cerrar" | "respuesta" | "enviar" | "vobo";
 type Dialogo = { tipo: TipoDialogo; oferta: Oferta } | null;
 
 const dinero = (n: number | null | undefined) => (n == null ? "—" : fmtMoney(Number(n)));
@@ -70,6 +71,78 @@ function useManejaError(reemplaza: (o: Oferta) => void) {
     if (info.oferta) reemplaza(info.oferta);
     toast.error(info.causa === "VERSION_DESACTUALIZADA" ? "Otra persona cambió esta oferta; se actualizó con sus datos." : mensajeError(r));
   }, [reemplaza]);
+}
+
+type Fallo = Extract<ApiResponse<unknown>, { successful: false }>;
+
+/**
+ * Ajuste del monto y VoBo, igual en la tabla de Ofertas y dentro de la conversación.
+ *   - guardaMonto: si el monto sale del margen y el usuario no puede autorizar, primero pide el motivo (DialogoAjuste);
+ *     si la base deja el VoBo pendiente, avisa por correo a quienes autorizan (TomaUnidades.notificaVobo).
+ *   - abreVobo: GERENTE / ADMINISTRADOR autoriza o rechaza (DialogoVobo).
+ * La base vuelve a validar todo (margen vigente, permiso y agencia).
+ */
+function useMontoYVobo({ aplica, manejaError, marca }: {
+  aplica: (o: Oferta) => void; manejaError: (r: Fallo) => void; marca: (o: Oferta, enCurso: boolean) => void;
+}) {
+  const { usuarioHub } = useAuth();
+  const [ajuste, setAjuste] = useState<{ oferta: Oferta; monto: number } | null>(null);
+  const [vobo, setVobo] = useState<Oferta | null>(null);
+  const autoriza = useCallback((o: Oferta) => puedeAutorizarVobo(usuarioHub, o.idMarca), [usuarioHub]);
+
+  const guardaMonto = async (o: Oferta, monto: number, motivo?: string): Promise<boolean> => {
+    if (motivo === undefined && montoRequiereVobo(o, monto) && !autoriza(o)) {
+      setAjuste({ oferta: o, monto });
+      return false;
+    }
+    marca(o, true);
+    const r = await calibraOferta({ idOferta: o.idOferta, version: o.version, montoOferta: monto, ...(motivo ? { motivo } : {}) });
+    marca(o, false);
+    if (!r.successful) {
+      // El margen cambió desde que se cargó la oferta: la base pide el motivo
+      if ((r.info as { causa?: string } | undefined)?.causa === "REQUIERE_VOBO" && motivo === undefined) {
+        setAjuste({ oferta: o, monto });
+        return false;
+      }
+      manejaError(r);
+      return false;
+    }
+    aplica(r.info.oferta);
+    if (r.info.voboPendiente) {
+      toast.success("Monto guardado. La oferta se podrá enviar cuando el gerente dé su VoBo.");
+      const aviso = await notificaVobo({ idOferta: o.idOferta, origen: window.location.origin });
+      if (!aviso.successful) toast.warning(mensajeError(aviso));
+      else if (aviso.info.notificados.length) toast.info(`Se avisó por correo a ${aviso.info.notificados.join(", ")}`);
+    } else {
+      toast.success(r.info.oferta.vobo?.estado === "AUTORIZADO" ? "Monto guardado y autorizado con tu rol" : "Monto guardado");
+    }
+    return true;
+  };
+
+  const resuelve = async (o: Oferta, autorizado: boolean, motivo: string) => {
+    marca(o, true);
+    const r = await resuelveVobo({ idOferta: o.idOferta, version: o.version, autoriza: autorizado, ...(motivo ? { motivo } : {}) });
+    marca(o, false);
+    if (!r.successful) { manejaError(r); return false; }
+    aplica(r.info.oferta);
+    toast.success(autorizado ? "VoBo autorizado: la oferta ya se puede enviar" : "VoBo rechazado: el monto regresó al anterior");
+    return true;
+  };
+
+  const dialogos = (
+    <>
+      {ajuste && (
+        <DialogoAjuste oferta={ajuste.oferta} monto={ajuste.monto} onCerrar={() => setAjuste(null)}
+          onConfirmar={async (motivo) => { if (await guardaMonto(ajuste.oferta, ajuste.monto, motivo)) setAjuste(null); }} />
+      )}
+      {vobo && (
+        <DialogoVobo oferta={vobo} onCerrar={() => setVobo(null)}
+          onConfirmar={async (autorizado, motivo) => { if (await resuelve(vobo, autorizado, motivo)) setVobo(null); }} />
+      )}
+    </>
+  );
+
+  return { autoriza, guardaMonto, abreVobo: setVobo, dialogos };
 }
 
 export function OfertasApiView({ mod }: { mod: ModuleDef }) {
@@ -124,8 +197,10 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
     toast.success(exito);
     return true;
   };
-  const calibra = (o: Oferta, monto: number) =>
-    ejecuta(o, () => calibraOferta({ idOferta: o.idOferta, version: o.version, montoOferta: monto }), "Monto guardado");
+  const { autoriza, guardaMonto, abreVobo, dialogos: dialogosVobo } = useMontoYVobo({
+    aplica: reemplaza, manejaError, marca: (o, enCurso) => setOcupada(enCurso ? o.idOferta : null),
+  });
+  const calibra = (o: Oferta, monto: number) => guardaMonto(o, monto);
   // Si el hub no pudo enviar, la respuesta trae la oferta ya en FALLIDO (se reemplaza en la tabla) y el motivo
   const envia = (o: Oferta, destino: DestinoEnvio) =>
     ejecuta(o, () => enviaOferta({ idOferta: o.idOferta, version: o.version, ...destino }),
@@ -266,19 +341,20 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
                             ) : (
                               <td onClick={(e) => e.stopPropagation()}>
                                 {o.puede.calibrar
-                                  ? <MontoEditable oferta={o} deshabilitado={enCurso} onGuardar={(m) => calibra(o, m)} />
+                                  ? <MontoEditable oferta={o} autoriza={autoriza(o)} deshabilitado={enCurso} onGuardar={(m) => calibra(o, m)} />
                                   : <><b className="num">{dinero(o.montoOferta)}</b><small className="vsub">Sugerido {dinero(o.montoSugeridoVenta)}</small></>}
                               </td>
                             )}
                             <td><span className={`pill ${det.tono}`}>{det.texto}</span></td>
                             <td onClick={(e) => e.stopPropagation()}>
-                              <AccionesFila oferta={o} deshabilitado={enCurso} enviando={ocupada === o.idOferta} onEnvia={() => esProduccion ? envia(o, { alCliente: true }) : setDialogo({ tipo: "enviar", oferta: o })}
-                                onAbre={(tipo) => setDialogo({ tipo, oferta: o })} />
+                              <AccionesFila oferta={o} deshabilitado={enCurso} enviando={ocupada === o.idOferta} autorizaVobo={autoriza(o)}
+                                onEnvia={() => esProduccion ? envia(o, { alCliente: true }) : setDialogo({ tipo: "enviar", oferta: o })}
+                                onAbre={(tipo) => (tipo === "vobo" ? abreVobo(o) : setDialogo({ tipo, oferta: o }))} />
                             </td>
                           </tr>
                           {abiertaFila && (
                             <tr className="vexp"><td colSpan={7}>
-                              <FichaOferta oferta={o} deshabilitado={enCurso} onCalibra={(m) => calibra(o, m)} />
+                              <FichaOferta oferta={o} deshabilitado={enCurso} autoriza={autoriza(o)} onCalibra={(m) => calibra(o, m)} />
                             </td></tr>
                           )}
                         </Fragment>
@@ -303,7 +379,8 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
           }}
         />
       )}
-      {dialogo && dialogo.tipo !== "respuesta" && dialogo.tipo !== "enviar" && (
+      {dialogosVobo}
+      {dialogo && (dialogo.tipo === "descartar" || dialogo.tipo === "retomar" || dialogo.tipo === "cerrar") && (
         <DialogoMotivo
           tipo={dialogo.tipo}
           oferta={dialogo.oferta}
@@ -369,11 +446,13 @@ function ColOrden({ activa, asc, onClick, children }: { activa: boolean; asc: bo
 
 // ---------- Acciones de la fila: una principal a la vista, el resto en el menú ----------
 
-function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
-  oferta: Oferta; deshabilitado: boolean; enviando: boolean; onEnvia: () => void; onAbre: (t: TipoDialogo) => void;
+function AccionesFila({ oferta: o, deshabilitado, enviando, autorizaVobo, onEnvia, onAbre }: {
+  oferta: Oferta; deshabilitado: boolean; enviando: boolean; autorizaVobo: boolean; onEnvia: () => void; onAbre: (t: TipoDialogo) => void;
 }) {
-  const principal: "enviar" | "respuesta" | "retomar" | null =
-    o.puede.enviar ? "enviar" : o.puede.registrarRespuesta ? "respuesta" : o.puede.retomar ? "retomar" : null;
+  // Con el VoBo pendiente, quien autoriza lo tiene como acción principal (Enviar está bloqueado hasta resolverlo)
+  const principal: "vobo" | "enviar" | "respuesta" | "retomar" | null =
+    o.puede.resolverVobo && autorizaVobo ? "vobo"
+      : o.puede.enviar ? "enviar" : o.puede.registrarRespuesta ? "respuesta" : o.puede.retomar ? "retomar" : null;
   const menu = [
     o.puede.registrarRespuesta && principal !== "respuesta" && { tipo: "respuesta" as const, label: "Editar estatus", icono: <Pencil size={14} /> },
     o.puede.retomar && principal !== "retomar" && { tipo: "retomar" as const, label: "Retomar", icono: <RotateCcw size={14} /> },
@@ -390,6 +469,11 @@ function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
         <Link href={rutaConversacion(conversacion)} className="btn" title="Abrir la conversación de WhatsApp de esta oferta">
           <MessageSquare size={14} />Ver conversación
         </Link>
+      )}
+      {principal === "vobo" && (
+        <button type="button" className="btn" disabled={deshabilitado} onClick={() => onAbre("vobo")} title="Autorizar o rechazar el monto fuera del margen">
+          <ShieldCheck size={14} />Revisar VoBo
+        </button>
       )}
       {principal === "enviar" && (
         <button type="button" className="btn" disabled={deshabilitado} onClick={onEnvia} title="Enviar la oferta al cliente por WhatsApp">
@@ -425,8 +509,10 @@ function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
 
 // ---------- Monto editable (calibrar) ----------
 
-function MontoEditable({ oferta, deshabilitado, onGuardar, grande = false }: {
-  oferta: Oferta; deshabilitado: boolean; onGuardar: (monto: number) => Promise<boolean | void>; grande?: boolean;
+function MontoEditable({ oferta, deshabilitado, onGuardar, autoriza = false, grande = false }: {
+  oferta: Oferta; deshabilitado: boolean; onGuardar: (monto: number) => Promise<boolean | void>;
+  /** El usuario puede autorizar VoBo en esta marca: su ajuste fuera del margen queda autorizado */
+  autoriza?: boolean; grande?: boolean;
 }) {
   const actual = oferta.montoOferta != null ? Number(oferta.montoOferta) : null;
   const formatea = (n: number | null) => (n != null ? n.toLocaleString("es-MX") : "");
@@ -436,6 +522,13 @@ function MontoEditable({ oferta, deshabilitado, onGuardar, grande = false }: {
   const cambio = monto > 0 && monto !== actual;
   const descarta = () => setTexto(formatea(actual));
   const idAyuda = `monto-ayuda-${oferta.idOferta}${grande ? "-f" : ""}`;
+  const fueraDeMargen = cambio && montoRequiereVobo(oferta, monto);
+  const margen = oferta.vobo?.margen != null ? `±${dinero(oferta.vobo.margen)}` : "";
+  const ayuda = !cambio
+    ? `Sugerido ${dinero(oferta.montoSugeridoVenta)}`
+    : fueraDeMargen
+      ? `Fuera del margen ${margen}: ${autoriza ? "queda autorizado con tu rol" : "pedirá VoBo del gerente"} · Enter para guardar`
+      : "Enter para guardar · Esc para descartar";
 
   return (
     <div className={`oamt${grande ? " lg" : ""}`}>
@@ -456,15 +549,15 @@ function MontoEditable({ oferta, deshabilitado, onGuardar, grande = false }: {
           </>
         )}
       </div>
-      <small className="vsub" id={idAyuda}>{cambio ? "Enter para guardar · Esc para descartar" : `Sugerido ${dinero(oferta.montoSugeridoVenta)}`}</small>
+      <small className="vsub" id={idAyuda} style={fueraDeMargen ? { color: "var(--warn)" } : undefined}>{ayuda}</small>
     </div>
   );
 }
 
 // ---------- Ficha de la oferta ----------
 
-function FichaOferta({ oferta: o, deshabilitado, onCalibra, compacta = false }: {
-  oferta: Oferta; deshabilitado: boolean; onCalibra: (monto: number) => Promise<boolean | void>;
+function FichaOferta({ oferta: o, deshabilitado, onCalibra, autoriza = false, compacta = false }: {
+  oferta: Oferta; deshabilitado: boolean; onCalibra: (monto: number) => Promise<boolean | void>; autoriza?: boolean;
   /** Una columna y sin enlace a la conversación (se muestra dentro de ella) */
   compacta?: boolean;
 }) {
@@ -486,10 +579,15 @@ function FichaOferta({ oferta: o, deshabilitado, onCalibra, compacta = false }: 
       <section className="ficha-oferta">
         <h3>Oferta</h3>
         {o.puede.calibrar
-          ? <MontoEditable oferta={o} deshabilitado={deshabilitado} onGuardar={onCalibra} grande />
+          ? <MontoEditable oferta={o} autoriza={autoriza} deshabilitado={deshabilitado} onGuardar={onCalibra} grande />
           : <b className="num ficha-monto">{dinero(o.montoOferta)}</b>}
+        <EstadoVobo oferta={o} />
         <dl className="dl">
           <dt>Sugerido venta</dt><dd className="num">{dinero(o.montoSugeridoVenta)}</dd>
+          <dt>Sin VoBo</dt>
+          <dd className="num">{o.vobo?.montoMinimo != null && o.vobo.montoMaximo != null
+            ? `${dinero(o.vobo.montoMinimo)} a ${dinero(o.vobo.montoMaximo)}`
+            : "Sin sugerido: todo monto pide VoBo"}</dd>
           <dt>Sugerido venta-compra</dt><dd className="num">{dinero(o.montoSugeridoVentaCompra)}</dd>
           <dt>Mercado venta</dt><dd className="num">{dinero(o.mercado.valorVenta)}</dd>
           <dt>Mercado compra</dt><dd className="num">{dinero(o.mercado.valorCompra)}</dd>
@@ -528,6 +626,29 @@ function FichaOferta({ oferta: o, deshabilitado, onCalibra, compacta = false }: 
   );
 }
 
+/** Aviso del VoBo del monto bajo el monto (pendiente, autorizado o rechazado); nada si el monto no lo requiere. */
+function EstadoVobo({ oferta: o }: { oferta: Oferta }) {
+  const v = o.vobo;
+  if (!v?.estado) return null;
+  const quien = (email: string | null) => email ?? "—";
+  if (v.estado === "PENDIENTE") {
+    return (
+      <p className="vreason" style={{ margin: "8px 0" }}>
+        <b>Pendiente de VoBo.</b> {quien(v.solicitadoPor)} lo dejó fuera del margen{v.motivoSolicitud ? `: “${v.motivoSolicitud}”` : ""}.
+        {" "}Si se rechaza regresa a {dinero(v.montoPrevio)}.{v.notificadoEn ? " Se avisó por correo." : ""}
+      </p>
+    );
+  }
+  if (v.estado === "AUTORIZADO") {
+    return <p className="vsub" style={{ margin: "8px 0" }}>VoBo autorizado por {quien(v.resueltoPor)}{v.resueltoEn ? ` · ${fechaHora(v.resueltoEn)}` : ""}</p>;
+  }
+  return (
+    <p className="vreason" style={{ margin: "8px 0" }}>
+      <b>VoBo rechazado</b> por {quien(v.resueltoPor)}{v.motivoResolucion ? `: “${v.motivoResolucion}”` : ""}. El monto regresó al anterior.
+    </p>
+  );
+}
+
 // ---------- La oferta dentro de su conversación ----------
 
 /**
@@ -539,8 +660,11 @@ export function OfertaEnConversacion({ idOferta }: { idOferta: number }) {
   const [oferta, setOferta] = useState<Oferta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ocupada, setOcupada] = useState(false);
-  const [dialogo, setDialogo] = useState<Exclude<TipoDialogo, "enviar"> | null>(null);
+  const [dialogo, setDialogo] = useState<Exclude<TipoDialogo, "enviar" | "vobo"> | null>(null);
   const manejaError = useManejaError(setOferta);
+  const { autoriza, guardaMonto, abreVobo, dialogos: dialogosVobo } = useMontoYVobo({
+    aplica: setOferta, manejaError, marca: (_o, enCurso) => setOcupada(enCurso),
+  });
 
   const carga = useCallback(async () => {
     const r = await consultaOferta(idOferta);
@@ -574,6 +698,7 @@ export function OfertaEnConversacion({ idOferta }: { idOferta: number }) {
   const det = detalleOferta(o);
   const estado = ESTADOS.find((e) => e.id === o.estado);
   const acciones = [
+    o.puede.resolverVobo && autoriza(o) && { tipo: "vobo" as const, label: "Revisar VoBo", icono: <ShieldCheck size={14} /> },
     o.puede.registrarRespuesta && { tipo: "respuesta" as const, label: "Editar estatus", icono: <Pencil size={14} /> },
     o.puede.retomar && { tipo: "retomar" as const, label: "Retomar", icono: <RotateCcw size={14} /> },
     o.puede.descartar && { tipo: "descartar" as const, label: "Descartar", icono: <Ban size={14} /> },
@@ -594,7 +719,7 @@ export function OfertaEnConversacion({ idOferta }: { idOferta: number }) {
       {acciones.length > 0 && (
         <div className="vacts" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
           {acciones.map((a) => (
-            <button key={a.tipo} type="button" className="btn" disabled={ocupada} onClick={() => setDialogo(a.tipo)}
+            <button key={a.tipo} type="button" className="btn" disabled={ocupada} onClick={() => (a.tipo === "vobo" ? abreVobo(o) : setDialogo(a.tipo))}
               style={a.tipo === "descartar" ? { color: "var(--crit)" } : undefined}>
               {a.icono}{a.label}
             </button>
@@ -602,8 +727,8 @@ export function OfertaEnConversacion({ idOferta }: { idOferta: number }) {
         </div>
       )}
       {o.estado === "NO_VIGENTE" && <p className="vreason" style={{ margin: 0 }}><b>Motivo:</b> {motivoNoVigente(o)}</p>}
-      <FichaOferta oferta={o} deshabilitado={ocupada} compacta
-        onCalibra={(m) => ejecuta(() => calibraOferta({ ...ref, montoOferta: m }), "Monto guardado")} />
+      <FichaOferta oferta={o} deshabilitado={ocupada} compacta autoriza={autoriza(o)} onCalibra={(m) => guardaMonto(o, m)} />
+      {dialogosVobo}
 
       {dialogo && dialogo !== "respuesta" && (
         <DialogoMotivo tipo={dialogo} oferta={o} onCerrar={() => setDialogo(null)}
@@ -698,6 +823,96 @@ function DialogoMotivo({ tipo, oferta, onCerrar, onConfirmar }: {
           <Button variant={tipo === "descartar" ? "destructive" : "default"} disabled={!valido || enviando}
             onClick={async () => { setEnviando(true); await onConfirmar(motivo.trim()); setEnviando(false); }}>
             {enviando && <Loader2 className="animate-spin" aria-hidden="true" />}{enviando ? "Guardando…" : t.boton}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Montos de la oferta frente al sugerido: lo que leen el valuador al pedir el VoBo y el gerente al resolverlo. */
+function ResumenAjuste({ oferta: o, monto }: { oferta: Oferta; monto: number }) {
+  const sugerido = o.montoSugeridoVenta != null ? Number(o.montoSugeridoVenta) : null;
+  const diferencia = sugerido != null ? monto - sugerido : null;
+  return (
+    <dl className="dl">
+      <dt>Sugerido venta</dt><dd className="num">{dinero(sugerido)}</dd>
+      <dt>Monto propuesto</dt><dd className="num"><b>{dinero(monto)}</b></dd>
+      {diferencia != null && <><dt>Diferencia</dt><dd className="num">{diferencia > 0 ? "+" : ""}{dinero(diferencia)}</dd></>}
+      <dt>Margen sin VoBo</dt><dd className="num">{o.vobo?.margen != null ? `±${dinero(o.vobo.margen)}` : "—"}</dd>
+    </dl>
+  );
+}
+
+/** El valuador deja el monto fuera del margen: explica por qué (lo lee el gerente) y la oferta queda pendiente de VoBo. */
+function DialogoAjuste({ oferta, monto, onCerrar, onConfirmar }: {
+  oferta: Oferta; monto: number; onCerrar: () => void; onConfirmar: (motivo: string) => Promise<void>;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const valido = motivo.trim().length > 0;
+  return (
+    <Dialog open onOpenChange={(abierto) => !abierto && !enviando && onCerrar()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Pedir VoBo del monto</DialogTitle>
+          <DialogDescription>
+            {oferta.contacto.nombre ?? "Cliente"} · {modelo(oferta)}. El monto sale del margen de ajuste: se guarda, pero la
+            oferta no se podrá enviar hasta que un gerente lo autorice. Se le avisa por correo.
+          </DialogDescription>
+        </DialogHeader>
+        <ResumenAjuste oferta={oferta} monto={monto} />
+        <div className="grid gap-2">
+          <Label htmlFor="motivo-ajuste">Motivo (obligatorio)</Label>
+          <Textarea id="motivo-ajuste" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus
+            placeholder="Ej. la unidad trae equipo adicional, el cliente pidió más…" />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCerrar} disabled={enviando}>Cancelar</Button>
+          <Button disabled={!valido || enviando} onClick={async () => { setEnviando(true); await onConfirmar(motivo.trim()); setEnviando(false); }}>
+            {enviando && <Loader2 className="animate-spin" aria-hidden="true" />}{enviando ? "Guardando…" : "Guardar y pedir VoBo"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** GERENTE / ADMINISTRADOR resuelve el VoBo: autoriza el monto o lo rechaza con motivo (regresa al anterior). */
+function DialogoVobo({ oferta: o, onCerrar, onConfirmar }: {
+  oferta: Oferta; onCerrar: () => void; onConfirmar: (autoriza: boolean, motivo: string) => Promise<void>;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [enviando, setEnviando] = useState<"autoriza" | "rechaza" | null>(null);
+  const resuelve = async (autoriza: boolean) => {
+    setEnviando(autoriza ? "autoriza" : "rechaza");
+    await onConfirmar(autoriza, motivo.trim());
+    setEnviando(null);
+  };
+  return (
+    <Dialog open onOpenChange={(abierto) => !abierto && !enviando && onCerrar()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>VoBo del monto</DialogTitle>
+          <DialogDescription>
+            {o.contacto.nombre ?? "Cliente"} · {modelo(o)} · {o.nombreAgencia ?? o.idAgencia}.
+            {" "}{o.vobo.solicitadoPor ?? "El valuador"} dejó el monto fuera del margen de ajuste.
+          </DialogDescription>
+        </DialogHeader>
+        <ResumenAjuste oferta={o} monto={Number(o.montoOferta)} />
+        {o.vobo.motivoSolicitud && <p className="vreason" style={{ margin: 0 }}><b>Motivo del valuador:</b> {o.vobo.motivoSolicitud}</p>}
+        <div className="grid gap-2">
+          <Label htmlFor="motivo-vobo">Comentario (obligatorio para rechazar)</Label>
+          <Textarea id="motivo-vobo" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+          <p className="text-xs text-muted-foreground">Si rechazas, el monto regresa a {dinero(o.vobo.montoPrevio)}.</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCerrar} disabled={!!enviando}>Cancelar</Button>
+          <Button variant="destructive" disabled={!!enviando || motivo.trim().length === 0} onClick={() => resuelve(false)}>
+            {enviando === "rechaza" && <Loader2 className="animate-spin" aria-hidden="true" />}Rechazar
+          </Button>
+          <Button disabled={!!enviando} onClick={() => resuelve(true)}>
+            {enviando === "autoriza" && <Loader2 className="animate-spin" aria-hidden="true" />}Autorizar {dinero(o.montoOferta)}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -90,6 +90,7 @@ Quién edita a quién (Q39; lo aplican las acciones del editor de usuarios):
 | `hub_cleber.es_administrador_marca` / `exige_administrador_marca(usuario, idMarca)` | Administra algún módulo de la marca; super admin siempre |
 | `hub_cleber.agencias_permitidas(usuario, idMarca)` | Ids asignados; `NULL` = sin restricción (super admin y sistema), `{}` = ninguna |
 | `hub_cleber.usuarios_contexto(email, modulo)` | Para **valuación**, por valor: `{ email, esSuperAdmin, esSistema, marcas: { idMarca: { rol, idEquipo, agencias } } }`, solo las marcas donde tiene rol en el módulo; `NULL` si no existe o está inactivo. `SECURITY DEFINER` |
+| `hub_cleber.emails_con_rol(modulo, idMarca, idAgencia, roles[])` | Para **valuación**, por valor: emails de los usuarios activos (no de sistema) con alguno de esos roles en el módulo de la marca y con la agencia asignada. Con ella valuación avisa por correo del VoBo de un monto. `SECURITY DEFINER` |
 
 ## Acciones
 

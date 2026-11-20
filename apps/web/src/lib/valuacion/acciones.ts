@@ -29,8 +29,25 @@ export async function consultaEtiquetas() {
 
 type Ref = { idOferta: number; version: number };
 
-export async function calibraOferta(o: Ref & { montoOferta: number; motivo?: string }): Promise<ApiResponse<{ oferta: Oferta }>> {
+/**
+ * Ajusta el monto. Fuera de ± margen sobre el sugerido el motivo es obligatorio y la oferta queda con VoBo pendiente
+ * (voboPendiente): no se envía hasta que un GERENTE o ADMINISTRADOR lo resuelva. Ahí la pantalla pide notificaVobo.
+ */
+export async function calibraOferta(o: Ref & { montoOferta: number; motivo?: string }): Promise<ApiResponse<{ oferta: Oferta; voboPendiente: boolean }>> {
   return llama("calibra_oferta", "calibraOferta", o);
+}
+
+/** GERENTE o ADMINISTRADOR de la agencia (permiso autorizar): autoriza el monto o lo rechaza con motivo (regresa al anterior). */
+export async function resuelveVobo(o: Ref & { autoriza: boolean; motivo?: string }): Promise<ApiResponse<{ oferta: Oferta }>> {
+  return llama("resuelve_vobo", "resuelveVobo", o);
+}
+
+/**
+ * Avisa por correo a quienes pueden autorizar el VoBo pendiente (Lambda de valuación, TomaUnidades.notificaVobo).
+ * `origen` (https://host de la web) va como enlace en el correo. Un aviso por solicitud.
+ */
+export async function notificaVobo(o: { idOferta: number; origen: string }): Promise<ApiResponse<{ notificados: string[]; yaNotificado: boolean }>> {
+  return api.lambda("toma-unidades-acciones", "TomaUnidades.notificaVobo", o);
 }
 
 export async function descartaOferta(o: Ref & { motivo: string }): Promise<ApiResponse<{ oferta: Oferta }>> {
