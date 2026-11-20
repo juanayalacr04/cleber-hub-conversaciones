@@ -34,6 +34,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { noAbre, tarjetaClicable } from "./tarjeta";
 
 const MODULO = "valuacion" as const;
 
@@ -155,6 +157,7 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
   const puedeEditar = conf.puedeEditar;
   const equipos = [...conf.equipos].sort((a, b) => Number(b.esActivo) - Number(a.esActivo) || a.nombre.localeCompare(b.nombre));
   const modo = MODOS.find((m) => m.id === form.modo);
+  const clic = (e: Equipo) => tarjetaClicable(puedeEditar ? () => abreEdicion(e) : null, `Editar el equipo ${e.nombre}`);
 
   return (
     <div>
@@ -182,10 +185,11 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
             const disponibles = valuadores.filter((u) => u.esDisponible).length;
             const numeros = numerosDe(e.idEquipo);
             return (
-              <Card key={e.idEquipo} className={e.esActivo ? "" : "opacity-60"}>
+              <Card key={e.idEquipo} {...clic(e)} className={cn(clic(e).className, !e.esActivo && "opacity-60")}>
                 <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
                   <CardTitle className="text-lg flex items-center gap-2"><Users2 className="h-5 w-5 text-gray-500" />{e.nombre}</CardTitle>
                   {puedeEditar && (
+                    <div {...noAbre}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" aria-label="Acciones del equipo"><MoreVertical className="h-4 w-4" /></Button>
@@ -197,6 +201,7 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    </div>
                   )}
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -217,7 +222,7 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
                   </div>
                   {valuadores.length === 0 && e.esActivo && (
                     <p className="text-xs text-amber-700">
-                      Sin valuadores: liga a los valuadores en <Link className="underline" href={modulePath(mod.id, "/agentes")}>Usuarios</Link>.
+                      Sin valuadores: liga a los valuadores en <Link {...noAbre} className="underline" href={modulePath(mod.id, "/agentes")}>Usuarios</Link>.
                     </p>
                   )}
                 </CardContent>

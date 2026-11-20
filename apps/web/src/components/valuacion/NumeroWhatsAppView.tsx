@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { noAbre, tarjetaClicable } from "./tarjeta";
 
 const MODULO = "valuacion" as const;
 const LLAVE_PLANTILLA = "ofertaValuacion";
@@ -359,13 +360,14 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
             const idPlantilla = plantilla && (plantilla.contentSid ?? plantilla.templateName);
             const cuenta = cuentaDe(n);
             return (
-              <Card key={n.idNumero}>
+              <Card key={n.idNumero} {...tarjetaClicable(puedeEditar ? () => abreEdicion(n) : null, `Editar el número ${n.nombre}`)}>
                 <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
                   <div>
                     <CardTitle className="text-lg flex items-center gap-2"><Phone className="h-5 w-5 text-green-600" />{n.nombre}</CardTitle>
                     <p className="text-sm text-gray-500 mt-1 font-mono">{n.telefono}</p>
                   </div>
                   {puedeEditar && (
+                    <div {...noAbre}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" aria-label="Acciones del número"><MoreVertical className="h-4 w-4" /></Button>
@@ -377,6 +379,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    </div>
                   )}
                 </CardHeader>
                 <CardContent>

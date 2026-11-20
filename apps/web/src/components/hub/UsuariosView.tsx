@@ -14,17 +14,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
-import { Loader2, MoreVertical, Pencil, Plus, Trash2, UserCog, Users } from "lucide-react";
+import {
+  Building2, Car, Clock, Eye, Headset, Loader2, LogOut, Mail, MoreVertical, Pencil, Plus, RotateCcw, ShieldCheck, ShoppingBag, Trash2,
+  UserCog, UserMinus, UserX, Users, Users2, Wrench, type LucideIcon,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { consultaAgenciasMarca } from "@/lib/hub/agencias";
 import { consultaConfiguracionModulo } from "@/lib/hub/configuracion";
+import { consultaUsuarioActual } from "@/lib/hub/usuario";
 import {
-  cambiaDisponibilidad, consultaRolesModulo, consultaUsuarios, enviaInvitacion, guardaUsuario, invitaUsuario, quitaUsuarioDeMarca,
+  cambiaActivoUsuario, cambiaDisponibilidad, consultaRolesModulo, consultaUsuarios, enviaInvitacion, guardaUsuario, invitaUsuario, quitaUsuarioDeMarca,
   type ConsultaUsuarios, type ModuloHub, type RolModulo, type UsuarioEnMarca,
 } from "@/lib/hub/usuarios";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,8 +50,18 @@ const CON_EQUIPO: ModuloHub[] = ["ventas", "servicio", "valuacion"];
 const SIN_ROL = "__sin_rol__";
 const SIN_EQUIPO = "__sin_equipo__";
 
+const ICONO_MODULO: Record<ModuloHub, LucideIcon> = { ventas: ShoppingBag, servicio: Wrench, valuacion: Car };
+/** Cuántas agencias se ven antes de "+N" */
+const AGENCIAS_VISIBLES = 3;
+
 type Agencia = { id: string; nombre: string; lugar?: string };
 type Asignacion = { rol: string; idEquipo: string };
+/** Lo que se pide confirmar antes de quitar a alguien */
+type Confirmacion =
+  | { tipo: "modulo"; u: UsuarioEnMarca; modulo: ModuloHub }
+  | { tipo: "marca"; u: UsuarioEnMarca }
+  | { tipo: "baja"; u: UsuarioEnMarca }
+  | { tipo: "reactivar"; u: UsuarioEnMarca };
 
 const iniciales = (u: UsuarioEnMarca) => (u.nombre || u.email).split(/[\s@.]+/).filter(Boolean).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -93,6 +111,10 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
   const [catalogo, setCatalogo] = useState<Agencia[]>([]);
   const [errorCatalogo, setErrorCatalogo] = useState<string | null>(null);
   const [todos, setTodos] = useState(modulo === null);
+  // El super admin ve también a los dados de baja (para reactivarlos) y es el único que da de baja en todo el hub
+  const [soySuper, setSoySuper] = useState(false);
+  const [confirmacion, setConfirmacion] = useState<Confirmacion | null>(null);
+  const [quitando, setQuitando] = useState(false);
 
   // Alta
   const [invitando, setInvitando] = useState(false);
@@ -111,14 +133,17 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
   const carga = useCallback(async () => {
     if (!idMarca) return;
     setError(null);
-    const r = await consultaUsuarios({ idMarca, ...(modulo && !todos ? { modulo } : {}) });
+    const r = await consultaUsuarios({ idMarca, ...(modulo && !todos ? { modulo } : {}), ...(soySuper ? { incluyeInactivos: true } : {}) });
     if (r.successful) { setDatos(r.info); return; }
     if (r.errorCode === "SESION_EXPIRADA") { signOut({ redirectTo: "/login" }); return; }
     setDatos(null);
     setError(r.errorCode === "SIN_PERMISO" ? "Solo un administrador de la marca puede ver y editar sus usuarios." : r.errorMessage || "No se pudieron cargar los usuarios");
-  }, [idMarca, modulo, todos]);
+  }, [idMarca, modulo, todos, soySuper]);
 
   useEffect(() => { carga(); }, [carga]);
+  useEffect(() => {
+    consultaUsuarioActual().then((r) => { if (r.successful) setSoySuper(r.info.usuario.esSuperAdmin); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     consultaRolesModulo().then((r) => { if (r.successful) setRoles(r.info.roles); }).catch(() => {});
@@ -244,12 +269,36 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
     carga();
   };
 
-  const quita = async (u: UsuarioEnMarca) => {
-    if (!idMarca || !confirm(`¿Quitar a ${u.nombre || u.email} de la marca? Pierde sus roles y agencias en ella.`)) return;
-    const r = await quitaUsuarioDeMarca({ idUsuario: u.idUsuario, idMarca });
-    if (!r.successful) { fallo(r, "No se pudo quitar de la marca"); return; }
-    toast.success(`${u.nombre || u.email} ya no está en la marca`);
-    carga();
+  /** Ejecuta lo confirmado: quitar de un módulo, de la marca, o dar de baja / reactivar en todo el hub. */
+  const confirma = async () => {
+    if (!idMarca || !confirmacion) return;
+    const { u } = confirmacion;
+    const quien = u.nombre || u.email;
+    setQuitando(true);
+    try {
+      if (confirmacion.tipo === "modulo") {
+        const m = confirmacion.modulo;
+        const r = await guardaUsuario({ idUsuario: u.idUsuario, idMarca, modulos: { [m]: null } });
+        if (!r.successful) { fallo(r, `No se pudo quitar de ${NOMBRE_MODULO[m]}`); return; }
+        toast.success(`${quien} ya no tiene rol en ${NOMBRE_MODULO[m]}`);
+      } else if (confirmacion.tipo === "marca") {
+        const r = await quitaUsuarioDeMarca({ idUsuario: u.idUsuario, idMarca });
+        if (!r.successful) { fallo(r, "No se pudo quitar de la marca"); return; }
+        toast.success(`${quien} ya no está en ${currentOrgName ?? idMarca}`);
+      } else {
+        const activar = confirmacion.tipo === "reactivar";
+        const r = await cambiaActivoUsuario({ idUsuario: u.idUsuario, esActivo: activar });
+        if (!r.successful) { fallo(r, activar ? "No se pudo reactivar" : "No se pudo dar de baja"); return; }
+        const abiertas = r.info.conversacionesAbiertas;
+        if (activar) toast.success(`${quien} se reactivó: vuelve a entrar con sus roles y agencias`);
+        else if (abiertas > 0) toast.warning(`${quien} se dio de baja. Tenía ${abiertas} conversación${abiertas === 1 ? "" : "es"} abierta${abiertas === 1 ? "" : "s"} asignada${abiertas === 1 ? "" : "s"}: reasígnalas`);
+        else toast.success(`${quien} se dio de baja del hub`);
+      }
+      setConfirmacion(null);
+      carga();
+    } finally {
+      setQuitando(false);
+    }
   };
 
   if (!idMarca) return <p className="text-muted-foreground">Elige una marca para ver sus usuarios.</p>;
@@ -295,63 +344,113 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
         <div className="grid gap-2">
           {usuarios.map((u) => {
             const yo = u.email === miEmail;
+            const quien = u.nombre || u.email;
+            const modulosDe = MODULOS.filter((m) => u.modulos[m]);
+            // Quitar de un módulo: los que administra quien consulta (a sí mismo no; la base tampoco lo deja)
+            const quitables = yo ? [] : modulosDe.filter((m) => editables.includes(m));
+            const agencias = u.agencias.map(nombreAgencia);
             return (
-              <Card key={u.idUsuario} className={u.esActivo ? undefined : "opacity-60"}>
-                <CardContent className="flex items-center justify-between gap-4 py-4 flex-wrap">
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className="relative shrink-0">
-                      <Avatar>
-                        <AvatarImage src={u.fotoUrl || undefined} />
-                        <AvatarFallback>{iniciales(u)}</AvatarFallback>
-                      </Avatar>
-                      <span
-                        className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${u.esDisponible ? "bg-green-500" : "bg-gray-400"}`}
-                        title={u.esDisponible ? "Disponible" : "No disponible"}
-                      />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-medium truncate">{u.nombre || u.email}</p>
-                        {yo && <Badge variant="outline" className="text-xs">Tú</Badge>}
-                        {u.esSuperAdmin && <Badge variant="outline" className="text-xs">Super admin</Badge>}
-                        {u.esInvitado && <Badge variant="outline" className="text-xs">Invitado</Badge>}
-                        {!u.esActivo && <Badge variant="outline" className="text-xs">Inactivo</Badge>}
+              <Card key={u.idUsuario} className={u.esActivo ? "py-0" : "py-0 opacity-60"}>
+                <CardContent className="flex flex-col gap-3 py-4">
+                  {/* Quién es */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="relative shrink-0">
+                        <Avatar>
+                          <AvatarImage src={u.fotoUrl || undefined} />
+                          <AvatarFallback>{iniciales(u)}</AvatarFallback>
+                        </Avatar>
+                        <span
+                          className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${u.esDisponible ? "bg-green-500" : "bg-gray-400"}`}
+                          title={u.esDisponible ? "Disponible: recibe asignaciones" : "No disponible: no recibe asignaciones"}
+                        />
                       </div>
-                      {u.nombre && <p className="text-sm text-muted-foreground truncate">{u.email}</p>}
-                      <p className="text-xs text-muted-foreground">
-                        {u.ultimoAccesoEn ? `Último acceso ${formatDistanceToNow(new Date(u.ultimoAccesoEn), { addSuffix: true, locale: es })}` : "Nunca ha entrado"}
-                        {` · ${u.agencias.length ? `Agencias: ${u.agencias.map(nombreAgencia).join(", ")}` : "Sin agencias"}`}
-                      </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium truncate">{quien}</p>
+                          {yo && <Badge variant="outline" className="text-xs">Tú</Badge>}
+                          {u.esSuperAdmin && <Badge variant="outline" className="text-xs gap-1"><ShieldCheck className="h-3 w-3" aria-hidden="true" />Super admin</Badge>}
+                          {u.esInvitado && <Badge variant="outline" className="text-xs gap-1"><Mail className="h-3 w-3" aria-hidden="true" />Invitado</Badge>}
+                          {!u.esActivo && <Badge variant="destructive" className="text-xs gap-1"><UserX className="h-3 w-3" aria-hidden="true" />Dado de baja</Badge>}
+                        </div>
+                        {u.nombre && <p className="text-sm text-muted-foreground truncate">{u.email}</p>}
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="h-3 w-3" aria-hidden="true" />
+                          {u.ultimoAccesoEn ? `Último acceso ${formatDistanceToNow(new Date(u.ultimoAccesoEn), { addSuffix: true, locale: es })}` : "Nunca ha entrado"}
+                          <span aria-hidden="true">·</span>{u.esDisponible ? "Disponible" : "No disponible"}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap justify-end">
-                    {MODULOS.filter((m) => u.modulos[m]).map((m) => {
-                      const a = u.modulos[m]!;
-                      const equipo = nombreEquipo(a.idEquipo);
-                      return (
-                        <Badge key={m} variant={m === modulo ? "default" : "secondary"} className="text-xs">
-                          {NOMBRE_MODULO[m]} · {nombreRol(m, a.rol)}{equipo ? ` · ${equipo}` : ""}
-                        </Badge>
-                      );
-                    })}
                     {esAdmin && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label={`Acciones de ${u.nombre || u.email}`}><MoreVertical className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="icon" aria-label={`Acciones de ${quien}`}><MoreVertical className="h-4 w-4" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => edita(u)}><Pencil className="mr-2 h-4 w-4" />Editar roles y agencias</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => disponibilidad(u)}>
                             <UserCog className="mr-2 h-4 w-4" />{u.esDisponible ? "Marcar no disponible" : "Marcar disponible"}
                           </DropdownMenuItem>
+                          {(quitables.length > 0 || !yo) && <DropdownMenuSeparator />}
+                          {quitables.map((m) => (
+                            <DropdownMenuItem key={m} className="text-destructive" onClick={() => setConfirmacion({ tipo: "modulo", u, modulo: m })}>
+                              <UserMinus className="mr-2 h-4 w-4" />Quitar de {NOMBRE_MODULO[m]}
+                            </DropdownMenuItem>
+                          ))}
                           {!yo && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem className="text-destructive" onClick={() => quita(u)}><Trash2 className="mr-2 h-4 w-4" />Quitar de la marca</DropdownMenuItem>
-                            </>
+                            <DropdownMenuItem className="text-destructive" onClick={() => setConfirmacion({ tipo: "marca", u })}>
+                              <LogOut className="mr-2 h-4 w-4" />Quitar de la marca
+                            </DropdownMenuItem>
+                          )}
+                          {soySuper && !yo && (
+                            u.esActivo ? (
+                              <DropdownMenuItem className="text-destructive" onClick={() => setConfirmacion({ tipo: "baja", u })}>
+                                <Trash2 className="mr-2 h-4 w-4" />Dar de baja del hub
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem onClick={() => setConfirmacion({ tipo: "reactivar", u })}>
+                                <RotateCcw className="mr-2 h-4 w-4" />Reactivar en el hub
+                              </DropdownMenuItem>
+                            )
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
+                    )}
+                  </div>
+
+                  {/* Qué hace: un renglón por módulo (rol y equipo) y sus agencias */}
+                  <div className="grid gap-2 sm:grid-cols-[repeat(auto-fill,minmax(230px,1fr))]">
+                    {modulosDe.length === 0 && <p className="text-xs text-muted-foreground">Sin rol en ningún módulo de la marca</p>}
+                    {modulosDe.map((m) => {
+                      const a = u.modulos[m]!;
+                      const rol = roles.find((r) => r.modulo === m && r.rol === a.rol);
+                      const IconoModulo = ICONO_MODULO[m];
+                      const IconoRol = rol?.esAdministrador ? ShieldCheck : a.rol === "CONSULTA" ? Eye : Headset;
+                      const equipo = nombreEquipo(a.idEquipo);
+                      return (
+                        <div key={m} className={`rounded-md border px-3 py-2 text-xs space-y-1 ${m === modulo ? "border-primary/50 bg-primary/5" : ""}`}>
+                          <p className="font-medium text-sm flex items-center gap-1.5"><IconoModulo className="h-4 w-4 text-muted-foreground" aria-hidden="true" />{NOMBRE_MODULO[m]}</p>
+                          <p className="flex items-center gap-1.5" title={rol?.descripcion ?? undefined}>
+                            <IconoRol className={`h-3.5 w-3.5 ${rol?.esAdministrador ? "text-amber-600" : "text-muted-foreground"}`} aria-hidden="true" />
+                            {nombreRol(m, a.rol)}
+                          </p>
+                          <p className="flex items-center gap-1.5 text-muted-foreground">
+                            <Users2 className="h-3.5 w-3.5" aria-hidden="true" />
+                            {equipo ?? (rol?.esAdministrador ? "Sin equipo (ve todas)" : "Sin equipo")}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                    <Building2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                    {agencias.length === 0 ? <span className="text-muted-foreground">Sin agencias</span> : (
+                      <>
+                        {agencias.slice(0, AGENCIAS_VISIBLES).map((a, i) => <Badge key={`${a}-${i}`} variant="secondary" className="text-xs font-normal">{a}</Badge>)}
+                        {agencias.length > AGENCIAS_VISIBLES && (
+                          <Badge variant="outline" className="text-xs font-normal" title={agencias.slice(AGENCIAS_VISIBLES).join(", ")}>+{agencias.length - AGENCIAS_VISIBLES}</Badge>
+                        )}
+                      </>
                     )}
                   </div>
                 </CardContent>
@@ -360,6 +459,42 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
           })}
         </div>
       )}
+
+      {/* Confirmación para quitar (módulo, marca, hub) o reactivar */}
+      <AlertDialog open={!!confirmacion} onOpenChange={(o) => { if (!o && !quitando) setConfirmacion(null); }}>
+        <AlertDialogContent>
+          {confirmacion && (() => {
+            const quien = confirmacion.u.nombre || confirmacion.u.email;
+            const t = confirmacion.tipo === "modulo"
+              ? { titulo: `¿Quitar a ${quien} de ${NOMBRE_MODULO[confirmacion.modulo]}?`, boton: `Quitar de ${NOMBRE_MODULO[confirmacion.modulo]}`,
+                  desc: `Pierde su rol${confirmacion.u.modulos[confirmacion.modulo]?.idEquipo ? " y su equipo" : ""} en ${NOMBRE_MODULO[confirmacion.modulo]} y deja de ver ese módulo. Sigue en ${nombreMarca} con sus otros módulos y sus agencias.` }
+              : confirmacion.tipo === "marca"
+                ? { titulo: `¿Quitar a ${quien} de ${nombreMarca}?`, boton: "Quitar de la marca",
+                    desc: `Pierde todos sus roles y agencias en ${nombreMarca}. Sus otras marcas no cambian y su historial se conserva.` }
+                : confirmacion.tipo === "baja"
+                  ? { titulo: `¿Dar de baja a ${quien} en todo el hub?`, boton: "Dar de baja",
+                      desc: "Ya no podrá entrar a ninguna marca ni recibirá conversaciones. No se borran sus roles ni su historial: se puede reactivar. Las conversaciones abiertas que tenga asignadas hay que reasignarlas." }
+                  : { titulo: `¿Reactivar a ${quien}?`, boton: "Reactivar",
+                      desc: "Vuelve a entrar con los roles y agencias que tenía. Queda no disponible hasta que se marque disponible." };
+            return (
+              <>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t.titulo}</AlertDialogTitle>
+                  <AlertDialogDescription>{t.desc}</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={quitando}>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction disabled={quitando}
+                    className={confirmacion.tipo === "reactivar" ? undefined : "bg-destructive text-white hover:bg-destructive/90"}
+                    onClick={(e) => { e.preventDefault(); confirma(); }}>
+                    {quitando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t.boton}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </>
+            );
+          })()}
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Alta */}
       <Dialog open={invitando} onOpenChange={setInvitando}>

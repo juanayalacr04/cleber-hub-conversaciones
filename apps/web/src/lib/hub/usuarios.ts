@@ -77,6 +77,11 @@ export async function quitaUsuarioDeMarca(p: { idUsuario: string; idMarca: strin
   return api.call<unknown>("hub", "quita_usuario_de_marca", "Hub.quitaUsuarioDeMarca", { ...p });
 }
 
+/** Baja (o reactivación) en todo el hub; solo super admin. No borra roles ni historial. */
+export async function cambiaActivoUsuario(p: { idUsuario: string; esActivo: boolean }) {
+  return api.call<{ conversacionesAbiertas: number }>("hub", "cambia_activo_usuario", "Hub.cambiaActivoUsuario", { ...p });
+}
+
 export async function cambiaDisponibilidad(p: { idUsuario: string; esDisponible: boolean }) {
   return api.call<{ idUsuario: string; esDisponible: boolean }>("hub", "cambia_disponibilidad", "Hub.cambiaDisponibilidad", { ...p });
 }

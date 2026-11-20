@@ -582,6 +582,8 @@ a.nav[aria-current="page"] { color: var(--primary-fg); }
 .ficha-monto { font-size: 20px; }
 .vcrit li.na svg { color: var(--fg-3); }
 .ficha .vreason { margin: 0; }
+.ficha.compacta { grid-template-columns: minmax(0, 1fr); padding-top: 4px; }
+.ficha.compacta .ficha-oferta { border-right: 0; padding-right: 0; }
 @media (max-width: 1100px) { .ficha { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ficha-oferta { border-right: 0; padding-right: 0; } }
 @media (max-width: 820px) { .ficha { grid-template-columns: minmax(0, 1fr); } .obar-r { justify-content: flex-start; } .obar-r .vsearch { flex: 1 1 200px; } .ofecha-d { min-width: 0; } }
 

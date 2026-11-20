@@ -19,6 +19,7 @@ import {
   MessageSquare, Minus, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Search, Send, X,
 } from "lucide-react";
 import { PageHead } from "@/components/shell/Shell";
+import { useAuth } from "@/contexts/AuthContext";
 import type { ModuleDef } from "@/lib/modules";
 import type { ApiResponse } from "@/lib/api";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -67,6 +68,9 @@ function useManejaError(reemplaza: (o: Oferta) => void) {
 
 export function OfertasApiView({ mod }: { mod: ModuleDef }) {
   const hoy = todayIso();
+  // Solo las ofertas de la marca activa (Valuacion.consultaOfertas recibe idMarca)
+  const { userData } = useAuth();
+  const idMarca = userData?.organizationId ?? null;
   const [fecha, setFecha] = useState(hoy);
   const [ofertas, setOfertas] = useState<Oferta[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +92,8 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
   const carga = useCallback(async (f: string) => {
     setCargando(true);
     setError(null);
-    const r = await consultaOfertas({ fechaGeneracion: f });
+    // La base filtra por la marca activa; el filtro de abajo (deMarca) queda de respaldo
+    const r = await consultaOfertas({ fechaGeneracion: f, ...(idMarca ? { idMarca } : {}) });
     setCargando(false);
     if (r.successful) {
       setOfertas(r.info.ofertas);
@@ -97,9 +102,11 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
     if (r.errorCode === "SESION_EXPIRADA") return manejaError(r);
     setOfertas(null);
     setError(mensajeError(r));
-  }, [manejaError]);
+  }, [manejaError, idMarca]);
 
   useEffect(() => { carga(fecha); }, [fecha, carga]);
+  // Otra marca: otras agencias
+  useEffect(() => { setAgencia("all"); setAbierta(null); }, [idMarca]);
 
   // Una acción sobre una oferta: marca la fila ocupada, aplica la respuesta y avisa
   const ejecuta = async (o: Oferta, accion: () => Promise<ApiResponse<{ oferta: Oferta }>>, exito: string) => {
@@ -118,12 +125,16 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
     ejecuta(o, () => enviaOferta({ idOferta: o.idOferta, version: o.version, ...destino }),
       destino.alCliente ? "Oferta enviada al cliente por WhatsApp" : "Oferta enviada por WhatsApp a tu número de prueba");
 
+  const deMarca = useMemo(() => (ofertas ?? []).filter((o) => !idMarca || o.idMarca === idMarca), [ofertas, idMarca]);
   const agencias = useMemo(() => {
     const m = new Map<string, string>();
-    (ofertas ?? []).forEach((o) => m.set(o.idAgencia, o.nombreAgencia ?? o.idAgencia));
+    deMarca.forEach((o) => m.set(o.idAgencia, o.nombreAgencia ?? o.idAgencia));
+    // La agencia elegida se queda en la lista aunque ese día no tenga ofertas
+    if (agencia !== "all" && !m.has(agencia)) m.set(agencia, agencia);
     return [...m].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [ofertas]);
-  const deAgencia = useMemo(() => (ofertas ?? []).filter((o) => agencia === "all" || o.idAgencia === agencia), [ofertas, agencia]);
+  }, [deMarca, agencia]);
+  const nombresAgencia = useMemo(() => new Map(agencias), [agencias]);
+  const deAgencia = useMemo(() => deMarca.filter((o) => agencia === "all" || o.idAgencia === agencia), [deMarca, agencia]);
   const enTab = deAgencia.filter((o) => o.estado === tab);
   const filas = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -137,7 +148,6 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
         || (a.contacto.nombre ?? "").localeCompare(b.contacto.nombre ?? ""));
   }, [enTab, grupo, q, orden]);
   const filtrado = grupo !== "all" || q.trim() !== "";
-  const variasAgencias = agencias.length > 1;
 
   const cambiaTab = (t: EstadoOferta) => { setTab(t); setGrupo("all"); setAbierta(null); };
   const alterna = (id: number) => setAbierta((a) => (a === id ? null : id));
@@ -163,12 +173,10 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
             <SelectorFecha fecha={fecha} hoy={hoy} onCambia={(f) => { setFecha(f); setAbierta(null); }} />
             <div className="obar-r">
               <label className="search vsearch"><Search size={15} aria-hidden="true" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente, modelo o teléfono" aria-label="Buscar ofertas" /></label>
-              {variasAgencias && (
-                <select className="date" value={agencia} onChange={(e) => setAgencia(e.target.value)} aria-label="Agencia">
-                  <option value="all">Todas mis agencias</option>
-                  {agencias.map(([id, nombre]) => <option key={id} value={id}>{nombre}</option>)}
-                </select>
-              )}
+              <select className="date" value={agencia} onChange={(e) => { setAgencia(e.target.value); setAbierta(null); }} aria-label="Agencia" disabled={agencias.length === 0}>
+                <option value="all">Todas mis agencias</option>
+                {agencias.map(([id, nombre]) => <option key={id} value={id}>{nombre}</option>)}
+              </select>
               <button type="button" className="btn oicon" onClick={() => carga(fecha)} disabled={cargando} aria-label="Actualizar" title="Actualizar">
                 <RefreshCw size={15} className={cargando ? "ospin" : undefined} />
               </button>
@@ -218,6 +226,7 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
                       <ColOrden activa={orden.por === "hora"} asc={orden.asc} onClick={() => ordena("hora")}>Cita</ColOrden>
                     </th>
                     <th>Cliente</th>
+                    <th>Agencia</th>
                     <th aria-sort={orden.por === "modelo" ? (orden.asc ? "ascending" : "descending") : "none"}>
                       <ColOrden activa={orden.por === "modelo"} asc={orden.asc} onClick={() => ordena("modelo")}>Vehículo</ColOrden>
                     </th>
@@ -239,7 +248,8 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
                               </button>
                             </td>
                             <td><b className="num">{o.horaCita ?? "—"}</b><small className="vsub">{diaRelativo(o.fechaCita, hoy)}</small></td>
-                            <td><span className="vname">{o.contacto.nombre ?? "Sin nombre"}</span>{variasAgencias && agencia === "all" && <small className="vsub">{o.nombreAgencia ?? o.idAgencia}</small>}</td>
+                            <td><span className="vname">{o.contacto.nombre ?? "Sin nombre"}</span>{o.contacto.telefono && <small className="vsub num">{o.contacto.telefono}</small>}</td>
+                            <td className="vwrap">{o.nombreAgencia ?? nombresAgencia.get(o.idAgencia) ?? o.idAgencia}</td>
                             <td><span className="vname">{modelo(o)}</span><small className="vsub">{[o.vehiculo.anio, o.vehiculo.kilometraje != null ? fmtKm(o.vehiculo.kilometraje) : null].filter(Boolean).join(" · ")}</small></td>
                             {tab === "NO_VIGENTE" ? (
                               <td className="vwrap">{motivoNoVigente(o)}</td>
@@ -257,7 +267,7 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
                             </td>
                           </tr>
                           {abiertaFila && (
-                            <tr className="vexp"><td colSpan={7}>
+                            <tr className="vexp"><td colSpan={8}>
                               <FichaOferta oferta={o} deshabilitado={enCurso} onCalibra={(m) => calibra(o, m)} />
                             </td></tr>
                           )}
@@ -435,7 +445,11 @@ function MontoEditable({ oferta, deshabilitado, onGuardar, grande = false }: {
 
 // ---------- Ficha de la oferta ----------
 
-function FichaOferta({ oferta: o, deshabilitado, onCalibra }: { oferta: Oferta; deshabilitado: boolean; onCalibra: (monto: number) => Promise<boolean | void> }) {
+function FichaOferta({ oferta: o, deshabilitado, onCalibra, compacta = false }: {
+  oferta: Oferta; deshabilitado: boolean; onCalibra: (monto: number) => Promise<boolean | void>;
+  /** Una columna y sin enlace a la conversación (se muestra dentro de ella) */
+  compacta?: boolean;
+}) {
   // La evaluación de la Lambda (criterios y su detalle) solo viene en consultaOferta; no cambia con las acciones
   const [evaluacion, setEvaluacion] = useState<EvaluacionCita | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -450,7 +464,7 @@ function FichaOferta({ oferta: o, deshabilitado, onCalibra }: { oferta: Oferta; 
   }, [o.idOferta]);
 
   return (
-    <div className="vdetail ficha">
+    <div className={`vdetail ficha${compacta ? " compacta" : ""}`}>
       <section className="ficha-oferta">
         <h3>Oferta</h3>
         {o.puede.calibrar
@@ -485,12 +499,111 @@ function FichaOferta({ oferta: o, deshabilitado, onCalibra }: { oferta: Oferta; 
             {o.etiqueta && <><dt>Estatus</dt><dd>{o.etiqueta.nombre}</dd></>}
             {o.etiqueta?.motivo && <><dt>Motivo</dt><dd>{o.etiqueta.motivo}</dd></>}
             {o.envio.enviadaEn && <><dt>Enviada</dt><dd>{fechaHora(o.envio.enviadaEn)}</dd></>}
-            {o.envio.idConversacion && (
+            {o.envio.idConversacion && !compacta && (
               <><dt>Conversación</dt><dd><Link href={rutaConversacion(o.envio.idConversacion)} className="vlink">Ver conversación</Link></dd></>
             )}
             {o.cierre && <><dt>Cerrada</dt><dd>{fechaHora(o.cierre.cerradaEn)}</dd></>}
           </dl>
         </section>
+      )}
+    </div>
+  );
+}
+
+// ---------- La oferta dentro de su conversación ----------
+
+/**
+ * La oferta de una conversación tal como está hoy (Valuacion.consultaOferta), no la foto del envío: estado, detalle,
+ * monto (calibrable si la base lo permite) y las mismas acciones que en Ofertas, salvo enviar (ya se envió).
+ * Los permisos los vuelve a validar la base; si alguien más cambió la oferta, se reemplaza con la de la base.
+ */
+export function OfertaEnConversacion({ idOferta }: { idOferta: number }) {
+  const [oferta, setOferta] = useState<Oferta | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ocupada, setOcupada] = useState(false);
+  const [dialogo, setDialogo] = useState<Exclude<TipoDialogo, "enviar"> | null>(null);
+  const manejaError = useManejaError(setOferta);
+
+  const carga = useCallback(async () => {
+    const r = await consultaOferta(idOferta);
+    if (r.successful) { setOferta(r.info.oferta); setError(null); return; }
+    if (r.errorCode === "SESION_EXPIRADA") return manejaError(r);
+    setError(mensajeError(r));
+  }, [idOferta, manejaError]);
+  useEffect(() => { carga(); }, [carga]);
+
+  if (error) {
+    return (
+      <div className="empty">
+        <b style={{ color: "var(--fg)" }}>No se pudo cargar la oferta #{idOferta}</b><br />{error}
+        <br /><button type="button" className="btn" style={{ marginTop: 12 }} onClick={carga}>Reintentar</button>
+      </div>
+    );
+  }
+  if (!oferta) return <div className="empty">Cargando oferta…</div>;
+
+  const o = oferta;
+  const ejecuta = async (accion: () => Promise<ApiResponse<{ oferta: Oferta }>>, exito: string) => {
+    setOcupada(true);
+    const r = await accion();
+    setOcupada(false);
+    if (!r.successful) return manejaError(r), false;
+    setOferta(r.info.oferta);
+    toast.success(exito);
+    return true;
+  };
+  const ref = { idOferta: o.idOferta, version: o.version };
+  const det = detalleOferta(o);
+  const estado = ESTADOS.find((e) => e.id === o.estado);
+  const acciones = [
+    o.puede.registrarRespuesta && { tipo: "respuesta" as const, label: "Editar estatus", icono: <Pencil size={14} /> },
+    o.puede.retomar && { tipo: "retomar" as const, label: "Retomar", icono: <RotateCcw size={14} /> },
+    o.puede.descartar && { tipo: "descartar" as const, label: "Descartar", icono: <Ban size={14} /> },
+    o.puede.cerrar && { tipo: "cerrar" as const, label: "Cerrar oferta", icono: <Lock size={14} /> },
+  ].filter(Boolean) as { tipo: Exclude<TipoDialogo, "enviar">; label: string; icono: React.ReactNode }[];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <b>Oferta #{o.idOferta}</b>
+        {estado && <span className={`pill ${estado.tono}`}>{estado.label}</span>}
+        <span className={`pill ${det.tono}`}>{det.texto}</span>
+        <span className="vsub">Cita {diaRelativo(o.fechaCita, todayIso(), true)}{o.horaCita ? ` · ${o.horaCita}` : ""}</span>
+        <button type="button" className="btn oicon" style={{ marginLeft: "auto" }} onClick={carga} disabled={ocupada} aria-label="Actualizar oferta" title="Actualizar oferta">
+          <RefreshCw size={14} />
+        </button>
+      </div>
+      {acciones.length > 0 && (
+        <div className="vacts" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
+          {acciones.map((a) => (
+            <button key={a.tipo} type="button" className="btn" disabled={ocupada} onClick={() => setDialogo(a.tipo)}
+              style={a.tipo === "descartar" ? { color: "var(--crit)" } : undefined}>
+              {a.icono}{a.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {o.estado === "NO_VIGENTE" && <p className="vreason" style={{ margin: 0 }}><b>Motivo:</b> {motivoNoVigente(o)}</p>}
+      <FichaOferta oferta={o} deshabilitado={ocupada} compacta
+        onCalibra={(m) => ejecuta(() => calibraOferta({ ...ref, montoOferta: m }), "Monto guardado")} />
+
+      {dialogo && dialogo !== "respuesta" && (
+        <DialogoMotivo tipo={dialogo} oferta={o} onCerrar={() => setDialogo(null)}
+          onConfirmar={async (motivo) => {
+            const ok = dialogo === "descartar"
+              ? await ejecuta(() => descartaOferta({ ...ref, motivo }), "Oferta descartada")
+              : dialogo === "retomar"
+                ? await ejecuta(() => retomaOferta({ ...ref, motivo: motivo || undefined }), "Oferta retomada")
+                : await ejecuta(() => cierraOferta({ ...ref, motivo: motivo || undefined }), "Oferta cerrada");
+            if (ok) setDialogo(null);
+          }} />
+      )}
+      {dialogo === "respuesta" && (
+        <DialogoRespuesta oferta={o} onCerrar={() => setDialogo(null)}
+          onConfirmar={async (idEtiqueta, motivo) => {
+            const ok = await ejecuta(() => registraRespuesta({ ...ref, idEtiqueta, motivo: motivo || undefined }), "Estatus actualizado");
+            if (ok) setDialogo(null);
+          }} />
       )}
     </div>
   );

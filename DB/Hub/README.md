@@ -109,8 +109,9 @@ Quién edita a quién (Q39; lo aplican las acciones del editor de usuarios):
 | `Hub.guardaUsuario` | `guarda_usuario` | Administrador del módulo (roles) / de algún módulo (agencias) | `idUsuario`, `idMarca`, `agencias?`, `modulos?: { modulo: { rol, idEquipo? } \| null }` → `{ usuario }`. Solo toca lo que viene; `null` quita el rol. `ESTADO_INVALIDO`: `PROPIO_ADMINISTRADOR` |
 | `Hub.quitaUsuarioDeMarca` | `quita_usuario_de_marca` | Administrador de todos los módulos donde el usuario tiene rol en la marca | `idUsuario`, `idMarca` → `{ usuario }`. `ESTADO_INVALIDO`: `PROPIA_MEMBRESIA` |
 | `Hub.cambiaDisponibilidad` | `cambia_disponibilidad` | El propio usuario, o un administrador de una marca que compartan | `esDisponible`, `idUsuario?` → `{ idUsuario, esDisponible }` |
+| `Hub.cambiaActivoUsuario` | `cambia_activo_usuario` | Super admin | `idUsuario`, `esActivo` → `{ usuario, conversacionesAbiertas }`. Baja (o reactivación) en todo el hub: no entra, no recibe asignaciones; no borra roles ni historial. Las conversaciones abiertas asignadas no se mueven. `ESTADO_INVALIDO`: `PROPIA_BAJA` |
 
-Las agencias se guardan por valor: **el backend las valida contra el API de agencias** antes de llamar (plpgsql no tiene el catálogo). Dar de baja a un usuario en todo el hub (`es_activo`) queda para el super admin, sin acción todavía.
+Las agencias se guardan por valor: **el backend las valida contra el API de agencias** antes de llamar (plpgsql no tiene el catálogo).
 
 Objeto `Usuario`: `idUsuario`, `email`, `nombre`, `fotoUrl`, `esSuperAdmin`, `esSistema`, `esActivo`, `esDisponible`, `estado`, `ultimoAccesoEn`, `creadoEn`, `marcas` (`[{ idMarca, nombre, agencias, modulos: { modulo: { rol, idEquipo } } }]`).
 

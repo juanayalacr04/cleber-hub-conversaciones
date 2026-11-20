@@ -116,6 +116,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/quita_usuario_de_marca.sql
 \echo 'Functions/Acciones/cambia_disponibilidad.sql'
 \i Functions/Acciones/cambia_disponibilidad.sql
+\echo 'Functions/Acciones/cambia_activo_usuario.sql'
+\i Functions/Acciones/cambia_activo_usuario.sql
 \echo 'Functions/Acciones/registra_inicio_sesion.sql'
 \i Functions/Acciones/registra_inicio_sesion.sql
 \echo 'Functions/Acciones/consulta_marcas.sql'

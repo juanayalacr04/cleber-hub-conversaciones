@@ -26,8 +26,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
-  ArrowLeft, ArrowRightLeft, Bot, Columns, FileText, Hand, HelpCircle, List, Loader2, MessageCircle, MessageSquare, Phone, RefreshCw,
-  RotateCcw, Search, Send, User, UserCircle, UserPlus, XCircle,
+  ArrowDown, ArrowLeft, ArrowRightLeft, Bot, Building2, Columns, FileText, Hand, HelpCircle, List, Loader2, MessageCircle, MessageSquare,
+  PanelRight, Phone, RefreshCw, RotateCcw, Search, Send, User, UserCircle, UserPlus, X, XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -41,6 +41,7 @@ import {
 import { consultaUsuarios, type UsuarioEnMarca } from "@/lib/hub/usuarios";
 import { mensajeError } from "@/lib/valuacion/tipos";
 import { DialogoCierreConversacion } from "@/components/valuacion/DialogoCierreConversacion";
+import { OfertaEnConversacion } from "@/components/valuacion/OfertasApiView";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -102,8 +103,17 @@ function ConvBadge({ c, short, className }: { c: ConversacionHub; short?: boolea
   );
 }
 
+/** Agencia que atiende (la del envío de la oferta). */
+const agenciaDe = (c: ConversacionHub) => contextoDe(c).agencia || c.idAgencia;
+
 function Brand({ c }: { c: ConversacionHub }) {
-  return <span className="px-1.5 py-0.5 rounded text-[11px] font-medium flex-shrink-0 bg-muted text-foreground">{c.idMarca}</span>;
+  const agencia = agenciaDe(c);
+  if (!agencia) return null;
+  return (
+    <span className="px-1.5 py-0.5 rounded text-[11px] font-medium flex-shrink-0 bg-muted text-foreground inline-flex items-center gap-1 whitespace-nowrap" title={`Agencia: ${agencia}`}>
+      <Building2 className="h-3 w-3 flex-shrink-0" aria-hidden="true" />{agencia}
+    </span>
+  );
 }
 
 function Avatar({ c, small }: { c: ConversacionHub; small?: boolean }) {
@@ -160,7 +170,7 @@ function ListView({ convs, agentes }: { convs: ConversacionHub[]; agentes: Recor
                     <div className="flex items-center gap-3 md:gap-4 min-w-0">
                       <Avatar c={c} />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2"><Brand c={c} /><p className="font-medium text-sm md:text-base truncate">{cliente(c)}</p></div>
+                        <div className="flex items-center gap-x-2 gap-y-1 min-w-0 flex-wrap"><p className="font-medium text-sm md:text-base truncate">{cliente(c)}</p><Brand c={c} /></div>
                         <p className="text-xs md:text-sm text-muted-foreground truncate">{c.telefonoCliente}{resumen(c) && <span> · {resumen(c)}</span>}</p>
                         {preview(c) && <p className="text-xs text-muted-foreground truncate max-w-[200px] md:max-w-[300px]">&ldquo;{preview(c)}&rdquo;</p>}
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Handler c={c} agentes={agentes} /></p>
@@ -210,7 +220,7 @@ function Kanban({ convs, agentes }: { convs: ConversacionHub[]; agentes: Record<
               <Card key={c.idConversacion} className="cursor-pointer hover:bg-accent transition-colors py-0" onClick={() => router.push(rutaFicha(c.idConversacion))}>
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between mb-1 gap-1">
-                    <div className="flex items-center gap-1.5 min-w-0"><Brand c={c} /><span className="font-medium text-sm truncate">{cliente(c)}</span></div>
+                    <div className="flex items-center gap-x-1.5 gap-y-1 min-w-0 flex-wrap"><span className="font-medium text-sm truncate">{cliente(c)}</span><Brand c={c} /></div>
                     <ConvBadge c={c} short className="px-1.5 py-0 ml-1 flex-shrink-0" />
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{c.telefonoCliente}{resumen(c) && <span> · {resumen(c)}</span>}</p>
@@ -264,7 +274,7 @@ function Converse({ convs, sel, onSel, agentes, onCambio }: {
               <Avatar c={c} small />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0"><Brand c={c} /><p className="font-medium text-sm truncate">{cliente(c)}</p></div>
+                  <div className="flex items-center gap-x-1.5 gap-y-1 min-w-0 flex-wrap"><p className="font-medium text-sm truncate">{cliente(c)}</p><Brand c={c} /></div>
                   <ConvBadge c={c} short className="px-1.5 py-0 ml-2 flex-shrink-0" />
                 </div>
                 <p className="text-xs text-muted-foreground truncate">{c.telefonoCliente}{resumen(c) && <span> · {resumen(c)}</span>}</p>
@@ -294,6 +304,8 @@ function Converse({ convs, sel, onSel, agentes, onCambio }: {
 // ---------- Listado (/valuacion/conversaciones) ----------
 
 type View = "list" | "kanban" | "converse";
+const TODAS_AGENCIAS = "__todas__";
+const SIN_AGENCIA = "__sin__";
 
 /** Nombres de los valuadores para mostrar quién atiende (solo los administradores pueden consultarlos; si no, "Valuador"). */
 function useAgentes(idMarca: string | null) {
@@ -344,9 +356,23 @@ export function ConversacionesApiView() {
     return () => clearInterval(t);
   }, [consulta, enVivo]);
 
+  // Filtro por agencia: las que aparecen en las conversaciones (más "Sin agencia" si alguna no trae)
+  const [agencia, setAgencia] = useState<string>(TODAS_AGENCIAS);
+  useEffect(() => { setAgencia(TODAS_AGENCIAS); }, [idMarca]);
+  const agencias = useMemo(() => {
+    const nombres = new Set<string>();
+    let sinAgencia = false;
+    (convs ?? []).forEach((c) => { const a = agenciaDe(c); if (a) nombres.add(a); else sinAgencia = true; });
+    if (agencia !== TODAS_AGENCIAS && agencia !== SIN_AGENCIA) nombres.add(agencia);   // la elegida no desaparece del menú
+    return { nombres: [...nombres].sort((a, b) => a.localeCompare(b)), sinAgencia };
+  }, [convs, agencia]);
+
   const term = q.trim().toLowerCase();
-  const filtradas = useMemo(() => (convs ?? []).filter((c) =>
-    !term || `${cliente(c)} ${c.telefonoCliente} ${contextoDe(c).vehiculo ?? ""}`.toLowerCase().includes(term)), [convs, term]);
+  const filtradas = useMemo(() => (convs ?? []).filter((c) => {
+    const a = agenciaDe(c);
+    if (agencia === SIN_AGENCIA ? !!a : agencia !== TODAS_AGENCIAS && a !== agencia) return false;
+    return !term || `${cliente(c)} ${c.telefonoCliente} ${contextoDe(c).vehiculo ?? ""} ${a ?? ""}`.toLowerCase().includes(term);
+  }), [convs, term, agencia]);
 
   const elige = (id: string) => {
     setSel(id);
@@ -383,12 +409,25 @@ export function ConversacionesApiView() {
         <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
       ) : (
         <>
-          {view !== "kanban" && (
-            <div className="relative mb-3">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <Input type="search" aria-label="Buscar conversaciones por nombre, teléfono o vehículo" placeholder="Buscar por nombre, teléfono o vehículo..." value={q} onChange={(e) => setQ(e.target.value)} className="pl-10" />
-            </div>
-          )}
+          <div className="flex gap-2 mb-3 flex-wrap">
+            {view !== "kanban" && (
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                <Input type="search" aria-label="Buscar conversaciones por nombre, teléfono, vehículo o agencia" placeholder="Buscar por nombre, teléfono, vehículo o agencia..." value={q} onChange={(e) => setQ(e.target.value)} className="pl-10" />
+              </div>
+            )}
+            <Select value={agencia} onValueChange={setAgencia}>
+              <SelectTrigger className="w-fit min-w-[260px] max-w-full" aria-label="Filtrar por agencia">
+                <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS_AGENCIAS}>Todas las agencias</SelectItem>
+                {agencias.nombres.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                {agencias.sinAgencia && <SelectItem value={SIN_AGENCIA}>Sin agencia</SelectItem>}
+              </SelectContent>
+            </Select>
+          </div>
           {view === "kanban" && <Kanban convs={filtradas} agentes={agentes} />}
           {view === "converse" && <Converse convs={filtradas} sel={sel} onSel={elige} agentes={agentes} onCambio={carga} />}
           {view === "list" && <ListView convs={filtradas} agentes={agentes} />}
@@ -433,7 +472,8 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
   const [conv, setConv] = useState<ConversacionHub | null>(null);
   const [mensajes, setMensajes] = useState<MensajeHub[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [conContexto, setConContexto] = useState(false);
+  // Panel lateral con el contexto del bot (mensajes de sistema y datos del envío); el chat no los muestra
+  const [panel, setPanel] = useState(false);
   const [view, setView] = useState<DetailView>("messages");
   const [dialogoCierre, setDialogoCierre] = useState(false);
   const { userData } = useAuth();
@@ -442,13 +482,13 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
   const [texto, setTexto] = useState("");
 
   const carga = useCallback(async () => {
-    const r = await consultaMensajes({ idConversacion, incluyeSistema: conContexto, limite: 200 });
+    const r = await consultaMensajes({ idConversacion, incluyeSistema: true, limite: 200 });
     if (r.successful) { setConv(r.info.conversacion); setMensajes(r.info.mensajes); setError(null); return; }
     if (r.errorCode === "SESION_EXPIRADA") { toast.error(mensajeError(r)); signOut({ redirectTo: "/login" }); return; }
     setError(r.errorCode === "CONVERSACION_NO_ENCONTRADA"
       ? "La conversación no existe o no la puedes ver (es de otro equipo o de otra marca)."
       : mensajeError(r));
-  }, [idConversacion, conContexto]);
+  }, [idConversacion]);
 
   // Con un aviso basta pedir lo posterior al último mensaje que ya se tiene (con la conversación al día)
   const ultimoId = useRef<string | null>(null);
@@ -456,7 +496,7 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
   const cargaNuevos = useCallback(async () => {
     const desde = ultimoId.current;
     if (!desde) { carga(); return; }
-    const r = await consultaMensajes({ idConversacion, incluyeSistema: conContexto, desdeIdMensaje: desde, limite: 200 });
+    const r = await consultaMensajes({ idConversacion, incluyeSistema: true, desdeIdMensaje: desde, limite: 200 });
     if (!r.successful) return;          // el refresco de respaldo lo vuelve a intentar
     if (r.info.hayMas) { carga(); return; }
     setConv(r.info.conversacion);
@@ -465,7 +505,7 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
       const nuevos = r.info.mensajes.filter((m) => !ya.has(m.idMensaje));
       return nuevos.length ? [...ms, ...nuevos] : ms;
     });
-  }, [idConversacion, conContexto, carga]);
+  }, [idConversacion, carga]);
 
   const enVivo = useTiempoReal(conv ? `/hub/${conv.idMarca}/${conv.modulo}/${idConversacion}` : null, cargaNuevos);
   useEffect(() => { carga(); }, [carga]);
@@ -473,6 +513,34 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
     const t = setInterval(() => { if (document.visibilityState === "visible") carga(); }, enVivo ? REFRESCO_EN_VIVO_MS : REFRESCO_MS);
     return () => clearInterval(t);
   }, [carga, enVivo]);
+
+  // Scroll: al abrir (o volver a Mensajes) baja al último mensaje; con cada mensaje nuevo baja solo si ya estaba abajo.
+  // Si subió a leer, no se le mueve: aparece "Mensajes nuevos" para bajar.
+  const chat = useMemo(() => mensajes.filter((m) => m.remitente !== "system"), [mensajes]);
+  const sistema = useMemo(() => mensajes.filter((m) => m.remitente === "system"), [mensajes]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const abajo = useRef(true);
+  const [hayNuevos, setHayNuevos] = useState(false);
+  const ultimoChat = chat.length ? chat[chat.length - 1].idMensaje : null;
+  const bajar = useCallback((suave = false) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: suave ? "smooth" : "auto" });
+    abajo.current = true;
+    setHayNuevos(false);
+  }, []);
+  useEffect(() => { abajo.current = true; }, [view, idConversacion]);
+  useEffect(() => {
+    if (view !== "messages" || !ultimoChat) return;
+    if (abajo.current) bajar();
+    else setHayNuevos(true);
+  }, [ultimoChat, view, bajar]);
+  const alHacerScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    abajo.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (abajo.current) setHayNuevos(false);
+  };
 
   if (error || !conv) {
     return (
@@ -541,6 +609,7 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
     setTrabajando(null);
     if (r.successful) {
       setTexto("");
+      abajo.current = true;   // lo que uno escribe siempre se ve
       setConv(r.info.conversacion);
       setMensajes((ms) => (ms.some((m) => m.idMensaje === r.info.mensaje.idMensaje) ? ms : [...ms, r.info.mensaje]));
       onCambio?.();
@@ -599,9 +668,12 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
             <FileText className="mr-1 h-3 w-3" aria-hidden="true" />Oferta
           </Button>
         )}
-        <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground px-2">
-          <input type="checkbox" checked={conContexto} onChange={(e) => setConContexto(e.target.checked)} />Contexto del bot
-        </label>
+        <Button variant={panel ? "secondary" : "ghost"} size="sm" aria-pressed={panel} aria-controls="panel-contexto"
+          className={cn("ml-auto flex-shrink-0", compact && "h-7 px-2 text-xs")} onClick={() => setPanel((p) => !p)}
+          title={panel ? "Ocultar el contexto del bot" : "Ver el contexto del bot"}>
+          <PanelRight className="mr-1 h-3 w-3" aria-hidden="true" />Contexto del bot
+          {sistema.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{sistema.length}</Badge>}
+        </Button>
         {conv.estado !== "closed" && (
           <Button variant="outline" size="sm" className={cn("flex-shrink-0", compact && "h-7 px-2 text-xs")} style={{ color: "var(--crit)" }}
             onClick={() => setDialogoCierre(true)}>
@@ -659,23 +731,20 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
         )}
       </div>
 
+      <div className="flex-1 min-h-0 flex">
+      <div className="flex-1 min-w-0 flex flex-col">
       {view === "messages" && (
         <>
-          <div className="flex-1 overflow-y-auto py-4 space-y-2">
-            {mensajes.length === 0 && <p className="text-center text-sm text-muted-foreground py-8">Sin mensajes todavía.</p>}
-            {mensajes.map((m) => {
+          <div className="relative flex-1 min-h-0">
+          <div ref={scrollRef} onScroll={alHacerScroll} className="h-full overflow-y-auto py-4 space-y-2">
+            {chat.length === 0 && <p className="text-center text-sm text-muted-foreground py-8">Sin mensajes todavía.</p>}
+            {chat.map((m) => {
               const d = dia(m.creadoEn);
               const separador = d !== diaAnterior
                 ? <div className="flex items-center justify-center my-4"><span className="bg-muted text-muted-foreground text-xs px-3 py-1 rounded-full">{d}</span></div>
                 : null;
               diaAnterior = d;
-              if (m.remitente === "system") {
-                return (
-                  <div key={m.idMensaje}>{separador}
-                    <div className="flex justify-center my-2"><span className="bg-muted text-muted-foreground text-xs px-3 py-1 rounded-lg whitespace-pre-wrap max-w-[85%]">{m.texto}</span></div>
-                  </div>
-                );
-              }
+              if (m.remitente === "system") return null;
               const esCliente = m.remitente === "customer";
               return (
                 <div key={m.idMensaje}>{separador}
@@ -695,6 +764,12 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
               );
             })}
           </div>
+          {hayNuevos && (
+            <Button size="sm" className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-md rounded-full h-8" onClick={() => bajar(true)}>
+              <ArrowDown className="mr-1 h-3 w-3" aria-hidden="true" />Mensajes nuevos
+            </Button>
+          )}
+          </div>
           <div className="border-t pt-4">
             <Card className="p-2">
               <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); envia(); }}>
@@ -710,21 +785,53 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
         </>
       )}
       {view === "offer" && (
-        <div className="flex-1 overflow-y-auto py-4">
-          <Card className="py-0"><CardContent className="py-4 px-4">
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Oferta</dt><dd>#{conv.idExterno}</dd>
-              <dt className="text-muted-foreground">Cliente</dt><dd>{ctx.nombreCliente ?? "—"}</dd>
-              <dt className="text-muted-foreground">Vehículo</dt><dd>{ctx.vehiculo ?? "—"}</dd>
-              <dt className="text-muted-foreground">Kilometraje</dt><dd>{typeof ctx.kilometraje === "number" ? `${ctx.kilometraje.toLocaleString("es-MX")} km` : "—"}</dd>
-              <dt className="text-muted-foreground">Monto ofrecido</dt><dd>{dinero(ctx.montoOferta) ?? "—"}</dd>
-              <dt className="text-muted-foreground">Agencia</dt><dd>{ctx.agencia ?? "—"}</dd>
-              <dt className="text-muted-foreground">Cita de servicio</dt><dd>{[ctx.fechaCita, ctx.horaCita].filter(Boolean).join(" ") || "—"}</dd>
-            </dl>
-            <p className="text-xs text-muted-foreground mt-3">Datos con los que se envió la oferta. El estado actual está en <Link href="/valuacion/ofertas" className="underline">Ofertas</Link>.</p>
-          </CardContent></Card>
+        <div className="flex-1 min-h-0 overflow-y-auto py-4 pr-1">
+          {conv.idExterno && Number.isFinite(Number(conv.idExterno))
+            ? <OfertaEnConversacion idOferta={Number(conv.idExterno)} />
+            : <p className="text-center text-sm text-muted-foreground py-8">Esta conversación no tiene una oferta ligada.</p>}
         </div>
       )}
+      </div>
+
+      {/* Contexto del bot: lo que el bot sabe de la oferta y sus notas de sistema, a un lado del chat */}
+      {panel && (
+        <aside id="panel-contexto" aria-label="Contexto del bot"
+          className={cn("flex-shrink-0 border-l pl-3 ml-3 py-3 overflow-y-auto flex flex-col gap-4", compact ? "w-64" : "w-80")}>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold flex items-center gap-1.5"><Bot className="h-4 w-4" aria-hidden="true" />Contexto del bot</h2>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPanel(false)} aria-label="Cerrar el contexto del bot"><X className="h-4 w-4" /></Button>
+          </div>
+          {conv.fuente === "valuacion" && (
+            <section className="space-y-2">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Datos del envío</h3>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
+                <dt className="text-muted-foreground">Oferta</dt><dd>#{conv.idExterno}</dd>
+                <dt className="text-muted-foreground">Cliente</dt><dd className="break-words">{ctx.nombreCliente ?? "—"}</dd>
+                <dt className="text-muted-foreground">Vehículo</dt><dd className="break-words">{ctx.vehiculo ?? "—"}</dd>
+                <dt className="text-muted-foreground">Kilometraje</dt><dd>{typeof ctx.kilometraje === "number" ? `${ctx.kilometraje.toLocaleString("es-MX")} km` : "—"}</dd>
+                <dt className="text-muted-foreground">Monto</dt><dd>{dinero(ctx.montoOferta) ?? "—"}</dd>
+                <dt className="text-muted-foreground">Agencia</dt><dd className="break-words">{ctx.agencia ?? "—"}</dd>
+                <dt className="text-muted-foreground">Cita</dt><dd>{[ctx.fechaCita, ctx.horaCita].filter(Boolean).join(" ") || "—"}</dd>
+              </dl>
+              <p className="text-xs text-muted-foreground">Con estos datos se envió la oferta. Su estado actual está en la pestaña Oferta.</p>
+            </section>
+          )}
+          <section className="space-y-2">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notas del sistema</h3>
+            {sistema.length === 0 ? <p className="text-sm text-muted-foreground">Sin notas todavía.</p> : (
+              <ol className="space-y-2">
+                {sistema.map((m) => (
+                  <li key={m.idMensaje} className="rounded-md bg-muted px-3 py-2 text-xs">
+                    <p className="whitespace-pre-wrap break-words">{m.texto}</p>
+                    <p className="mt-1 text-muted-foreground">{new Date(m.creadoEn).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}</p>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        </aside>
+      )}
+      </div>
 
       <DialogoCierreConversacion
         conv={conv} abierto={dialogoCierre} onCerrar={() => setDialogoCierre(false)}

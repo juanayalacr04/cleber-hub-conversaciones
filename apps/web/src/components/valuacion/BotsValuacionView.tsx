@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { Bot, Clock, Loader2, MessageSquare, MoreVertical, Phone, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -23,12 +24,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+import { noAbre, tarjetaClicable } from "./tarjeta";
 
 const MODULO = "valuacion" as const;
 const TIPOS: Record<string, string> = { chatllm: "ChatLLM", workflow: "AI Workflow", vertex_ai: "Vertex AI", external: "Bot externo (HTTP)" };
 
 export function BotsValuacionView({ mod }: { mod: ModuleDef }) {
   const { userData } = useAuth();
+  const router = useRouter();
   const idMarca = userData?.organizationId ?? null;
   const [conf, setConf] = useState<ConfiguracionModulo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -113,8 +117,9 @@ export function BotsValuacionView({ mod }: { mod: ModuleDef }) {
           {bots.map((bot) => {
             const c = bot.config ?? {};
             const numeros = numerosDe(bot.idBot);
+            const clic = tarjetaClicable(() => router.push(modulePath(mod.id, `/bots/${bot.idBot}`)), `${puedeEditar ? "Editar" : "Ver"} el bot ${bot.nombre}`);
             return (
-              <Card key={bot.idBot} className="relative">
+              <Card key={bot.idBot} {...clic} className={cn("relative", clic.className)}>
                 <CardHeader className="flex flex-row items-start justify-between pb-2">
                   <div className="flex items-start gap-3">
                     <div className="rounded-lg bg-blue-100 p-2"><Bot className="h-5 w-5 text-blue-600" /></div>
@@ -123,6 +128,7 @@ export function BotsValuacionView({ mod }: { mod: ModuleDef }) {
                       <CardDescription className="mt-1">{c.description}</CardDescription>
                     </div>
                   </div>
+                  <div {...noAbre}>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Acciones del bot"><MoreVertical className="h-4 w-4" /></Button>
@@ -136,6 +142,7 @@ export function BotsValuacionView({ mod }: { mod: ModuleDef }) {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  </div>
                 </CardHeader>
                 <CardContent className="pt-0">
                   <div className="space-y-3">

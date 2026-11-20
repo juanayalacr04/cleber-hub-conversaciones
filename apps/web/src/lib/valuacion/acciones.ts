@@ -15,7 +15,7 @@ import type { ConfiguracionAgencia, ConsultaOfertas, DetalleOferta, EstadoOferta
 const llama = <T>(funcion: string, accion: string, params: Record<string, unknown> = {}) =>
   api.call<T>("toma-unidades", funcion, `Valuacion.${accion}`, params);
 
-export async function consultaOfertas(params: { fechaGeneracion?: string; idAgencia?: string; estados?: EstadoOferta[] }) {
+export async function consultaOfertas(params: { fechaGeneracion?: string; idMarca?: string; idAgencia?: string; estados?: EstadoOferta[] }) {
   return llama<ConsultaOfertas>("consulta_ofertas", "consultaOfertas", params);
 }
 
