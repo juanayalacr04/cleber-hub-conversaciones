@@ -26,7 +26,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
-  ArrowDown, ArrowLeft, ArrowRightLeft, Bot, Building2, Columns, FileText, Hand, HelpCircle, List, Loader2, MessageCircle, MessageSquare,
+  ArrowDown, ArrowLeft, ArrowRightLeft, Bell, BellOff, Bot, Building2, Columns, FileText, Hand, HelpCircle, List, Loader2, MessageCircle, MessageSquare,
   MoreHorizontal, PanelRight, Paperclip, RefreshCw, RotateCcw, Search, Send, User, UserCircle, UserPlus, X, XCircle,
 } from "lucide-react";
 import {
@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useNotificationContext } from "@/contexts/NotificationContext";
 import { useTiempoReal } from "@/hooks/useTiempoReal";
 import type { ApiResponse } from "@/lib/api";
 import { consultaConfiguracionModulo, type Equipo } from "@/lib/hub/configuracion";
@@ -326,6 +327,25 @@ function useAgentes(idMarca: string | null) {
   return agentes;
 }
 
+/**
+ * Activa o silencia los avisos de conversaciones asignadas y mensajes nuevos (NotificationContext; se recuerda en este
+ * navegador). Solo dentro de la plataforma: toast y sonido.
+ */
+function BotonAvisos() {
+  const { soundEnabled, setSoundEnabled } = useNotificationContext();
+  const alterna = () => {
+    const activa = !soundEnabled;
+    setSoundEnabled(activa);
+    toast.success(activa ? "Avisos activados: te sonará cuando se te asigne una conversación o te escriba un cliente" : "Avisos silenciados");
+  };
+  const titulo = soundEnabled ? "Avisos activados (clic para silenciar)" : "Avisos silenciados (clic para activar)";
+  return (
+    <Button variant={soundEnabled ? "default" : "outline"} size="icon" onClick={alterna} title={titulo} aria-label={titulo} aria-pressed={soundEnabled}>
+      {soundEnabled ? <Bell className="h-4 w-4" aria-hidden="true" /> : <BellOff className="h-4 w-4" aria-hidden="true" />}
+    </Button>
+  );
+}
+
 export function ConversacionesApiView() {
   const { userData } = useAuth();
   const idMarca = userData?.organizationId ?? null;
@@ -395,6 +415,7 @@ export function ConversacionesApiView() {
             <p className="text-muted-foreground text-sm hidden md:block">Conversaciones de WhatsApp por las ofertas enviadas</p>
           </div>
           <div className="flex items-center gap-2">
+            <BotonAvisos />
             <Button variant="outline" size="icon" onClick={carga} disabled={cargando} title="Actualizar" aria-label="Actualizar">
               <RefreshCw className={cn("h-4 w-4", cargando && "animate-spin")} aria-hidden="true" />
             </Button>

@@ -60,6 +60,16 @@ async function idToken(): Promise<string | null> {
   }
 }
 
+/** Aviso de un evento de AppSync: objeto, o texto JSON (hasta dos veces codificado). null si no es un aviso. */
+function leeAviso(crudo: unknown): AvisoConversacion | null {
+  let valor = crudo;
+  for (let i = 0; i < 2 && typeof valor === "string"; i++) {
+    try { valor = JSON.parse(valor); } catch { return null; }
+  }
+  return valor && typeof valor === "object" && (valor as { tipo?: unknown }).tipo === "conversacion"
+    ? (valor as AvisoConversacion) : null;
+}
+
 interface Suscripcion {
   id: string;
   canal: string;
@@ -119,7 +129,7 @@ async function conecta() {
 
   socket.onopen = () => socket.send(JSON.stringify({ type: "connection_init" }));
   socket.onmessage = (e) => {
-    let m: { type?: string; id?: string; event?: string[]; connectionTimeoutMs?: number; errors?: unknown };
+    let m: { type?: string; id?: string; event?: unknown; connectionTimeoutMs?: number; errors?: unknown };
     try { m = JSON.parse(String(e.data)); } catch { return; }
     switch (m.type) {
       case "connection_ack":
@@ -147,11 +157,12 @@ async function conecta() {
       case "data": {
         const s = porId.get(m.id ?? "");
         if (!s) break;
-        for (const crudo of m.event ?? []) {
-          try {
-            const aviso = JSON.parse(crudo) as AvisoConversacion;
-            s.oyentes.forEach((o) => o.alAvisar(aviso));
-          } catch { /* evento que no es JSON */ }
+        // AppSync manda `event` como UN texto JSON por mensaje (no un arreglo): recorrerlo como arreglo iba carácter por
+        // carácter. Se aceptan los dos, y un evento publicado doblemente codificado (texto que contiene JSON)
+        const crudos: unknown[] = Array.isArray(m.event) ? m.event : m.event != null ? [m.event] : [];
+        for (const crudo of crudos) {
+          const aviso = leeAviso(crudo);
+          if (aviso) s.oyentes.forEach((o) => o.alAvisar(aviso));
         }
         break;
       }

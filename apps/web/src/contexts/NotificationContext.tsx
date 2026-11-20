@@ -1,186 +1,164 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import { collection, query, where, onSnapshot, orderBy, limit, collectionGroup, Timestamp, getDoc, doc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+/**
+ * Notificaciones del asesor en toda la plataforma: conversación que se le asigna y mensaje nuevo del cliente en una
+ * conversación suya. Solo dentro de la plataforma: toast con "Ver" y sonido (sin notificaciones del navegador).
+ *
+ * Fuente: hub_cleber por tiempo real (AppSync Events, lib/tiempoReal.ts). Por cada módulo donde el usuario tiene rol en
+ * la marca activa (con cualquier rol; el super admin, en todos) se escucha /hub/<marca>/<modulo>; los avisos no traen datos, así que cuando
+ * uno toca una conversación suya (o una que era suya) se vuelve a consultar Hub.consultaConversaciones con idAgente =
+ * el usuario y se compara con la consulta anterior:
+ *   - conversación que no estaba → "Conversación asignada"
+ *   - último mensaje más nuevo y del cliente → "Nuevo mensaje"
+ * La primera consulta solo toma la foto (no avisa de lo que ya tenía). Sin tiempo real se consulta cada 30 s.
+ * No avisa de la conversación que el usuario tiene abierta.
+ */
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "./AuthContext";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useTiempoReal } from "@/hooks/useTiempoReal";
 import { conversationPath } from "@/lib/routes";
+import { consultaConversaciones, type ConversacionHub } from "@/lib/hub/conversaciones";
+import type { ModuloHub } from "@/lib/hub/usuarios";
 
 interface NotificationContextType {
+  /** Conversaciones asignadas al usuario (con asesor) en la marca activa */
   unreadCount: number;
-  permission: NotificationPermission | "default";
-  supported: boolean;
-  requestPermission: () => Promise<boolean>;
+  /** Avisos activados (toast y sonido); se recuerda en este navegador */
   soundEnabled: boolean;
   setSoundEnabled: (enabled: boolean) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-export function NotificationProvider({ children }: { children: ReactNode }) {
-  const { user, userData } = useAuth();
-  const router = useRouter();
-  const pathname = usePathname();
-  const {
-    permission,
-    supported,
-    requestPermission,
-    notifyNewMessage,
-    notifyConversationAssigned,
-  } = useNotifications();
+const MODULOS: ModuloHub[] = ["ventas", "servicio", "valuacion"];
+const LLAVE_SONIDO = "notifications_sound_enabled";
+const RESPALDO_MS = 30_000;
 
-  const [unreadCount, setUnreadCount] = useState(0);
+type Evento = { tipo: "asignada" | "mensaje"; conv: ConversacionHub; modulo: ModuloHub };
+
+export function NotificationProvider({ children }: { children: ReactNode }) {
+  const { usuarioHub, userData } = useAuth();
+  const router = useRouter();
+  const { showNotification, playSound } = useNotifications();
+
   const [soundEnabled, setSoundEnabledState] = useState(() => {
     if (typeof window === "undefined") return true;
-    const stored = localStorage.getItem("notifications_sound_enabled");
-    return stored !== "false";
+    try { return localStorage.getItem(LLAVE_SONIDO) !== "false"; } catch { return true; }
   });
-  const soundEnabledRef = useRef(soundEnabled);
-  soundEnabledRef.current = soundEnabled;
-
-  const lastMessageTimestamps = useRef<Map<string, number>>(new Map());
-  const initialLoadComplete = useRef(false);
-  const currentConversationId = useRef<string | null>(null);
-
+  const soundRef = useRef(soundEnabled);
+  soundRef.current = soundEnabled;
   const setSoundEnabled = (enabled: boolean) => {
     setSoundEnabledState(enabled);
-    soundEnabledRef.current = enabled;
-    localStorage.setItem("notifications_sound_enabled", String(enabled));
+    soundRef.current = enabled;
+    try { localStorage.setItem(LLAVE_SONIDO, String(enabled)); } catch { /* sin almacenamiento */ }
   };
 
-  // Track current conversation from URL
-  useEffect(() => {
-    const match = pathname.match(/\/conversations\/([^/]+)/);
-    currentConversationId.current = match ? match[1] : null;
-  }, [pathname]);
+  const [conteos, setConteos] = useState<Record<string, number>>({});
+  const unreadCount = Object.values(conteos).reduce((a, b) => a + b, 0);
 
-  // Subscribe to conversations assigned to this agent
-  useEffect(() => {
-    if (!user?.uid || !userData?.organizationId) {
+  const idMarca = userData?.organizationId ?? null;
+  const idUsuario = usuarioHub?.idUsuario ?? null;
+  // Módulos que escucha en la marca activa: cualquiera donde tenga rol (el que sea) y, el super admin, todos. Avisa solo
+  // de conversaciones asignadas a él (la consulta filtra por idAgente), así que el rol no importa.
+  const modulos = useMemo(() => {
+    if (usuarioHub?.esSuperAdmin) return MODULOS;
+    const marca = usuarioHub?.marcas.find((m) => m.idMarca === idMarca);
+    return MODULOS.filter((m) => !!marca?.modulos[m]);
+  }, [usuarioHub, idMarca]);
+
+  const avisa = useCallback(({ tipo, conv, modulo }: Evento) => {
+    if (!soundRef.current) return;
+    // La que tiene abierta en pantalla (ruta /<modulo>/conversaciones/<id> o ?c=<id> en Conversaciones de Valuación):
+    // un mensaje nuevo solo suena (ya lo está viendo); la asignación no se avisa (la tomó él mismo o ya la ve)
+    const abierta = document.visibilityState === "visible"
+      && (window.location.pathname.includes(`/conversaciones/${conv.idConversacion}`)
+          || new URLSearchParams(window.location.search).get("c") === conv.idConversacion);
+    if (abierta) {
+      if (tipo === "mensaje") playSound();
       return;
     }
-
-    // Only agents and admins receive notifications
-    if (userData.role !== "agent" && userData.role !== "admin") {
-      return;
+    const quien = conv.nombreCliente || conv.telefonoCliente?.replace("whatsapp:", "") || "un cliente";
+    const ir = () => router.push(conversationPath(conv.idConversacion, modulo));
+    if (tipo === "asignada") {
+      showNotification("Conversación asignada", `Se te asignó la conversación con ${quien}`, ir);
+    } else {
+      const texto = conv.ultimoMensajeTexto ?? "";
+      showNotification(`Nuevo mensaje de ${quien}`, texto.length > 80 ? `${texto.slice(0, 80)}…` : texto || "Mensaje nuevo", ir);
     }
+  }, [router, showNotification, playSound]);
 
-    // Subscribe to conversations assigned to this user
-    const conversationsRef = collection(db, "conversations");
-    const q = query(
-      conversationsRef,
-      where("assignedAgentId", "==", user.uid),
-      where("status", "==", "with_agent")
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Track unread conversations (simplified - you could add a proper unread field)
-      setUnreadCount(snapshot.size);
-
-      // Check for new assignments
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === "added" && initialLoadComplete.current && soundEnabledRef.current) {
-          const conv = change.doc.data();
-          // Notify about new assignment
-          notifyConversationAssigned(conv.customerPhone || "Desconocido", () => {
-            router.push(conversationPath(change.doc.id, (change.doc.data().vertical as string | undefined) ?? null));
-          });
-        }
-      });
-
-      initialLoadComplete.current = true;
-    });
-
-    return () => unsubscribe();
-  }, [user?.uid, userData?.organizationId, userData?.role, notifyConversationAssigned, router]);
-
-  // Subscribe to new messages in assigned conversations
-  useEffect(() => {
-    if (!user?.uid || !userData?.organizationId) {
-      return;
-    }
-
-    if (userData.role !== "agent" && userData.role !== "admin") {
-      return;
-    }
-
-    // Listen for new messages across all conversations assigned to this user
-    // Note: This uses collectionGroup which requires a composite index
-    const messagesRef = collectionGroup(db, "messages");
-    const q = query(
-      messagesRef,
-      where("sender", "==", "customer"),
-      orderBy("createdAt", "desc"),
-      limit(10)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === "added") {
-          const message = change.doc.data();
-          const conversationId = change.doc.ref.parent.parent?.id;
-
-          if (!conversationId) return;
-
-          // Skip if this is the conversation currently being viewed
-          if (conversationId === currentConversationId.current) return;
-
-          // Check if this is actually a new message
-          const createdAt = message.createdAt as Timestamp;
-          if (!createdAt) return;
-
-          const messageTime = createdAt.toMillis();
-          const lastKnown = lastMessageTimestamps.current.get(conversationId) || 0;
-
-          // Only notify for messages newer than what we've seen
-          // and only after initial load
-          if (messageTime > lastKnown && initialLoadComplete.current) {
-            // Get conversation data for customer name/phone and org check
-            const convRef = doc(db, "conversations", conversationId);
-            getDoc(convRef).then((convDoc) => {
-              const convData = convDoc.data();
-              // Skip if conversation belongs to a different organization
-              if (convData?.organizationId !== userData?.organizationId) return;
-
-              if (!soundEnabledRef.current) return;
-
-              const displayName = convData?.customerName || convData?.customerPhone || "Desconocido";
-              notifyNewMessage(
-                displayName,
-                message.text || "",
-                () => {
-                  router.push(conversationPath(conversationId, (convData?.vertical as string | undefined) ?? null));
-                }
-              );
-            }).catch(() => {
-              // On error, skip notification (can't verify org)
-            });
-          }
-
-          lastMessageTimestamps.current.set(conversationId, messageTime);
-        }
-      });
-    });
-
-    return () => unsubscribe();
-  }, [user?.uid, userData?.organizationId, userData?.role, notifyNewMessage, router]);
+  const alContar = useCallback((modulo: string, n: number) => {
+    setConteos((c) => (c[modulo] === n ? c : { ...c, [modulo]: n }));
+  }, []);
 
   return (
-    <NotificationContext.Provider
-      value={{
-        unreadCount,
-        permission,
-        supported,
-        requestPermission,
-        soundEnabled,
-        setSoundEnabled,
-      }}
-    >
+    <NotificationContext.Provider value={{ unreadCount, soundEnabled, setSoundEnabled }}>
+      {idMarca && idUsuario && modulos.map((m) => (
+        <VigilaAsignadas key={`${idMarca}/${m}`} idMarca={idMarca} modulo={m} idUsuario={idUsuario} avisa={avisa} alContar={alContar} />
+      ))}
       {children}
     </NotificationContext.Provider>
   );
+}
+
+/** Conversaciones asignadas al usuario en un módulo de la marca; avisa lo nuevo (ver arriba). */
+function VigilaAsignadas({ idMarca, modulo, idUsuario, avisa, alContar }: {
+  idMarca: string; modulo: ModuloHub; idUsuario: string;
+  avisa: (e: Evento) => void; alContar: (modulo: string, n: number) => void;
+}) {
+  const conocidas = useRef<Map<string, ConversacionHub> | null>(null);
+  const enCurso = useRef(false);
+  const otraVez = useRef(false);
+  // En ref: si cambia (p. ej. al dar permiso de notificaciones) no debe reiniciar la foto y perder avisos
+  const avisaRef = useRef(avisa);
+  avisaRef.current = avisa;
+
+  const consulta = useCallback(async () => {
+    // Una consulta a la vez; si llegan avisos mientras tanto, se repite una vez al terminar
+    if (enCurso.current) { otraVez.current = true; return; }
+    enCurso.current = true;
+    try {
+      do {
+        otraVez.current = false;
+        const r = await consultaConversaciones({ idMarca, modulo, idAgente: idUsuario, estados: ["with_agent"], limite: 200 });
+        if (!r.successful) { console.warn(`[avisos] ${modulo}: no se pudo consultar (${r.errorCode} ${r.errorMessage})`); return; }
+        const previas = conocidas.current;
+        const actuales = new Map(r.info.conversaciones.map((c) => [c.idConversacion, c]));
+        conocidas.current = actuales;
+        alContar(modulo, actuales.size);
+        if (!previas) continue;   // primera foto: no avisa de lo que ya tenía
+        for (const c of actuales.values()) {
+          const antes = previas.get(c.idConversacion);
+          if (!antes) avisaRef.current({ tipo: "asignada", conv: c, modulo });
+          else if (c.ultimoRemitente === "customer" && (c.ultimoMensajeEn ?? "") > (antes.ultimoMensajeEn ?? "")) {
+            avisaRef.current({ tipo: "mensaje", conv: c, modulo });
+          }
+        }
+      } while (otraVez.current);
+    } finally {
+      enCurso.current = false;
+    }
+  }, [idMarca, modulo, idUsuario, alContar]);
+
+  useEffect(() => { conocidas.current = null; void consulta(); }, [consulta]);
+
+  // Avisos del módulo: solo consulta si alguno es suyo o era suyo (sin avisos = se suscribió o reconectó: consulta)
+  const enVivo = useTiempoReal(`/hub/${idMarca}/${modulo}`, (avisos) => {
+    if (avisos.length === 0 || avisos.some((a) => a.idAgente === idUsuario || conocidas.current?.has(a.idConversacion))) {
+      void consulta();
+    }
+  });
+
+  useEffect(() => {
+    if (enVivo) return;
+    const t = setInterval(() => { void consulta(); }, RESPALDO_MS);
+    return () => clearInterval(t);
+  }, [enVivo, consulta]);
+
+  return null;
 }
 
 export function useNotificationContext() {

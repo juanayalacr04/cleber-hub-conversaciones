@@ -59,6 +59,8 @@ export interface MensajeHub {
 
 export async function consultaConversaciones(p: {
   idMarca: string; modulo: ModuloHub; estados?: EstadoConversacion[]; busqueda?: string; antesDe?: string; limite?: number;
+  /** Solo las asignadas a ese asesor (las notificaciones piden las del usuario) */
+  idAgente?: string;
 }) {
   return api.call<{ conversaciones: ConversacionHub[]; hayMas: boolean }>(
     "hub", "consulta_conversaciones", "Hub.consultaConversaciones", p);
