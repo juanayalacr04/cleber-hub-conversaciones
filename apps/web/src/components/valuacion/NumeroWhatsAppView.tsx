@@ -65,13 +65,13 @@ const PROVEEDORES: Record<Proveedor, {
   notaCredenciales: string;
 }> = {
   twilio: {
-    nombre: "Twilio", corto: "Twilio", color: "border-green-500 text-green-700", campoCuenta: null,
+    nombre: "Twilio", corto: "Twilio", color: "border-green-500 text-[var(--ok)]", campoCuenta: null,
     etiquetaCuenta: "", placeholderCuenta: "",
     etiquetaPlantilla: "Content SID", pistaPlantilla: "De la plantilla aprobada en Twilio (Content Template Builder); empieza con HX.",
     credencial: null, notaCredenciales: "Usa la cuenta de Twilio del ambiente: no hay que capturar Account SID ni token.",
   },
   meta: {
-    nombre: "Meta (WhatsApp Cloud API)", corto: "Meta", color: "border-blue-500 text-blue-700", campoCuenta: "metaPhoneNumberId",
+    nombre: "Meta (WhatsApp Cloud API)", corto: "Meta", color: "border-blue-500 text-[var(--info)]", campoCuenta: "metaPhoneNumberId",
     etiquetaCuenta: "Phone Number ID", placeholderCuenta: "ID numérico del número en Meta",
     etiquetaPlantilla: "Nombre de la plantilla", pistaPlantilla: "Tal como está aprobada en WhatsApp Manager.", credencial: "metaAccessToken",
     notaCredenciales: "",
@@ -306,8 +306,8 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
   if (!idMarca) {
     return (
       <div>
-        <div className="mb-8"><h1 className="text-2xl font-bold">Números de WhatsApp</h1><p className="text-gray-500">Número de Valuación de la marca</p></div>
-        <Card><CardContent className="py-8 text-center"><p className="text-gray-500">Necesitas pertenecer a una marca para ver los números.</p></CardContent></Card>
+        <div className="mb-8"><h1 className="text-2xl font-bold">Números de WhatsApp</h1><p className="text-muted-foreground">Número de Valuación de la marca</p></div>
+        <Card><CardContent className="py-8 text-center"><p className="text-muted-foreground">Necesitas pertenecer a una marca para ver los números.</p></CardContent></Card>
       </div>
     );
   }
@@ -316,14 +316,14 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
       <div>
         <div className="mb-8"><h1 className="text-2xl font-bold">Números de WhatsApp</h1></div>
         <Card><CardContent className="py-8 text-center space-y-3">
-          <p className="text-gray-500">No se pudieron cargar los números: {error}</p>
+          <p className="text-muted-foreground">No se pudieron cargar los números: {error}</p>
           <Button variant="outline" onClick={carga}>Reintentar</Button>
         </CardContent></Card>
       </div>
     );
   }
   if (!conf) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>;
+    return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
   }
 
   const puedeEditar = conf.puedeEditar;
@@ -334,7 +334,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold">Números de WhatsApp</h1>
-          <p className="text-gray-500">
+          <p className="text-muted-foreground">
             {numeros.length} número{numeros.length !== 1 ? "s" : ""} configurado{numeros.length !== 1 ? "s" : ""} · Valuación tiene un solo número activo por marca
           </p>
         </div>
@@ -346,9 +346,9 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
       {numeros.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <div className="rounded-full bg-gray-100 p-4 mb-4"><Phone className="h-8 w-8 text-gray-400" /></div>
+            <div className="rounded-full bg-muted p-4 mb-4"><Phone className="h-8 w-8 text-muted-foreground" /></div>
             <h3 className="text-lg font-medium mb-2">No hay números configurados</h3>
-            <p className="text-gray-500 text-center mb-4">Agrega el número de WhatsApp desde el que se envían las ofertas de Valuación.</p>
+            <p className="text-muted-foreground text-center mb-4">Agrega el número de WhatsApp desde el que se envían las ofertas de Valuación.</p>
             {puedeEditar && <Button onClick={abreAlta}><Plus className="mr-2 h-4 w-4" />Agregar número</Button>}
           </CardContent>
         </Card>
@@ -363,8 +363,8 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
               <Card key={n.idNumero} {...tarjetaClicable(puedeEditar ? () => abreEdicion(n) : null, `Editar el número ${n.nombre}`)}>
                 <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
                   <div>
-                    <CardTitle className="text-lg flex items-center gap-2"><Phone className="h-5 w-5 text-green-600" />{n.nombre}</CardTitle>
-                    <p className="text-sm text-gray-500 mt-1 font-mono">{n.telefono}</p>
+                    <CardTitle className="text-lg flex items-center gap-2"><Phone className="h-5 w-5 text-[var(--ok)]" />{n.nombre}</CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1 font-mono">{n.telefono}</p>
                   </div>
                   {puedeEditar && (
                     <div {...noAbre}>
@@ -389,19 +389,19 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                       <Badge variant="outline" className={p.color}>{p.corto}</Badge>
                     </div>
                     <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2"><Users2 className="h-4 w-4 text-gray-400" /><span>Equipo: {nombreEquipo(n.idEquipo)}</span></div>
-                      <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-gray-400" /><span>Bot: {nombreBot(n.idBotDefault)}</span></div>
-                      <div className="flex items-center gap-2"><RefreshCw className="h-4 w-4 text-gray-400" /><span>Ventana reapertura: {n.ventanaReaperturaHoras}h</span></div>
+                      <div className="flex items-center gap-2"><Users2 className="h-4 w-4 text-muted-foreground" /><span>Equipo: {nombreEquipo(n.idEquipo)}</span></div>
+                      <div className="flex items-center gap-2"><Bot className="h-4 w-4 text-muted-foreground" /><span>Bot: {nombreBot(n.idBotDefault)}</span></div>
+                      <div className="flex items-center gap-2"><RefreshCw className="h-4 w-4 text-muted-foreground" /><span>Ventana reapertura: {n.ventanaReaperturaHoras}h</span></div>
                       <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-gray-400" />
-                        <span>Plantilla de oferta: {idPlantilla ? <span className="font-mono">{String(idPlantilla)}</span> : <span className="text-amber-700">sin configurar</span>}</span>
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span>Plantilla de oferta: {idPlantilla ? <span className="font-mono">{String(idPlantilla)}</span> : <span className="text-[var(--warn)]">sin configurar</span>}</span>
                       </div>
                     </div>
                     <div className="pt-2 border-t space-y-1">
-                      {cuenta && <p className="text-xs text-gray-500">{p.etiquetaCuenta}: {cuenta.slice(0, 10)}…</p>}
-                      {n.proveedor === "twilio" && <p className="text-xs text-gray-500">Cuenta de Twilio del ambiente</p>}
+                      {cuenta && <p className="text-xs text-muted-foreground">{p.etiquetaCuenta}: {cuenta.slice(0, 10)}…</p>}
+                      {n.proveedor === "twilio" && <p className="text-xs text-muted-foreground">Cuenta de Twilio del ambiente</p>}
                       {p.credencial && (
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-muted-foreground">
                           Credencial en Secrets Manager: <span className="font-mono">hub/dev/numbers/{n.idNumero}</span> ({p.credencial})
                         </p>
                       )}
@@ -424,7 +424,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
             <div className="space-y-2">
               <Label htmlFor="wa-tel">Número de teléfono</Label>
               <Input id="wa-tel" placeholder="+525512345678" value={f.telefono} onChange={(e) => edita({ telefono: e.target.value })} />
-              <p className="text-xs text-gray-500">Formato: +[código país][número], o 10 dígitos para México</p>
+              <p className="text-xs text-muted-foreground">Formato: +[código país][número], o 10 dígitos para México</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="wa-nombre">Nombre para mostrar</Label>
@@ -444,13 +444,13 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                 <Label htmlFor="wa-cuenta">{prov.etiquetaCuenta}</Label>
                 <Input id="wa-cuenta" placeholder={prov.placeholderCuenta} value={f.idCuenta} onChange={(e) => edita({ idCuenta: e.target.value })} />
                 {prov.credencial ? (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     La credencial ({prov.credencial}) no se captura aquí: va en AWS Secrets Manager,
                     en <span className="font-mono">hub/dev/numbers/{editando?.idNumero ?? "<id del número>"}</span>.
                   </p>
-                ) : <p className="text-xs text-gray-500">{prov.notaCredenciales}</p>}
+                ) : <p className="text-xs text-muted-foreground">{prov.notaCredenciales}</p>}
               </div>
-            ) : <p className="text-xs text-gray-500">{prov.notaCredenciales}</p>}
+            ) : <p className="text-xs text-muted-foreground">{prov.notaCredenciales}</p>}
             <div className="space-y-2">
               <Label>Equipo</Label>
               {conf.equipos.length > 0 ? (
@@ -461,7 +461,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                     {conf.equipos.map((e) => <SelectItem key={e.idEquipo} value={e.idEquipo}>{e.nombre}{e.esActivo ? "" : " (inactivo)"}</SelectItem>)}
                   </SelectContent>
                 </Select>
-              ) : <p className="text-xs text-gray-500">Al guardar se crea el equipo Valuación.</p>}
+              ) : <p className="text-xs text-muted-foreground">Al guardar se crea el equipo Valuación.</p>}
             </div>
             <div className="space-y-2">
               <Label>Bot por defecto</Label>
@@ -472,7 +472,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                   {conf.bots.map((b) => <SelectItem key={b.idBot} value={b.idBot}>{b.nombre}{b.esActivo ? "" : " (inactivo)"}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {conf.bots.length === 0 && <p className="text-xs text-gray-500">Aún no hay bots de Valuación en esta marca.</p>}
+              {conf.bots.length === 0 && <p className="text-xs text-muted-foreground">Aún no hay bots de Valuación en esta marca.</p>}
             </div>
 
             <div className="pt-2 border-t space-y-2">
@@ -480,7 +480,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
               <div className="space-y-2">
                 <Label htmlFor="wa-ventana">Ventana de reapertura (horas)</Label>
                 <Input id="wa-ventana" type="number" min="0" max="720" placeholder="96" value={f.ventana} onChange={(e) => edita({ ventana: e.target.value })} />
-                <p className="text-xs text-gray-500">Si el cliente vuelve a escribir dentro de estas horas, sigue la misma conversación. 0 = nunca.</p>
+                <p className="text-xs text-muted-foreground">Si el cliente vuelve a escribir dentro de estas horas, sigue la misma conversación. 0 = nunca.</p>
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={f.esActivo} onChange={(e) => edita({ esActivo: e.target.checked })} />Número activo
@@ -500,8 +500,8 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                     </Button>
                   )}
                 </div>
-                <p className="text-xs text-gray-500">{prov.pistaPlantilla} Sin plantilla, el envío falla con &quot;Falta configurar la plantilla&quot;.</p>
-                {errorConsulta && <p className="text-xs text-red-600">No se pudo consultar la plantilla: {errorConsulta}</p>}
+                <p className="text-xs text-muted-foreground">{prov.pistaPlantilla} Sin plantilla, el envío falla con &quot;Falta configurar la plantilla&quot;.</p>
+                {errorConsulta && <p className="text-xs text-[var(--crit)]">No se pudo consultar la plantilla: {errorConsulta}</p>}
               </div>
               {f.proveedor === "meta" && (
                 <div className="space-y-2">
@@ -512,7 +512,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
               {esTwilio ? (
                 vigente ? (
                   <>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-muted-foreground">
                       Plantilla <span className="font-mono">{vigente.nombre ?? idPlantilla}</span>{vigente.idioma ? ` · ${vigente.idioma}` : ""}
                     </p>
                     {f.variables.length > 0 && (
@@ -524,7 +524,7 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                             {selectorDato(i)}
                           </div>
                         ))}
-                        <p className="text-xs text-gray-500">Qué dato de la oferta va en cada variable de la plantilla.</p>
+                        <p className="text-xs text-muted-foreground">Qué dato de la oferta va en cada variable de la plantilla.</p>
                       </div>
                     )}
                     <div className="space-y-2">
@@ -532,16 +532,16 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                       <div className="rounded-md border bg-muted p-3 space-y-2">
                         <p className="text-sm whitespace-pre-wrap">{conEjemplos(vigente.cuerpo, f.variables)}</p>
                         {vigente.botones.map((b, i) => (
-                          <div key={i} className="rounded-md border bg-background py-1.5 text-center text-sm text-blue-600">
+                          <div key={i} className="rounded-md border bg-background py-1.5 text-center text-sm text-[var(--info)]">
                             {conEjemplos(b.titulo, f.variables)}
                           </div>
                         ))}
                       </div>
-                      <p className="text-xs text-gray-500">Con datos de ejemplo. Así se verá la oferta en el chat del dashboard.</p>
+                      <p className="text-xs text-muted-foreground">Con datos de ejemplo. Así se verá la oferta en el chat del dashboard.</p>
                     </div>
                   </>
                 ) : idPlantilla && !errorConsulta ? (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     {consultando ? "Consultando la plantilla en Twilio…"
                       : guardadaSinCambio ? "Consulta la plantilla para ver su vista previa; si no, se conserva lo guardado."
                       : "Consulta la plantilla para ver su vista previa y elegir el dato de cada variable."}
@@ -561,12 +561,12 @@ export function NumeroWhatsAppView({ mod: _mod }: { mod: ModuleDef }) {
                       </div>
                     ))}
                     <Button type="button" variant="outline" size="sm" onClick={() => edita({ variables: [...f.variables, ""] })}><Plus className="mr-1 h-3 w-3" />Agregar variable</Button>
-                    <p className="text-xs text-gray-500">En el mismo orden que las variables de la plantilla aprobada.</p>
+                    <p className="text-xs text-muted-foreground">En el mismo orden que las variables de la plantilla aprobada.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="wa-texto">Texto en el chat</Label>
                     <Textarea id="wa-texto" rows={4} placeholder="Hola {{1}}, gracias por agendar el servicio de tu {{2}}…" value={f.texto} onChange={(e) => edita({ texto: e.target.value })} />
-                    <p className="text-xs text-gray-500">Cómo se ve el mensaje en el dashboard. Usa {"{{1}}"}, {"{{2}}"}… para las variables.</p>
+                    <p className="text-xs text-muted-foreground">Cómo se ve el mensaje en el dashboard. Usa {"{{1}}"}, {"{{2}}"}… para las variables.</p>
                     {f.texto.trim() && (
                       <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground whitespace-pre-wrap">{conEjemplos(f.texto, f.variables)}</div>
                     )}

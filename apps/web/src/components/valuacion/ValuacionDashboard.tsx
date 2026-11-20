@@ -18,7 +18,6 @@ const inRange = (d: string | null, from: string, to: string) => !!d && d >= from
 function Stat({ label, value, note, icon, href }: { label: string; value: string; note: string; icon: string; href?: string }) {
   const body = (
     <>
-      <Icon name={icon} className="big" />
       <div className="top">{label}<span className="chipi"><Icon name={icon} /></span></div>
       <strong className="num">{value}</strong>
       <em>{note}</em>

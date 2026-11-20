@@ -27,8 +27,12 @@ import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   ArrowDown, ArrowLeft, ArrowRightLeft, Bot, Building2, Columns, FileText, Hand, HelpCircle, List, Loader2, MessageCircle, MessageSquare,
-  PanelRight, Phone, RefreshCw, RotateCcw, Search, Send, User, UserCircle, UserPlus, X, XCircle,
+  MoreHorizontal, PanelRight, Paperclip, RefreshCw, RotateCcw, Search, Send, User, UserCircle, UserPlus, X, XCircle,
 } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator,
+  DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTiempoReal } from "@/hooks/useTiempoReal";
@@ -56,16 +60,12 @@ const VENTANA_MS = 24 * 60 * 60 * 1000;
 const BASE = "/valuacion/conversaciones";
 const TODOS: EstadoConversacion[] = ["bot", "waiting_agent", "with_agent", "closed"];
 
-// ---------- Estatus de la conversación (mismos textos y colores que Ventas y Servicio) ----------
+// ---------- Estatus de la conversación (mismos estatus que Ventas y Servicio; colores con los tokens del tema, como Ofertas) ----------
 
-const statusLabels: Record<EstadoConversacion, string> = { bot: "Con Bot", waiting_agent: "Esperando", with_agent: "Con Agente", closed: "Cerrada" };
-const shortLabels: Record<EstadoConversacion, string> = { ...statusLabels, bot: "Bot" };
-const statusColors: Record<EstadoConversacion, string> = {
-  bot: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  waiting_agent: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
-  with_agent: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  closed: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
-};
+const statusLabels: Record<EstadoConversacion, string> = { bot: "Con bot", waiting_agent: "Esperando", with_agent: "Con valuador", closed: "Cerrada" };
+const shortLabels: Record<EstadoConversacion, string> = { bot: "Bot", waiting_agent: "Esperando", with_agent: "Valuador", closed: "Cerrada" };
+/** Clase de `.pill` (globals.css) por estatus: info, aviso, ok y apagado. */
+const statusTono: Record<EstadoConversacion, string> = { bot: "bot", waiting_agent: "wait", with_agent: "agent", closed: "closed" };
 
 type Tab = "all" | "pending" | "waiting" | "active" | "bot" | "closed";
 const isPending = (c: ConversacionHub) => c.estado === "with_agent" && c.ultimoRemitente === "customer";
@@ -96,7 +96,7 @@ const rutaFicha = (id: string) => `${BASE}/${encodeURIComponent(id)}`;
 
 function ConvBadge({ c, short, className }: { c: ConversacionHub; short?: boolean; className?: string }) {
   return (
-    <span className={cn("px-2 py-1 rounded-full text-[11px] md:text-xs font-medium whitespace-nowrap", statusColors[c.estado], className)}>
+    <span className={cn("pill", statusTono[c.estado], className)}>
       {(short ? shortLabels : statusLabels)[c.estado]}
       {c.estado === "closed" && c.motivoCierre && !short && <span> · {c.motivoCierre}</span>}
     </span>
@@ -110,8 +110,8 @@ function Brand({ c }: { c: ConversacionHub }) {
   const agencia = agenciaDe(c);
   if (!agencia) return null;
   return (
-    <span className="px-1.5 py-0.5 rounded text-[11px] font-medium flex-shrink-0 bg-muted text-foreground inline-flex items-center gap-1 whitespace-nowrap" title={`Agencia: ${agencia}`}>
-      <Building2 className="h-3 w-3 flex-shrink-0" aria-hidden="true" />{agencia}
+    <span className="text-xs text-muted-foreground inline-flex items-center gap-1 whitespace-nowrap min-w-0" title={`Agencia: ${agencia}`}>
+      <Building2 className="h-3 w-3 flex-shrink-0" aria-hidden="true" /><span className="truncate">{agencia}</span>
     </span>
   );
 }
@@ -122,7 +122,7 @@ function Avatar({ c, small }: { c: ConversacionHub; small?: boolean }) {
       <div className={cn("rounded-full bg-muted flex items-center justify-center", small ? "h-8 w-8" : "h-9 w-9 md:h-10 md:w-10")} aria-hidden="true">
         <span className="text-xs md:text-sm font-medium">{cliente(c)[0]}</span>
       </div>
-      {isPending(c) && <div className="absolute -top-0.5 -right-0.5 h-3 w-3 bg-orange-400 rounded-full border-2 border-background" title="Esperando respuesta del valuador" />}
+      {isPending(c) && <div className="absolute -top-0.5 -right-0.5 h-3 w-3 bg-[var(--warn)] rounded-full border-2 border-background" title="Esperando respuesta del valuador" />}
     </div>
   );
 }
@@ -148,10 +148,10 @@ function ListView({ convs, agentes }: { convs: ConversacionHub[]; agentes: Recor
     <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="w-full">
       <TabsList className="w-full overflow-x-auto justify-start md:justify-center">
         <TabsTrigger value="all">Todas<Badge variant="secondary" className="ml-2">{convs.length - closedCount}</Badge></TabsTrigger>
-        <TabsTrigger value="pending">Pendientes{pendingCount > 0 && <Badge className="ml-2 bg-orange-400 hover:bg-orange-400">{pendingCount}</Badge>}</TabsTrigger>
-        <TabsTrigger value="waiting">Esperando{waitingCount > 0 && <Badge variant="destructive" className="ml-2">{waitingCount}</Badge>}</TabsTrigger>
-        <TabsTrigger value="active">Con Agente{activeCount > 0 && <Badge variant="secondary" className="ml-2">{activeCount}</Badge>}</TabsTrigger>
-        <TabsTrigger value="bot">Con Bot{botCount > 0 && <Badge variant="secondary" className="ml-2">{botCount}</Badge>}</TabsTrigger>
+        <TabsTrigger value="pending">Pendientes{pendingCount > 0 && <span className="pill wait ml-2">{pendingCount}</span>}</TabsTrigger>
+        <TabsTrigger value="waiting">Esperando{waitingCount > 0 && <span className="pill crit ml-2">{waitingCount}</span>}</TabsTrigger>
+        <TabsTrigger value="active">Con valuador{activeCount > 0 && <Badge variant="secondary" className="ml-2">{activeCount}</Badge>}</TabsTrigger>
+        <TabsTrigger value="bot">Con bot{botCount > 0 && <Badge variant="secondary" className="ml-2">{botCount}</Badge>}</TabsTrigger>
         <TabsTrigger value="closed">Cerradas{closedCount > 0 && <Badge variant="secondary" className="ml-2">{closedCount}</Badge>}</TabsTrigger>
       </TabsList>
       <div className="mt-4">
@@ -165,21 +165,26 @@ function ListView({ convs, agentes }: { convs: ConversacionHub[]; agentes: Recor
           <div className="space-y-2">
             {shown.map((c) => (
               <Link key={c.idConversacion} href={rutaFicha(c.idConversacion)} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <Card className={cn("cursor-pointer hover:bg-accent transition-colors py-0", isPending(c) && "border-l-4 border-l-orange-400")}>
-                  <CardContent className="flex items-center justify-between py-3 md:py-4 gap-2">
-                    <div className="flex items-center gap-3 md:gap-4 min-w-0">
+                <Card className={cn("cursor-pointer hover:bg-accent transition-colors py-0", isPending(c) && "border-l-4 border-l-[var(--warn)]")}>
+                  {/* Compacta: tres líneas a la izquierda (nombre, datos, último mensaje) y dos a la derecha (estatus, oferta y quién atiende) */}
+                  <CardContent className="flex items-center justify-between py-2.5 gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <Avatar c={c} />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-x-2 gap-y-1 min-w-0 flex-wrap"><p className="font-medium text-sm md:text-base truncate">{cliente(c)}</p><Brand c={c} /></div>
+                        <div className="flex items-center gap-x-2 min-w-0"><p className="font-medium text-sm md:text-base truncate">{cliente(c)}</p><Brand c={c} /></div>
                         <p className="text-xs md:text-sm text-muted-foreground truncate">{c.telefonoCliente}{resumen(c) && <span> · {resumen(c)}</span>}</p>
-                        {preview(c) && <p className="text-xs text-muted-foreground truncate max-w-[200px] md:max-w-[300px]">&ldquo;{preview(c)}&rdquo;</p>}
-                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Handler c={c} agentes={agentes} /></p>
+                        {preview(c) && <p className="text-xs text-muted-foreground truncate max-w-[220px] md:max-w-[420px]">&ldquo;{preview(c)}&rdquo;</p>}
                       </div>
                     </div>
-                    <div className="flex flex-col md:flex-row items-end md:items-center gap-1 md:gap-4 flex-shrink-0">
-                      {c.fuente === "valuacion" && <span className="text-xs text-muted-foreground">Oferta #{c.idExterno}</span>}
-                      <ConvBadge c={c} />
-                      <span className="text-xs md:text-sm text-muted-foreground whitespace-nowrap">{fecha(c.ultimoMensajeEn)}</span>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0 text-right">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">{fecha(c.ultimoMensajeEn)}</span>
+                        <ConvBadge c={c} />
+                      </div>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1 whitespace-nowrap">
+                        {c.fuente === "valuacion" && <span>Oferta #{c.idExterno}</span>}
+                        {c.estado !== "closed" && c.estado !== "waiting_agent" && <span className="hidden md:inline-flex items-center gap-1">· <Handler c={c} agentes={agentes} /></span>}
+                      </span>
                     </div>
                   </CardContent>
                 </Card>
@@ -221,7 +226,7 @@ function Kanban({ convs, agentes }: { convs: ConversacionHub[]; agentes: Record<
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between mb-1 gap-1">
                     <div className="flex items-center gap-x-1.5 gap-y-1 min-w-0 flex-wrap"><span className="font-medium text-sm truncate">{cliente(c)}</span><Brand c={c} /></div>
-                    <ConvBadge c={c} short className="px-1.5 py-0 ml-1 flex-shrink-0" />
+                    <ConvBadge c={c} short className="flex-shrink-0" />
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{c.telefonoCliente}{resumen(c) && <span> · {resumen(c)}</span>}</p>
                   {preview(c) && <p className="text-xs text-muted-foreground truncate mt-0.5">&ldquo;{preview(c)}&rdquo;</p>}
@@ -255,7 +260,7 @@ function Converse({ convs, sel, onSel, agentes, onCambio }: {
       <div className="w-[350px] max-w-[45%] flex-shrink-0 border-r flex flex-col bg-background">
         <div className="flex gap-1 p-1.5 border-b overflow-x-auto" role="group" aria-label="Filtrar por estatus de la conversación">
           {CONVERSE_FILTERS.map((s) => (
-            <Button key={s} variant={filter === s ? "default" : "ghost"} size="sm" aria-pressed={filter === s} className="text-xs px-2 h-7 flex-shrink-0" onClick={() => setFilter(s)}>
+            <Button key={s} variant={filter === s ? "secondary" : "ghost"} size="sm" aria-pressed={filter === s} className={cn("px-2.5 flex-shrink-0", filter === s ? "font-semibold" : "text-muted-foreground")} onClick={() => setFilter(s)}>
               {s === "all" ? "Todas" : shortLabels[s]}
             </Button>
           ))}
@@ -269,17 +274,19 @@ function Converse({ convs, sel, onSel, agentes, onCambio }: {
           ) : list.map((c) => (
             <button
               key={c.idConversacion} type="button" onClick={() => onSel(c.idConversacion)} aria-current={sel === c.idConversacion ? "true" : undefined}
-              className={cn("w-full text-left flex items-center gap-2 p-2.5 border-b hover:bg-accent transition-colors", sel === c.idConversacion && "bg-primary/10 border-l-2 border-l-primary")}
+              className={cn("w-full text-left flex items-start gap-3 px-3 py-3 border-b hover:bg-accent transition-colors", sel === c.idConversacion && "bg-accent shadow-[inset_3px_0_0_var(--mod)]")}
             >
               <Avatar c={c} small />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-x-1.5 gap-y-1 min-w-0 flex-wrap"><p className="font-medium text-sm truncate">{cliente(c)}</p><Brand c={c} /></div>
-                  <ConvBadge c={c} short className="px-1.5 py-0 ml-2 flex-shrink-0" />
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="font-medium text-sm truncate">{cliente(c)}</p>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">{fecha(c.ultimoMensajeEn)}</span>
                 </div>
-                <p className="text-xs text-muted-foreground truncate">{c.telefonoCliente}{resumen(c) && <span> · {resumen(c)}</span>}</p>
-                {preview(c) && <p className="text-xs text-muted-foreground truncate">&ldquo;{preview(c)}&rdquo;</p>}
-                <p className="text-xs text-muted-foreground">{fecha(c.ultimoMensajeEn)}</p>
+                <p className="text-xs text-muted-foreground truncate">{resumen(c) || c.telefonoCliente}</p>
+                <div className="flex items-center justify-between gap-2 mt-1">
+                  <p className="text-xs text-muted-foreground truncate">{preview(c) ? <>&ldquo;{preview(c)}&rdquo;</> : agenciaDe(c)}</p>
+                  <ConvBadge c={c} short className="flex-shrink-0" />
+                </div>
               </div>
             </button>
           ))}
@@ -629,106 +636,104 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
     : esAdmin ? "La atiende otro valuador. Tómala para escribirle al cliente"
     : "La atiende otro valuador";
 
+  // Acciones para atender (mismas que Ventas y Servicio): una principal a la vista y el resto en el menú "Más acciones"
+  const puedeAsignar = abierta && esAdmin && asignables.length > 0;
+  const puedeTransferir = abierta && esAdmin && otrosEquipos.length > 0;
+  const puedeDevolver = conv.estado === "with_agent" && (esMia || esAdmin);
+  const principal: "tomar" | "bot" | "reabrir" | null =
+    puedeTomar ? "tomar" : puedeDevolver ? "bot" : conv.estado === "closed" ? "reabrir" : null;
+  const tomar = () => ejecuta("tomar", toma, "Tomaste la conversación");
+  const devolver = () => ejecuta("bot", () => devuelveAlBot(version), "La conversación volvió al bot");
+  const reabrir = () => ejecuta("reabrir", () => reabreConversacion(version), "Conversación reabierta: la atiende el bot");
+  const hayMenu = puedeAsignar || puedeTransferir || (puedeDevolver && principal !== "bot") || abierta;
+  const atiende = conv.estado === "with_agent" ? (esMia ? "Tú" : (conv.idAgente && agentes[conv.idAgente]) || "Valuador") : null;
+  const giro = (accion: string) => trabajando === accion ? <Loader2 className="animate-spin" aria-hidden="true" /> : null;
+
   return (
     <div className="flex flex-col h-full">
-      <div className={cn("flex flex-col gap-2 pb-3 border-b", !compact && "md:pb-4")}>
-        <div className={cn("flex items-center gap-2", !compact && "md:gap-4")}>
-          {!compact && (
-            <Button asChild variant="ghost" size="icon" className="flex-shrink-0">
-              <Link href={BASE} aria-label="Volver a conversaciones"><ArrowLeft className="h-5 w-5" aria-hidden="true" /></Link>
-            </Button>
-          )}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className={cn("text-base font-bold truncate", !compact && "md:text-xl")}>{cliente(conv)}</h1>
-              <ConvBadge c={conv} />
-            </div>
-            <div className={cn("flex items-center gap-2 text-xs text-muted-foreground", !compact && "md:text-sm")}>
-              <Phone className="h-3 w-3" aria-hidden="true" />
-              <span className="truncate">{conv.telefonoCliente}{ctx.agencia ? ` · ${ctx.agencia}` : ""}</span>
-            </div>
+      {/* Encabezado: quién es, en qué estatus está y qué se puede hacer, en una sola barra */}
+      <div className="flex items-start gap-3 pb-3 border-b">
+        {!compact && (
+          <Button asChild variant="ghost" size="icon" className="flex-shrink-0 -ml-2">
+            <Link href={BASE} aria-label="Volver a conversaciones"><ArrowLeft className="h-5 w-5" aria-hidden="true" /></Link>
+          </Button>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className={cn("text-base font-semibold truncate", !compact && "md:text-lg")}>{cliente(conv)}</h1>
+            <ConvBadge c={conv} />
           </div>
+          <p className="text-sm text-muted-foreground truncate">
+            {[conv.telefonoCliente, ctx.agencia, conv.fuente === "valuacion" ? `Oferta #${conv.idExterno}` : null, resumen(conv) || null, atiende ? `Atiende: ${atiende}` : null]
+              .filter(Boolean).join(" · ")}
+          </p>
+          {ctx.telefonoOriginal && <p className="text-xs text-[var(--warn)]">Envío de prueba · cliente real: {ctx.telefonoOriginal}</p>}
         </div>
-        {conv.fuente === "valuacion" && (
-          <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
-            <span>Oferta #{conv.idExterno}</span>
-            {resumen(conv) && <span>{resumen(conv)}</span>}
-            {conv.estado === "with_agent" && <span className="flex items-center gap-1"><UserCircle className="h-3 w-3" aria-hidden="true" />{(conv.idAgente && agentes[conv.idAgente]) || "Valuador"}</span>}
-            {ctx.telefonoOriginal && <span>· Envío de prueba (cliente real: {ctx.telefonoOriginal})</span>}
-          </div>
-        )}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {principal === "tomar" && <Button size="sm" disabled={!!trabajando} onClick={tomar}>{giro("tomar") ?? <Hand aria-hidden="true" />}Tomar</Button>}
+          {principal === "bot" && <Button variant="outline" size="sm" disabled={!!trabajando} onClick={devolver}>{giro("bot") ?? <RotateCcw aria-hidden="true" />}Devolver al bot</Button>}
+          {principal === "reabrir" && <Button variant="outline" size="sm" disabled={!!trabajando} onClick={reabrir}>{giro("reabrir") ?? <RefreshCw aria-hidden="true" />}Reabrir</Button>}
+          {hayMenu && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon-sm" disabled={!!trabajando} aria-label="Más acciones" title="Más acciones">
+                  {trabajando && !["tomar", "bot", "reabrir"].includes(trabajando) ? <Loader2 className="animate-spin" aria-hidden="true" /> : <MoreHorizontal aria-hidden="true" />}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                {puedeAsignar && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger><UserPlus aria-hidden="true" />Asignar a un valuador</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+                      <DropdownMenuRadioGroup value={conv.idAgente ?? ""}
+                        onValueChange={(id) => { if (id && id !== conv.idAgente) ejecuta("asignar", () => asignaConversacion({ ...version, idAgente: id }), "Conversación asignada"); }}>
+                        {asignables.map((u) => <DropdownMenuRadioItem key={u.idUsuario} value={u.idUsuario}>{u.nombre || u.email}</DropdownMenuRadioItem>)}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
+                {puedeTransferir && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger><ArrowRightLeft aria-hidden="true" />Transferir a otro equipo</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+                      {otrosEquipos.map((e) => (
+                        <DropdownMenuItem key={e.idEquipo} onSelect={() => ejecuta("transferir", () => transfiereEquipo({ ...version, idEquipo: e.idEquipo }), "Conversación transferida de equipo")}>
+                          {e.nombre}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
+                {puedeDevolver && principal !== "bot" && <DropdownMenuItem onSelect={devolver}><RotateCcw aria-hidden="true" />Devolver al bot</DropdownMenuItem>}
+                {abierta && (
+                  <>
+                    {(puedeAsignar || puedeTransferir || (puedeDevolver && principal !== "bot")) && <DropdownMenuSeparator />}
+                    <DropdownMenuItem variant="destructive" onSelect={() => setDialogoCierre(true)}><XCircle aria-hidden="true" />Cerrar conversación</DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
 
-      <div className="flex gap-1 py-2 border-b overflow-x-auto items-center" role="group" aria-label="Secciones de la conversación">
-        <Button variant={view === "messages" ? "default" : "ghost"} size="sm" aria-pressed={view === "messages"} className={cn("flex-shrink-0", compact && "h-7 px-2 text-xs")} onClick={() => setView("messages")}>
-          <MessageSquare className="mr-1 h-3 w-3" aria-hidden="true" />Mensajes
-        </Button>
-        {conv.fuente === "valuacion" && (
-          <Button variant={view === "offer" ? "default" : "ghost"} size="sm" aria-pressed={view === "offer"} className={cn("flex-shrink-0", compact && "h-7 px-2 text-xs")} onClick={() => setView("offer")}>
-            <FileText className="mr-1 h-3 w-3" aria-hidden="true" />Oferta
-          </Button>
-        )}
+      {/* Secciones: mensajes u oferta; el contexto del bot se abre a un lado */}
+      <div className="flex items-center gap-2 border-b">
+        <div className="flex" role="tablist" aria-label="Secciones de la conversación">
+          {([["messages", "Mensajes", MessageSquare], ...(conv.fuente === "valuacion" ? [["offer", "Oferta", FileText] as const] : [])] as const).map(([id, label, Ico]) => (
+            <button key={id} type="button" role="tab" aria-selected={view === id} onClick={() => setView(id)}
+              className={cn("inline-flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px transition-colors",
+                view === id ? "border-[var(--mod)] text-foreground font-medium" : "border-transparent text-muted-foreground hover:text-foreground")}>
+              <Ico className="h-4 w-4" aria-hidden="true" />{label}
+            </button>
+          ))}
+        </div>
         <Button variant={panel ? "secondary" : "ghost"} size="sm" aria-pressed={panel} aria-controls="panel-contexto"
-          className={cn("ml-auto flex-shrink-0", compact && "h-7 px-2 text-xs")} onClick={() => setPanel((p) => !p)}
+          className="ml-auto text-muted-foreground" onClick={() => setPanel((p) => !p)} aria-label="Contexto del bot"
           title={panel ? "Ocultar el contexto del bot" : "Ver el contexto del bot"}>
-          <PanelRight className="mr-1 h-3 w-3" aria-hidden="true" />Contexto del bot
-          {sistema.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{sistema.length}</Badge>}
+          <PanelRight aria-hidden="true" />{!compact && "Contexto del bot"}
+          {sistema.length > 0 && <span className="pill">{sistema.length}</span>}
         </Button>
-        {conv.estado !== "closed" && (
-          <Button variant="outline" size="sm" className={cn("flex-shrink-0", compact && "h-7 px-2 text-xs")} style={{ color: "var(--crit)" }}
-            onClick={() => setDialogoCierre(true)}>
-            <XCircle className="mr-1 h-3 w-3" aria-hidden="true" />Cerrar conversación
-          </Button>
-        )}
-      </div>
-
-      {/* Atender: mismas acciones que Ventas y Servicio */}
-      <div className="flex gap-2 py-2 border-b overflow-x-auto items-center flex-wrap" role="group" aria-label="Atender la conversación">
-        {abierta && esAdmin && asignables.length > 0 && (
-          <div className="flex items-center gap-1.5">
-            <UserPlus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            <Select value={conv.idAgente ?? ""} disabled={!!trabajando}
-              onValueChange={(id) => { if (id && id !== conv.idAgente) ejecuta("asignar", () => asignaConversacion({ ...version, idAgente: id }), "Conversación asignada"); }}>
-              <SelectTrigger className={cn("h-8 text-xs", compact ? "w-[150px]" : "w-[200px]")} aria-label="Asignar a un valuador">
-                <SelectValue placeholder="Asignar valuador..." />
-              </SelectTrigger>
-              <SelectContent>
-                {asignables.map((u) => <SelectItem key={u.idUsuario} value={u.idUsuario}>{u.nombre || u.email}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        {abierta && esAdmin && otrosEquipos.length > 0 && (
-          <Select value="" disabled={!!trabajando}
-            onValueChange={(id) => { if (id) ejecuta("transferir", () => transfiereEquipo({ ...version, idEquipo: id }), "Conversación transferida de equipo"); }}>
-            <SelectTrigger className={cn("h-8 text-xs", compact ? "w-[150px]" : "w-[180px]")} aria-label="Transferir a otro equipo">
-              <div className="flex items-center gap-1.5"><ArrowRightLeft className="h-3 w-3" aria-hidden="true" />Transferir equipo</div>
-            </SelectTrigger>
-            <SelectContent>
-              {otrosEquipos.map((e) => <SelectItem key={e.idEquipo} value={e.idEquipo}>{e.nombre}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
-        {puedeTomar && (
-          <Button size="sm" className="h-8" disabled={!!trabajando} onClick={() => ejecuta("tomar", toma, "Tomaste la conversación")}>
-            {trabajando === "tomar" ? <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" /> : <Hand className="mr-1 h-3 w-3" aria-hidden="true" />}
-            Tomar conversación
-          </Button>
-        )}
-        {conv.estado === "with_agent" && (esMia || esAdmin) && (
-          <Button variant="outline" size="sm" className="h-8" disabled={!!trabajando}
-            onClick={() => ejecuta("bot", () => devuelveAlBot(version), "La conversación volvió al bot")}>
-            {trabajando === "bot" ? <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" /> : <RotateCcw className="mr-1 h-3 w-3" aria-hidden="true" />}
-            Devolver al bot
-          </Button>
-        )}
-        {conv.estado === "closed" && (
-          <Button variant="outline" size="sm" className="h-8" disabled={!!trabajando}
-            onClick={() => ejecuta("reabrir", () => reabreConversacion(version), "Conversación reabierta: la atiende el bot")}>
-            {trabajando === "reabrir" ? <Loader2 className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" /> : <RefreshCw className="mr-1 h-3 w-3" aria-hidden="true" />}
-            Reabrir
-          </Button>
-        )}
       </div>
 
       <div className="flex-1 min-h-0 flex">
@@ -749,15 +754,18 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
               return (
                 <div key={m.idMensaje}>{separador}
                   <div className={cn("flex mb-2", esCliente ? "justify-start" : "justify-end")}>
-                    {/* Mismos colores que los otros módulos: cliente gris, bot azul, agente verde */}
-                    <div className={cn("max-w-[70%] rounded-lg px-4 py-2", esCliente ? "bg-muted text-foreground" : m.remitente === "bot" ? "bg-blue-600 text-white" : "bg-green-700 text-white")}>
-                      <div className={cn("flex items-center gap-1 text-xs mb-1", esCliente ? "text-muted-foreground" : "text-white/85")}>
+                    {/* Colores del tema: cliente en blanco con borde, bot en azul tenue, valuador en el color principal */}
+                    <div className={cn("max-w-[70%] rounded-xl px-3.5 py-2 text-sm",
+                      esCliente ? "bg-card border text-foreground rounded-bl-sm"
+                        : m.remitente === "bot" ? "bg-[var(--info-bg)] text-foreground rounded-br-sm"
+                          : "bg-[var(--bubble-out)] text-[var(--bubble-out-fg)] rounded-br-sm")}>
+                      <div className="flex items-center gap-1 text-xs mb-0.5 opacity-75">
                         {esCliente ? <User className="h-3 w-3" aria-hidden="true" /> : m.remitente === "bot" ? <Bot className="h-3 w-3" aria-hidden="true" /> : <UserCircle className="h-3 w-3" aria-hidden="true" />}
                         <span>{m.remitente === "agent" ? (m.idAgente && agentes[m.idAgente]) || QUIEN.agent : QUIEN[m.remitente]}{m.esPlantilla ? " · plantilla" : ""}</span>
                       </div>
                       {m.texto && <p className="whitespace-pre-wrap break-words">{m.texto}</p>}
-                      {m.mediaUrl && <a href={m.mediaUrl} target="_blank" rel="noreferrer" className="underline">📎 Archivo adjunto</a>}
-                      <p className={cn("text-xs mt-1 text-right", esCliente ? "text-muted-foreground" : "text-white/85")}>{hora(m.creadoEn)}</p>
+                      {m.mediaUrl && <a href={m.mediaUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline"><Paperclip className="h-3.5 w-3.5" aria-hidden="true" />Archivo adjunto</a>}
+                      <p className="text-xs mt-0.5 text-right opacity-75">{hora(m.creadoEn)}</p>
                     </div>
                   </div>
                 </div>
@@ -770,17 +778,19 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
             </Button>
           )}
           </div>
-          <div className="border-t pt-4">
-            <Card className="p-2">
+          <div className="border-t pt-3">
+            {/* Si no se puede escribir, se dice por qué en lugar del campo deshabilitado */}
+            {aviso ? (
+              <p className="rounded-md bg-muted px-3 py-2.5 text-sm text-muted-foreground">{aviso}</p>
+            ) : (
               <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); envia(); }}>
-                <Input aria-label="Mensaje" placeholder="Escribe un mensaje..." className="flex-1" value={texto} maxLength={4096}
-                  disabled={!puedeEscribir || trabajando === "enviar"} onChange={(e) => setTexto(e.target.value)} />
-                <Button type="submit" aria-label="Enviar mensaje" disabled={!puedeEscribir || !texto.trim() || !!trabajando}>
-                  {trabajando === "enviar" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
+                <Input aria-label="Mensaje" placeholder="Escribe un mensaje…" className="flex-1" value={texto} maxLength={4096}
+                  disabled={trabajando === "enviar"} onChange={(e) => setTexto(e.target.value)} />
+                <Button type="submit" aria-label="Enviar mensaje" disabled={!texto.trim() || !!trabajando}>
+                  {trabajando === "enviar" ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}Enviar
                 </Button>
               </form>
-              {aviso && <p className="text-xs text-muted-foreground mt-2 text-center">{aviso}</p>}
-            </Card>
+            )}
           </div>
         </>
       )}
@@ -803,7 +813,7 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
           </div>
           {conv.fuente === "valuacion" && (
             <section className="space-y-2">
-              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Datos del envío</h3>
+              <h3 className="text-sm font-medium">Datos del envío</h3>
               <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
                 <dt className="text-muted-foreground">Oferta</dt><dd>#{conv.idExterno}</dd>
                 <dt className="text-muted-foreground">Cliente</dt><dd className="break-words">{ctx.nombreCliente ?? "—"}</dd>
@@ -817,7 +827,7 @@ export function ConversacionChat({ idConversacion, compact = false, agentes = {}
             </section>
           )}
           <section className="space-y-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notas del sistema</h3>
+            <h3 className="text-sm font-medium">Notas del sistema</h3>
             {sistema.length === 0 ? <p className="text-sm text-muted-foreground">Sin notas todavía.</p> : (
               <ol className="space-y-2">
                 {sistema.map((m) => (

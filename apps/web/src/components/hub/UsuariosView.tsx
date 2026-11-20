@@ -431,7 +431,7 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
                         <div key={m} className={`rounded-md border px-3 py-2 text-xs space-y-1 ${m === modulo ? "border-primary/50 bg-primary/5" : ""}`}>
                           <p className="font-medium text-sm flex items-center gap-1.5"><IconoModulo className="h-4 w-4 text-muted-foreground" aria-hidden="true" />{NOMBRE_MODULO[m]}</p>
                           <p className="flex items-center gap-1.5" title={rol?.descripcion ?? undefined}>
-                            <IconoRol className={`h-3.5 w-3.5 ${rol?.esAdministrador ? "text-amber-600" : "text-muted-foreground"}`} aria-hidden="true" />
+                            <IconoRol className={`h-3.5 w-3.5 ${rol?.esAdministrador ? "text-[var(--warn)]" : "text-muted-foreground"}`} aria-hidden="true" />
                             {nombreRol(m, a.rol)}
                           </p>
                           <p className="flex items-center gap-1.5 text-muted-foreground">

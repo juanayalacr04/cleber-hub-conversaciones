@@ -222,7 +222,6 @@ export function FinanciamientoView({ mod }: { mod: ModuleDef }) {
 function Stat({ icon, label, value, hint, hot }: { icon: string; label: string; value: string; hint?: string; hot?: boolean }) {
   return (
     <div className={`card stat${hot ? " hot" : ""}`}>
-      <Icon name={icon} className="big" />
       <div className="top">{label}<span className="chipi"><Icon name={icon} /></span></div>
       <strong className="num">{value}</strong>
       {hint && <em>{hint}</em>}

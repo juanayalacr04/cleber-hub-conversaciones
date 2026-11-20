@@ -20,7 +20,6 @@ import type { ModuleDef } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
 import { consultaConfiguracionModulo, guardaBot, type Bot as BotHub, type ConfiguracionModulo } from "@/lib/hub/configuracion";
 import { mensajeError } from "@/lib/valuacion/tipos";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -68,7 +67,7 @@ export function BotsValuacionView({ mod }: { mod: ModuleDef }) {
     return (
       <div>
         <Encabezado />
-        <Card><CardContent className="py-8 text-center"><p className="text-gray-500">Necesitas pertenecer a una marca para ver bots.</p></CardContent></Card>
+        <Card><CardContent className="py-8 text-center"><p className="text-muted-foreground">Necesitas pertenecer a una marca para ver bots.</p></CardContent></Card>
       </div>
     );
   }
@@ -77,14 +76,14 @@ export function BotsValuacionView({ mod }: { mod: ModuleDef }) {
       <div>
         <Encabezado />
         <Card><CardContent className="py-8 text-center space-y-3">
-          <p className="text-red-600">{error}</p>
+          <p className="text-[var(--crit)]">{error}</p>
           <Button variant="outline" onClick={carga}>Reintentar</Button>
         </CardContent></Card>
       </div>
     );
   }
   if (!conf) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>;
+    return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
   }
 
   const puedeEditar = conf.puedeEditar;
@@ -102,9 +101,9 @@ export function BotsValuacionView({ mod }: { mod: ModuleDef }) {
       {bots.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <div className="rounded-full bg-gray-100 p-4 mb-4"><Bot className="h-8 w-8 text-gray-400" /></div>
+            <div className="rounded-full bg-muted p-4 mb-4"><Bot className="h-8 w-8 text-muted-foreground" /></div>
             <h3 className="text-lg font-medium mb-2">No tienes bots</h3>
-            <p className="text-gray-500 text-center mb-4">
+            <p className="text-muted-foreground text-center mb-4">
               {puedeEditar
                 ? "Crea el bot de Valuación de la marca para que responda las dudas de los clientes por WhatsApp."
                 : "Un administrador de Valuación debe crear el bot de tu marca."}
@@ -122,7 +121,7 @@ export function BotsValuacionView({ mod }: { mod: ModuleDef }) {
               <Card key={bot.idBot} {...clic} className={cn("relative", clic.className)}>
                 <CardHeader className="flex flex-row items-start justify-between pb-2">
                   <div className="flex items-start gap-3">
-                    <div className="rounded-lg bg-blue-100 p-2"><Bot className="h-5 w-5 text-blue-600" /></div>
+                    <Bot className="h-5 w-5 mt-1 text-muted-foreground flex-shrink-0" aria-hidden="true" />
                     <div>
                       <CardTitle className="text-lg">{bot.nombre}</CardTitle>
                       <CardDescription className="mt-1">{c.description}</CardDescription>
@@ -146,31 +145,29 @@ export function BotsValuacionView({ mod }: { mod: ModuleDef }) {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Phone className="h-4 w-4" />
                       <span>
                         {numeros.length > 0
                           ? numeros.map((n) => n.telefono).join(", ")
-                          : <span className="text-amber-700">Sin número asignado (se asigna en WhatsApp)</span>}
+                          : <span className="text-[var(--warn)]">Sin número asignado (se asigna en WhatsApp)</span>}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <MessageSquare className="h-4 w-4" />
                       <span>Handoff: {c.handoffConfig?.enabled ? "Habilitado" : "Deshabilitado"}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Clock className="h-4 w-4" />
                       <span>Horario: {c.scheduleConfig?.enabled ? "Con horario de atención" : "Sin horario"}</span>
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-muted-foreground">
                       {TIPOS[bot.tipo] ?? bot.tipo}
-                      {c.abacusConfig?.deploymentId ? <> · Deployment <span className="font-mono">{c.abacusConfig.deploymentId}</span></> : <> · <span className="text-amber-700">sin Deployment ID</span></>}
+                      {c.abacusConfig?.deploymentId ? <> · Deployment <span className="font-mono">{c.abacusConfig.deploymentId}</span></> : <> · <span className="text-[var(--warn)]">sin Deployment ID</span></>}
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t">
-                      <span className="text-xs text-gray-500">Estado</span>
-                      <Badge variant={bot.esActivo ? "default" : "secondary"} className={bot.esActivo ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
-                        {bot.esActivo ? "Activo" : "Pausado"}
-                      </Badge>
+                      <span className="text-xs text-muted-foreground">Estado</span>
+                      <span className={`pill ${bot.esActivo ? "agent" : "closed"}`}>{bot.esActivo ? "Activo" : "Pausado"}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -188,7 +185,7 @@ function Encabezado({ accion }: { accion?: React.ReactNode }) {
     <div className="flex items-center justify-between mb-8">
       <div>
         <h1 className="text-2xl font-bold">Bots</h1>
-        <p className="text-gray-500">Gestiona los chatbots de WhatsApp de Valuación</p>
+        <p className="text-muted-foreground">Gestiona los chatbots de WhatsApp de Valuación</p>
       </div>
       {accion}
     </div>

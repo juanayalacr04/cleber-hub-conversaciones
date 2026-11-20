@@ -158,14 +158,12 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-export function PageHead({ title, subtitle, mod }: { title: string; subtitle: string; mod: ModuleDef }) {
+/** Encabezado de página. El módulo ya lo indican la franja de color y el menú: aquí no se repite. */
+export function PageHead({ title, subtitle, actions }: { title: string; subtitle: string; mod?: ModuleDef; actions?: ReactNode }) {
   return (
     <header className="head">
       <div><h1>{title}</h1><p>{subtitle}</p></div>
-      <span className="modchip">
-        <span className="dot"><Icon name={mod.icon} className="i" /></span>
-        {mod.id === "general" ? "Todos los módulos" : `Módulo ${mod.label}`}
-      </span>
+      {actions && <div className="head-acts">{actions}</div>}
     </header>
   );
 }

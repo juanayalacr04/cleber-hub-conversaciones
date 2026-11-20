@@ -111,7 +111,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
 
   if (!idMarca) return <Aviso lista={lista} texto="Necesitas pertenecer a una marca para administrar bots." />;
   if (error) return <Aviso lista={lista} texto={error} reintentar={carga} />;
-  if (!conf) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>;
+  if (!conf) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
   if (noExiste) return <Aviso lista={lista} texto="Bot no encontrado." />;
 
   const puedeEditar = conf.puedeEditar;
@@ -124,7 +124,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
         <Link href={lista}><Button variant="ghost" size="icon" aria-label="Volver a Bots"><ArrowLeft className="h-5 w-5" /></Button></Link>
         <div className="flex-1">
           <h1 className="text-2xl font-bold">{bot ? (puedeEditar ? "Editar Bot" : "Bot") : "Crear Bot"}</h1>
-          <p className="text-gray-500">{bot ? bot.nombre : "Configura un nuevo chatbot de WhatsApp de Valuación"}</p>
+          <p className="text-muted-foreground">{bot ? bot.nombre : "Configura un nuevo chatbot de WhatsApp de Valuación"}</p>
         </div>
         {puedeEditar && (
           <Button onClick={guarda} disabled={guardando}>
@@ -134,7 +134,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
         )}
       </div>
 
-      {!puedeEditar && <p className="mb-4 text-sm text-gray-500">Solo un administrador de Valuación puede cambiar la configuración del bot.</p>}
+      {!puedeEditar && <p className="mb-4 text-sm text-muted-foreground">Solo un administrador de Valuación puede cambiar la configuración del bot.</p>}
 
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="mb-4">
@@ -167,19 +167,19 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
                     placeholder="Ej: Responde las dudas de la oferta de compra del auto" />
                 </div>
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" className="h-4 w-4 rounded border-gray-300" checked={f.esActivo} onChange={(e) => edita({ esActivo: e.target.checked })} />
+                  <input type="checkbox" className="h-4 w-4 rounded border-input" checked={f.esActivo} onChange={(e) => edita({ esActivo: e.target.checked })} />
                   Bot activo
                 </label>
-                <p className="text-xs text-gray-500">Un bot pausado no contesta: los mensajes del cliente se guardan, pero nadie responde.</p>
+                <p className="text-xs text-muted-foreground">Un bot pausado no contesta: los mensajes del cliente se guardan, pero nadie responde.</p>
                 {bot && (
                   <div className="pt-2 border-t text-sm">
                     <p className="font-medium">Número de WhatsApp</p>
                     {numeros.length > 0 ? (
-                      <p className="text-gray-600">Atiende en: <span className="font-mono">{numeros.map((n) => n.telefono).join(", ")}</span></p>
+                      <p className="text-muted-foreground">Atiende en: <span className="font-mono">{numeros.map((n) => n.telefono).join(", ")}</span></p>
                     ) : (
-                      <p className="text-amber-700">Este bot no está asignado a ningún número.</p>
+                      <p className="text-[var(--warn)]">Este bot no está asignado a ningún número.</p>
                     )}
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       El bot que contesta en cada número se elige en <Link className="underline" href={modulePath(mod.id, "/whatsapp")}>WhatsApp</Link> (campo &quot;Bot por defecto&quot;).
                     </p>
                   </div>
@@ -204,22 +204,22 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
                       <SelectItem value="workflow">AI Workflow</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-gray-500">ChatLLM usa getConversationResponse. AI Workflow usa executeSyncConversationAgent.</p>
+                  <p className="text-xs text-muted-foreground">ChatLLM usa getConversationResponse. AI Workflow usa executeSyncConversationAgent.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="bot-deployment">Deployment ID</Label>
                   <Input id="bot-deployment" value={f.deploymentId} onChange={(e) => edita({ deploymentId: e.target.value })} placeholder="xxxxxxxxx" className="font-mono" />
-                  <p className="text-xs text-gray-500">Lo da Abacus al crear el deployment del bot. Cada marca tiene el suyo.</p>
+                  <p className="text-xs text-muted-foreground">Lo da Abacus al crear el deployment del bot. Cada marca tiene el suyo.</p>
                 </div>
                 {f.tipo === "workflow" && (
                   <div className="space-y-2">
                     <Label htmlFor="bot-workflow">Nombre del argumento de entrada</Label>
                     <Input id="bot-workflow" value={f.workflowInputName} onChange={(e) => edita({ workflowInputName: e.target.value })} placeholder="message" />
-                    <p className="text-xs text-gray-500">Vacío = &quot;message&quot;.</p>
+                    <p className="text-xs text-muted-foreground">Vacío = &quot;message&quot;.</p>
                   </div>
                 )}
-                <div className="rounded-md border bg-muted/30 p-3 text-xs text-gray-600 space-y-1">
-                  <p className="font-medium text-gray-700">Credenciales</p>
+                <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">Credenciales</p>
                   <p>
                     El token de Abacus no se captura aquí: es uno por módulo y lo toma el sistema del secreto del ambiente
                     (<span className="font-mono">ABACUS_DEPLOYMENT_TOKEN_VALUACION</span>). Solo hace falta el Deployment ID.
@@ -237,7 +237,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="bot-handoff" className="h-4 w-4 rounded border-gray-300" checked={f.handoffActivo} onChange={(e) => edita({ handoffActivo: e.target.checked })} />
+                  <input type="checkbox" id="bot-handoff" className="h-4 w-4 rounded border-input" checked={f.handoffActivo} onChange={(e) => edita({ handoffActivo: e.target.checked })} />
                   <Label htmlFor="bot-handoff">Habilitar handoff a agentes</Label>
                 </div>
                 {f.handoffActivo && (
@@ -245,19 +245,19 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
                     <div className="space-y-2">
                       <Label htmlFor="bot-palabras">Palabras clave para handoff</Label>
                       <Input id="bot-palabras" value={f.palabras} onChange={(e) => edita({ palabras: e.target.value })} placeholder="hablar con humano, asesor, agente" />
-                      <p className="text-xs text-gray-500">Separadas por comas. Cuando el cliente escriba alguna de estas palabras, se transferirá a un agente.</p>
+                      <p className="text-xs text-muted-foreground">Separadas por comas. Cuando el cliente escriba alguna de estas palabras, se transferirá a un agente.</p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="bot-msg-handoff">Mensaje al escalar</Label>
                       <Input id="bot-msg-handoff" value={f.mensajeHandoff} onChange={(e) => edita({ mensajeHandoff: e.target.value })}
                         placeholder="Entendido, te comunico con un asesor. En un momento te atenderán." />
-                      <p className="text-xs text-gray-500">Vacío = mensaje por defecto.</p>
+                      <p className="text-xs text-muted-foreground">Vacío = mensaje por defecto.</p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="bot-msg-espera">Mensaje mientras espera asesor</Label>
                       <Input id="bot-msg-espera" value={f.mensajeEspera} onChange={(e) => edita({ mensajeEspera: e.target.value })}
                         placeholder="Tu mensaje fue recibido. Un asesor te atenderá pronto." />
-                      <p className="text-xs text-gray-500">Vacío = mensaje por defecto.</p>
+                      <p className="text-xs text-muted-foreground">Vacío = mensaje por defecto.</p>
                     </div>
                   </>
                 )}
@@ -300,7 +300,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
                     <Label htmlFor="bot-resultados">Acciones de clasificación de resultado</Label>
                     <Input id="bot-resultados" value={f.resultados} onChange={(e) => edita({ resultados: e.target.value })} className="font-mono"
                       placeholder={RESULTADOS_VALUACION.join(", ")} />
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-muted-foreground">
                       Separadas por comas. Deben ser exactamente las que reconoce Valuación; el hub descarta cualquier otra.
                       Vacío = las de Ventas y Servicio (interes_cita, otro_motivo), que Valuación no reconoce.
                     </p>
@@ -312,7 +312,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
                     <Label htmlFor="bot-herramienta">Herramienta que reporta el resultado</Label>
                     <Input id="bot-herramienta" value={f.herramientaResultado} onChange={(e) => edita({ herramientaResultado: e.target.value })}
                       className="font-mono" placeholder={HERRAMIENTA_RESULTADO} />
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-muted-foreground">
                       Nombre de la herramienta del bot en Abacus. Hoy el bot de pruebas no tiene herramientas: estas dos opciones
                       toman efecto cuando se agreguen.
                     </p>
@@ -343,11 +343,11 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
         {bot && puedeEditar && (
           <TabsContent value="chatllm">
             {cargandoAbacus ? (
-              <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>
+              <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
             ) : errorAbacus ? (
               <Card>
                 <CardContent className="py-8 text-center">
-                  <p className="text-gray-500 mb-4">{errorAbacus}</p>
+                  <p className="text-muted-foreground mb-4">{errorAbacus}</p>
                   <Button variant="outline" onClick={cargaAbacus}><RefreshCw className="mr-2 h-4 w-4" />Reintentar</Button>
                 </CardContent>
               </Card>
@@ -356,7 +356,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
             ) : (
               <Card>
                 <CardContent className="py-8 text-center">
-                  <p className="text-gray-500 mb-4">Carga la configuración del modelo ChatLLM desde Abacus AI.</p>
+                  <p className="text-muted-foreground mb-4">Carga la configuración del modelo ChatLLM desde Abacus AI.</p>
                   <Button onClick={cargaAbacus}><Brain className="mr-2 h-4 w-4" />Cargar Configuración</Button>
                 </CardContent>
               </Card>
@@ -371,7 +371,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
 function Aviso({ lista, texto, reintentar }: { lista: string; texto: string; reintentar?: () => void }) {
   return (
     <div className="text-center py-12 space-y-3">
-      <p className="text-gray-500">{texto}</p>
+      <p className="text-muted-foreground">{texto}</p>
       {reintentar && <Button variant="outline" onClick={reintentar}>Reintentar</Button>}
       <div><Link href={lista}><Button variant="link">Volver a Bots</Button></Link></div>
     </div>

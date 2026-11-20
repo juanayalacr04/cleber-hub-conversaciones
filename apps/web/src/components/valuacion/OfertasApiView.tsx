@@ -16,8 +16,14 @@ import Link from "next/link";
 import { toast } from "sonner";
 import {
   ArrowDown, ArrowUp, Ban, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Lock,
-  MessageSquare, Minus, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Search, Send, X,
+  Loader2, MessageSquare, Minus, MoreHorizontal, Pencil, RefreshCw, RotateCcw, Search, Send, X,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { PageHead } from "@/components/shell/Shell";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ModuleDef } from "@/lib/modules";
@@ -226,7 +232,6 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
                       <ColOrden activa={orden.por === "hora"} asc={orden.asc} onClick={() => ordena("hora")}>Cita</ColOrden>
                     </th>
                     <th>Cliente</th>
-                    <th>Agencia</th>
                     <th aria-sort={orden.por === "modelo" ? (orden.asc ? "ascending" : "descending") : "none"}>
                       <ColOrden activa={orden.por === "modelo"} asc={orden.asc} onClick={() => ordena("modelo")}>Vehículo</ColOrden>
                     </th>
@@ -248,8 +253,13 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
                               </button>
                             </td>
                             <td><b className="num">{o.horaCita ?? "—"}</b><small className="vsub">{diaRelativo(o.fechaCita, hoy)}</small></td>
-                            <td><span className="vname">{o.contacto.nombre ?? "Sin nombre"}</span>{o.contacto.telefono && <small className="vsub num">{o.contacto.telefono}</small>}</td>
-                            <td className="vwrap">{o.nombreAgencia ?? nombresAgencia.get(o.idAgencia) ?? o.idAgencia}</td>
+                            {/* Con varias agencias a la vista, la agencia va bajo el nombre; el teléfono está en la ficha */}
+                            <td>
+                              <span className="vname">{o.contacto.nombre ?? "Sin nombre"}</span>
+                              <small className="vsub">{agencia === "all" && agencias.length > 1
+                                ? o.nombreAgencia ?? nombresAgencia.get(o.idAgencia) ?? o.idAgencia
+                                : <span className="num">{o.contacto.telefono ?? "Sin teléfono"}</span>}</small>
+                            </td>
                             <td><span className="vname">{modelo(o)}</span><small className="vsub">{[o.vehiculo.anio, o.vehiculo.kilometraje != null ? fmtKm(o.vehiculo.kilometraje) : null].filter(Boolean).join(" · ")}</small></td>
                             {tab === "NO_VIGENTE" ? (
                               <td className="vwrap">{motivoNoVigente(o)}</td>
@@ -267,7 +277,7 @@ export function OfertasApiView({ mod }: { mod: ModuleDef }) {
                             </td>
                           </tr>
                           {abiertaFila && (
-                            <tr className="vexp"><td colSpan={8}>
+                            <tr className="vexp"><td colSpan={7}>
                               <FichaOferta oferta={o} deshabilitado={enCurso} onCalibra={(m) => calibra(o, m)} />
                             </td></tr>
                           )}
@@ -371,10 +381,12 @@ function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
     o.puede.cerrar && { tipo: "cerrar" as const, label: "Cerrar oferta", icono: <Lock size={14} /> },
   ].filter(Boolean) as { tipo: TipoDialogo; label: string; icono: React.ReactNode }[];
   const conversacion = o.envio.idConversacion;
+  // Una sola acción a la vista: la principal o, si no hay, la conversación. Lo demás va en el menú
+  const conversacionEnMenu = !!conversacion && principal !== null;
 
   return (
     <div className="vacts">
-      {conversacion && (
+      {conversacion && !conversacionEnMenu && (
         <Link href={rutaConversacion(conversacion)} className="btn" title="Abrir la conversación de WhatsApp de esta oferta">
           <MessageSquare size={14} />Ver conversación
         </Link>
@@ -386,12 +398,18 @@ function AccionesFila({ oferta: o, deshabilitado, enviando, onEnvia, onAbre }: {
       )}
       {principal === "respuesta" && <button type="button" className="btn" disabled={deshabilitado} onClick={() => onAbre("respuesta")}><Pencil size={14} />Editar estatus</button>}
       {principal === "retomar" && <button type="button" className="btn" disabled={deshabilitado} onClick={() => onAbre("retomar")}><RotateCcw size={14} />Retomar</button>}
-      {menu.length > 0 && (
+      {(menu.length > 0 || conversacionEnMenu) && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" className="btn oicon" disabled={deshabilitado} aria-label="Más acciones" title="Más acciones"><MoreHorizontal size={16} /></button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {conversacionEnMenu && conversacion && (
+              <>
+                <DropdownMenuItem asChild><Link href={rutaConversacion(conversacion)}><MessageSquare size={14} />Ver conversación</Link></DropdownMenuItem>
+                {menu.length > 0 && <DropdownMenuSeparator />}
+              </>
+            )}
             {menu.map((m, i) => (
               <Fragment key={m.tipo}>
                 {m.tipo === "cerrar" && i > 0 && <DropdownMenuSeparator />}
@@ -671,16 +689,16 @@ function DialogoMotivo({ tipo, oferta, onCerrar, onConfirmar }: {
           <DialogTitle>{t.titulo}</DialogTitle>
           <DialogDescription>{oferta.contacto.nombre ?? "Cliente"} · {modelo(oferta)}. {t.desc}</DialogDescription>
         </DialogHeader>
-        <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
-          {t.motivo}
-          <textarea className="date" style={{ minHeight: 80, padding: 8, resize: "vertical" }} value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
-        </label>
+        <div className="grid gap-2">
+          <Label htmlFor="motivo-oferta">{t.motivo}</Label>
+          <Textarea id="motivo-oferta" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
+        </div>
         <DialogFooter>
-          <button type="button" className="btn" onClick={onCerrar} disabled={enviando}>Cancelar</button>
-          <button type="button" className="btn primary" disabled={!valido || enviando}
+          <Button variant="outline" onClick={onCerrar} disabled={enviando}>Cancelar</Button>
+          <Button variant={tipo === "descartar" ? "destructive" : "default"} disabled={!valido || enviando}
             onClick={async () => { setEnviando(true); await onConfirmar(motivo.trim()); setEnviando(false); }}>
-            {enviando ? "Guardando…" : t.boton}
-          </button>
+            {enviando && <Loader2 className="animate-spin" aria-hidden="true" />}{enviando ? "Guardando…" : t.boton}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -722,44 +740,39 @@ function DialogoEnvio({ oferta, onCerrar, onConfirmar }: {
           <DialogDescription>{oferta.contacto.nombre ?? "Cliente"} · {modelo(oferta)}.</DialogDescription>
         </DialogHeader>
 
-        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, cursor: "pointer" }}>
-          <input type="checkbox" checked={alCliente} onChange={(e) => setAlCliente(e.target.checked)} disabled={enviando} style={{ marginTop: 3 }} />
-          <span>
-            <strong>Enviar al cliente</strong>
-            <span style={{ display: "block", color: "var(--muted-foreground, #6b7280)" }}>
-              {telefonoCliente ? `Se enviará al número del cliente: ${telefonoCliente}.` : "Esta oferta no tiene teléfono del cliente."}
-            </span>
-          </span>
-        </label>
-
-        <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13, opacity: alCliente ? 0.5 : 1 }}>
-          Teléfono de prueba (10 dígitos)
-          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 14 }} aria-hidden>+52</span>
-            <input
-              className="date" style={{ flex: 1 }} inputMode="numeric" autoComplete="tel-national" placeholder="81 1234 5678"
+        <div className={cn("grid gap-2", alCliente && "opacity-50")}>
+          <Label htmlFor="telefono-prueba">Teléfono de prueba (10 dígitos)</Label>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground" aria-hidden>+52</span>
+            <Input
+              id="telefono-prueba" className="flex-1" inputMode="numeric" autoComplete="tel-national" placeholder="81 1234 5678"
               value={formatoDiez(digitos)} disabled={alCliente || enviando} autoFocus={!alCliente}
               onChange={(e) => { setDigitos(diezDigitos(e.target.value)); setTocado(true); }}
               onBlur={() => setTocado(true)} aria-invalid={!alCliente && tocado && !telefono}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); envia(); } }}
             />
-          </span>
+          </div>
           {!alCliente && tocado && !telefono && (
-            <span role="alert" style={{ color: "var(--destructive, #dc2626)" }}>Escribe los 10 dígitos del número, sin el +52.</span>
+            <p role="alert" className="text-sm text-[var(--crit)]">Escribe los 10 dígitos del número, sin el +52.</p>
           )}
+        </div>
+
+        <label className={cn("flex items-start gap-3 rounded-md border p-3 cursor-pointer", alCliente && "border-[var(--crit)] bg-[var(--crit-bg)]")}>
+          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--crit)]" checked={alCliente} onChange={(e) => setAlCliente(e.target.checked)} disabled={enviando} />
+          <span className="text-sm">
+            <span className="font-medium">Enviar al cliente real</span>
+            <span className="block text-muted-foreground">
+              {telefonoCliente ? `Se enviará a ${telefonoCliente}. El teléfono de prueba no se usa.` : "Esta oferta no tiene teléfono del cliente."}
+            </span>
+          </span>
         </label>
 
-        {alCliente && (
-          <p role="status" style={{ fontSize: 13, margin: 0, color: "var(--destructive, #dc2626)" }}>
-            El mensaje llegará al cliente real. El teléfono de prueba no se usa.
-          </p>
-        )}
-
         <DialogFooter>
-          <button type="button" className="btn" onClick={onCerrar} disabled={enviando}>Cancelar</button>
-          <button type="button" className="btn primary" disabled={!valido || enviando} onClick={envia}>
-            <Send size={14} />{enviando ? "Enviando…" : alCliente ? "Enviar al cliente" : "Enviar a mi número de prueba"}
-          </button>
+          <Button variant="outline" onClick={onCerrar} disabled={enviando}>Cancelar</Button>
+          <Button variant={alCliente ? "destructive" : "default"} disabled={!valido || enviando} onClick={envia}>
+            {enviando ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
+            {enviando ? "Enviando…" : alCliente ? "Enviar al cliente" : "Enviar a mi número de prueba"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -802,28 +815,35 @@ function DialogoRespuesta({ oferta, onCerrar, onConfirmar }: {
         </DialogHeader>
         {error ? <div className="alert" role="alert">{error}</div> : !etiquetas ? <span className="vsub">Cargando etiquetas…</span> : (
           <>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
-              Estatus
-              <select className="date" value={id} onChange={(e) => setId(e.target.value)} autoFocus>
-                <option value="">Elige una opción…</option>
-                {grupos.map((g) => {
-                  const del = opciones.filter((e) => e.tipo === g.tipo);
-                  return del.length ? <optgroup key={g.tipo} label={g.label}>{del.map((e) => <option key={e.idEtiqueta} value={e.idEtiqueta}>{e.nombre}</option>)}</optgroup> : null;
-                })}
-              </select>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
-              Motivo {elegida?.esRequiereMotivo ? "(obligatorio)" : "(opcional)"}
-              <textarea className="date" style={{ minHeight: 70, padding: 8, resize: "vertical" }} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-            </label>
+            <div className="grid gap-2">
+              <Label htmlFor="estatus-oferta">Estatus</Label>
+              <Select value={id} onValueChange={setId}>
+                <SelectTrigger id="estatus-oferta" className="w-full"><SelectValue placeholder="Elige una opción…" /></SelectTrigger>
+                <SelectContent>
+                  {grupos.map((g) => {
+                    const del = opciones.filter((e) => e.tipo === g.tipo);
+                    return del.length ? (
+                      <SelectGroup key={g.tipo}>
+                        <SelectLabel>{g.label}</SelectLabel>
+                        {del.map((e) => <SelectItem key={e.idEtiqueta} value={e.idEtiqueta}>{e.nombre}</SelectItem>)}
+                      </SelectGroup>
+                    ) : null;
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="motivo-estatus">Motivo {elegida?.esRequiereMotivo ? "(obligatorio)" : "(opcional)"}</Label>
+              <Textarea id="motivo-estatus" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+            </div>
           </>
         )}
         <DialogFooter>
-          <button type="button" className="btn" onClick={onCerrar} disabled={enviando}>Cancelar</button>
-          <button type="button" className="btn primary" disabled={!valido || enviando}
+          <Button variant="outline" onClick={onCerrar} disabled={enviando}>Cancelar</Button>
+          <Button disabled={!valido || enviando}
             onClick={async () => { setEnviando(true); await onConfirmar(id, motivo.trim()); setEnviando(false); }}>
-            {enviando ? "Guardando…" : "Guardar"}
-          </button>
+            {enviando && <Loader2 className="animate-spin" aria-hidden="true" />}{enviando ? "Guardando…" : "Guardar"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

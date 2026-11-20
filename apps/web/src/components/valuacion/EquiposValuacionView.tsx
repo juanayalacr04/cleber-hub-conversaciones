@@ -137,7 +137,7 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
     return (
       <div>
         <div className="mb-8"><h1 className="text-2xl font-bold">Equipos</h1></div>
-        <Card><CardContent className="py-8 text-center"><p className="text-gray-500">Necesitas pertenecer a una marca para ver los equipos.</p></CardContent></Card>
+        <Card><CardContent className="py-8 text-center"><p className="text-muted-foreground">Necesitas pertenecer a una marca para ver los equipos.</p></CardContent></Card>
       </div>
     );
   }
@@ -146,13 +146,13 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
       <div>
         <div className="mb-8"><h1 className="text-2xl font-bold">Equipos</h1></div>
         <Card><CardContent className="py-8 text-center space-y-3">
-          <p className="text-gray-500">No se pudieron cargar los equipos: {error}</p>
+          <p className="text-muted-foreground">No se pudieron cargar los equipos: {error}</p>
           <Button variant="outline" onClick={carga}>Reintentar</Button>
         </CardContent></Card>
       </div>
     );
   }
-  if (!conf) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>;
+  if (!conf) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
 
   const puedeEditar = conf.puedeEditar;
   const equipos = [...conf.equipos].sort((a, b) => Number(b.esActivo) - Number(a.esActivo) || a.nombre.localeCompare(b.nombre));
@@ -164,7 +164,7 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold">Equipos</h1>
-          <p className="text-gray-500">Quién atiende las conversaciones de Valuación y cómo se asignan al pasar a un valuador</p>
+          <p className="text-muted-foreground">Quién atiende las conversaciones de Valuación y cómo se asignan al pasar a un valuador</p>
         </div>
         {puedeEditar && <Button onClick={abreAlta}><Plus className="mr-2 h-4 w-4" />Nuevo equipo</Button>}
       </div>
@@ -172,9 +172,9 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
       {equipos.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <div className="rounded-full bg-gray-100 p-4 mb-4"><Users2 className="h-8 w-8 text-gray-400" /></div>
+            <div className="rounded-full bg-muted p-4 mb-4"><Users2 className="h-8 w-8 text-muted-foreground" /></div>
             <h3 className="text-lg font-medium mb-2">No hay equipos</h3>
-            <p className="text-gray-500 text-center mb-4">Crea un equipo, asígnalo al número de WhatsApp y liga a los valuadores en Usuarios.</p>
+            <p className="text-muted-foreground text-center mb-4">Crea un equipo, asígnalo al número de WhatsApp y liga a los valuadores en Usuarios.</p>
             {puedeEditar && <Button onClick={abreAlta}><Plus className="mr-2 h-4 w-4" />Nuevo equipo</Button>}
           </CardContent>
         </Card>
@@ -187,7 +187,7 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
             return (
               <Card key={e.idEquipo} {...clic(e)} className={cn(clic(e).className, !e.esActivo && "opacity-60")}>
                 <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
-                  <CardTitle className="text-lg flex items-center gap-2"><Users2 className="h-5 w-5 text-gray-500" />{e.nombre}</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2"><Users2 className="h-5 w-5 text-muted-foreground" />{e.nombre}</CardTitle>
                   {puedeEditar && (
                     <div {...noAbre}>
                     <DropdownMenu>
@@ -208,20 +208,20 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
                   <div className="flex items-center gap-2 flex-wrap">
                     {!e.esActivo && <Badge variant="secondary">Inactivo</Badge>}
                     <Badge variant="outline">{nombreModo(e.modoAsignacion)}</Badge>
-                    <span className="text-sm text-gray-500">{e.maxConversacionesAgente ? `Máx. ${e.maxConversacionesAgente} conv/valuador` : "Sin tope"}</span>
+                    <span className="text-sm text-muted-foreground">{e.maxConversacionesAgente ? `Máx. ${e.maxConversacionesAgente} conv/valuador` : "Sin tope"}</span>
                   </div>
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center gap-2">
-                      <Users2 className="h-4 w-4 text-gray-400" />
+                      <Users2 className="h-4 w-4 text-muted-foreground" />
                       <span>{valuadores.length} valuador{valuadores.length !== 1 ? "es" : ""} · {disponibles} disponible{disponibles !== 1 ? "s" : ""}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-gray-400" />
-                      <span>{numeros.length ? numeros.map((n) => n.nombre).join(", ") : <span className="text-amber-700">Sin número asignado</span>}</span>
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      <span>{numeros.length ? numeros.map((n) => n.nombre).join(", ") : <span className="text-[var(--warn)]">Sin número asignado</span>}</span>
                     </div>
                   </div>
                   {valuadores.length === 0 && e.esActivo && (
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-[var(--warn)]">
                       Sin valuadores: liga a los valuadores en <Link {...noAbre} className="underline" href={modulePath(mod.id, "/agentes")}>Usuarios</Link>.
                     </p>
                   )}
@@ -249,14 +249,14 @@ export function EquiposValuacionView({ mod }: { mod: ModuleDef }) {
                 <SelectTrigger id="eq-modo"><SelectValue /></SelectTrigger>
                 <SelectContent>{MODOS.map((m) => <SelectItem key={m.id} value={m.id}>{m.nombre}</SelectItem>)}</SelectContent>
               </Select>
-              {modo && <p className="text-xs text-gray-500">{modo.descripcion}</p>}
+              {modo && <p className="text-xs text-muted-foreground">{modo.descripcion}</p>}
             </div>
             {form.modo !== "manual" && (
               <div className="space-y-2">
                 <Label htmlFor="eq-max">Máximo de conversaciones por valuador</Label>
                 <Input id="eq-max" type="number" min={1} max={1000} value={form.max} placeholder="Sin tope"
                   onChange={(ev) => setForm((f) => ({ ...f, max: ev.target.value }))} />
-                <p className={maxValido ? "text-xs text-gray-500" : "text-xs text-red-600"}>
+                <p className={maxValido ? "text-xs text-muted-foreground" : "text-xs text-[var(--crit)]"}>
                   {maxValido ? "Quien ya tiene ese número de conversaciones en curso no recibe más. Vacío: sin tope." : "Debe ser un número entre 1 y 1000."}
                 </p>
               </div>
