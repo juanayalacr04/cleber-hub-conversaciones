@@ -119,14 +119,37 @@ function useMontoYVobo({ aplica, manejaError, marca }: {
     return true;
   };
 
-  const resuelve = async (o: Oferta, autorizado: boolean, motivo: string) => {
+  /**
+   * Rechazar: solo resuelve. Autorizar: resuelve y envía la oferta en el mismo paso (con la versión nueva) al destino
+   * elegido (fuera de producción, teléfono de prueba o el cliente). Si el envío falla, el VoBo ya quedó autorizado y
+   * la oferta en FALLIDO: se reintenta con Enviar.
+   */
+  const resuelve = async (o: Oferta, autorizado: boolean, motivo: string, destino: DestinoEnvio | null) => {
     marca(o, true);
-    const r = await resuelveVobo({ idOferta: o.idOferta, version: o.version, autoriza: autorizado, ...(motivo ? { motivo } : {}) });
-    marca(o, false);
-    if (!r.successful) { manejaError(r); return false; }
-    aplica(r.info.oferta);
-    toast.success(autorizado ? "VoBo autorizado: la oferta ya se puede enviar" : "VoBo rechazado: el monto regresó al anterior");
-    return true;
+    try {
+      const r = await resuelveVobo({ idOferta: o.idOferta, version: o.version, autoriza: autorizado, ...(motivo ? { motivo } : {}) });
+      if (!r.successful) { manejaError(r); return false; }
+      aplica(r.info.oferta);
+      if (!autorizado || !destino) {
+        toast.success(autorizado ? "VoBo autorizado: la oferta ya se puede enviar" : "VoBo rechazado: el monto regresó al anterior");
+        return true;
+      }
+      const autorizada = r.info.oferta;
+      const e = await enviaOferta({ idOferta: autorizada.idOferta, version: autorizada.version, ...destino });
+      if (!e.successful) {
+        if (e.errorCode === "SESION_EXPIRADA") { manejaError(e); return true; }
+        const enviada = (e.info as { oferta?: Oferta } | undefined)?.oferta;
+        if (enviada) aplica(enviada);
+        toast.error(`VoBo autorizado, pero la oferta no se envió: ${mensajeError(e)} Reintenta con Enviar.`);
+        return true;
+      }
+      aplica(e.info.oferta);
+      toast.success(destino.alCliente ? "VoBo autorizado y oferta enviada al cliente por WhatsApp"
+        : "VoBo autorizado y oferta enviada a tu número de prueba");
+      return true;
+    } finally {
+      marca(o, false);
+    }
   };
 
   const dialogos = (
@@ -137,7 +160,7 @@ function useMontoYVobo({ aplica, manejaError, marca }: {
       )}
       {vobo && (
         <DialogoVobo oferta={vobo} onCerrar={() => setVobo(null)}
-          onConfirmar={async (autorizado, motivo) => { if (await resuelve(vobo, autorizado, motivo)) setVobo(null); }} />
+          onConfirmar={async (autorizado, motivo, destino) => { if (await resuelve(vobo, autorizado, motivo, destino)) setVobo(null); }} />
       )}
     </>
   );
@@ -878,20 +901,31 @@ function DialogoAjuste({ oferta, monto, onCerrar, onConfirmar }: {
   );
 }
 
-/** GERENTE / ADMINISTRADOR resuelve el VoBo: autoriza el monto o lo rechaza con motivo (regresa al anterior). */
+/**
+ * GERENTE / ADMINISTRADOR resuelve el VoBo. Autorizar también envía la oferta, al destino de useDestinoEnvio (fuera
+ * de producción, teléfono de prueba o cliente). Sin teléfono del cliente la oferta no se puede enviar: solo se
+ * autoriza. Rechazar pide motivo y regresa el monto al anterior.
+ */
 function DialogoVobo({ oferta: o, onCerrar, onConfirmar }: {
-  oferta: Oferta; onCerrar: () => void; onConfirmar: (autoriza: boolean, motivo: string) => Promise<void>;
+  oferta: Oferta; onCerrar: () => void;
+  onConfirmar: (autoriza: boolean, motivo: string, destino: DestinoEnvio | null) => Promise<void>;
 }) {
   const [motivo, setMotivo] = useState("");
   const [enviando, setEnviando] = useState<"autoriza" | "rechaza" | null>(null);
+  const conEnvio = !!o.contacto.telefono;
+  const { campos, destino, recuerda } = useDestinoEnvio(o, !!enviando, () => { if (destino) resuelve(true); });
   const resuelve = async (autoriza: boolean) => {
     setEnviando(autoriza ? "autoriza" : "rechaza");
-    await onConfirmar(autoriza, motivo.trim());
+    if (autoriza && conEnvio) recuerda();
+    await onConfirmar(autoriza, motivo.trim(), autoriza && conEnvio ? destino : null);
     setEnviando(null);
   };
+  // Corto: el destino ya se ve en los campos de arriba (un texto largo ensancha el pie y saca el contenido del modal)
+  const etiquetaAutoriza = conEnvio ? "Autorizar y enviar" : "Autorizar";
   return (
     <Dialog open onOpenChange={(abierto) => !abierto && !enviando && onCerrar()}>
-      <DialogContent>
+      {/* min-w-0: que ningún hijo ensanche la columna del grid más allá del modal */}
+      <DialogContent className="[&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle>VoBo del monto</DialogTitle>
           <DialogDescription>
@@ -904,15 +938,22 @@ function DialogoVobo({ oferta: o, onCerrar, onConfirmar }: {
         <div className="grid gap-2">
           <Label htmlFor="motivo-vobo">Comentario (obligatorio para rechazar)</Label>
           <Textarea id="motivo-vobo" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-          <p className="text-xs text-muted-foreground">Si rechazas, el monto regresa a {dinero(o.vobo.montoPrevio)}.</p>
+          <p className="text-xs text-muted-foreground">
+            Si rechazas, el monto regresa a {dinero(o.vobo.montoPrevio)}.{" "}
+            {conEnvio
+              ? `Si autorizas, la oferta se envía por WhatsApp con ${dinero(o.montoOferta)}${esProduccion ? " al cliente" : ""}.`
+              : "La cita no tiene teléfono: al autorizar no se envía."}
+          </p>
         </div>
-        <DialogFooter>
+        {conEnvio && campos}
+        <DialogFooter className="sm:flex-wrap">
           <Button variant="outline" onClick={onCerrar} disabled={!!enviando}>Cancelar</Button>
           <Button variant="destructive" disabled={!!enviando || motivo.trim().length === 0} onClick={() => resuelve(false)}>
             {enviando === "rechaza" && <Loader2 className="animate-spin" aria-hidden="true" />}Rechazar
           </Button>
-          <Button disabled={!!enviando} onClick={() => resuelve(true)}>
-            {enviando === "autoriza" && <Loader2 className="animate-spin" aria-hidden="true" />}Autorizar {dinero(o.montoOferta)}
+          <Button disabled={!!enviando || (conEnvio && !destino)} onClick={() => resuelve(true)}>
+            {enviando === "autoriza" ? <Loader2 className="animate-spin" aria-hidden="true" /> : conEnvio && <Send aria-hidden="true" />}
+            {enviando === "autoriza" ? "Enviando…" : etiquetaAutoriza}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -922,28 +963,75 @@ function DialogoVobo({ oferta: o, onCerrar, onConfirmar }: {
 
 const LLAVE_TELEFONO_PRUEBA = "valuacion.telefonoPrueba";
 
-/** Pide a quién se envía la oferta: a un teléfono de prueba (10 dígitos, el +52 se agrega solo) o, marcando la casilla, al cliente. */
-function DialogoEnvio({ oferta, onCerrar, onConfirmar }: {
-  oferta: Oferta; onCerrar: () => void; onConfirmar: (destino: DestinoEnvio) => Promise<void>;
-}) {
+/**
+ * A quién se envía fuera de producción: a un teléfono de prueba (10 dígitos, el +52 se agrega solo) o, marcando la
+ * casilla, al cliente. En producción no hay campos: siempre al cliente. Lo usan Enviar y "Autorizar y enviar".
+ * `destino` es null mientras el teléfono no es válido; `recuerda` guarda el número de prueba en este navegador.
+ */
+function useDestinoEnvio(oferta: Oferta, deshabilitado: boolean, onEnter: () => void) {
   const [alCliente, setAlCliente] = useState(false);
   // El último número de prueba se recuerda en este navegador (si el almacenamiento no está disponible, no pasa nada)
   const [digitos, setDigitos] = useState(() => {
     try { return diezDigitos(localStorage.getItem(LLAVE_TELEFONO_PRUEBA) ?? ""); } catch { return ""; }
   });
   const [tocado, setTocado] = useState(false);
-  const [enviando, setEnviando] = useState(false);
   const telefono = telefonoMx(digitos);
-  const valido = alCliente || telefono !== null;
+  const alClienteFinal = esProduccion || alCliente;
+  const destino: DestinoEnvio | null = alClienteFinal ? { alCliente: true } : telefono ? { telefonoDestino: telefono } : null;
   const telefonoCliente = oferta.contacto.telefono;
 
-  const envia = async () => {
-    if (!valido) return;
-    setEnviando(true);
-    if (!alCliente && telefono) {
+  const recuerda = () => {
+    if (!alClienteFinal && telefono) {
       try { localStorage.setItem(LLAVE_TELEFONO_PRUEBA, digitos); } catch { /* sin almacenamiento */ }
     }
-    await onConfirmar(alCliente ? { alCliente: true } : { telefonoDestino: telefono! });
+  };
+
+  const campos = esProduccion ? null : (
+    <>
+      <div className={cn("grid gap-2", alCliente && "opacity-50")}>
+        <Label htmlFor="telefono-prueba">Teléfono de prueba (10 dígitos)</Label>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground" aria-hidden>+52</span>
+          <Input
+            id="telefono-prueba" className="flex-1" inputMode="numeric" autoComplete="tel-national" placeholder="81 1234 5678"
+            value={formatoDiez(digitos)} disabled={alCliente || deshabilitado}
+            onChange={(e) => { setDigitos(diezDigitos(e.target.value)); setTocado(true); }}
+            onBlur={() => setTocado(true)} aria-invalid={!alCliente && tocado && !telefono}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onEnter(); } }}
+          />
+        </div>
+        {!alCliente && tocado && !telefono && (
+          <p role="alert" className="text-sm text-[var(--crit)]">Escribe los 10 dígitos del número, sin el +52.</p>
+        )}
+      </div>
+
+      <label className={cn("flex items-start gap-3 rounded-md border p-3 cursor-pointer", alCliente && "border-[var(--crit)] bg-[var(--crit-bg)]")}>
+        <input type="checkbox" className="mt-0.5 size-4 accent-[var(--crit)]" checked={alCliente} onChange={(e) => setAlCliente(e.target.checked)} disabled={deshabilitado} />
+        <span className="text-sm">
+          <span className="font-medium">Enviar al cliente real</span>
+          <span className="block text-muted-foreground">
+            {telefonoCliente ? `Se enviará a ${telefonoCliente}. El teléfono de prueba no se usa.` : "Esta oferta no tiene teléfono del cliente."}
+          </span>
+        </span>
+      </label>
+    </>
+  );
+
+  return { campos, destino, recuerda };
+}
+
+/** Pide a quién se envía la oferta (fuera de producción; en producción se envía sin preguntar). */
+function DialogoEnvio({ oferta, onCerrar, onConfirmar }: {
+  oferta: Oferta; onCerrar: () => void; onConfirmar: (destino: DestinoEnvio) => Promise<void>;
+}) {
+  const [enviando, setEnviando] = useState(false);
+  const { campos, destino, recuerda } = useDestinoEnvio(oferta, enviando, () => { envia(); });
+  const alCliente = !!destino?.alCliente;
+  const envia = async () => {
+    if (!destino) return;
+    setEnviando(true);
+    recuerda();
+    await onConfirmar(destino);
     setEnviando(false);
   };
 
@@ -955,36 +1043,11 @@ function DialogoEnvio({ oferta, onCerrar, onConfirmar }: {
           <DialogDescription>{oferta.contacto.nombre ?? "Cliente"} · {modelo(oferta)}.</DialogDescription>
         </DialogHeader>
 
-        <div className={cn("grid gap-2", alCliente && "opacity-50")}>
-          <Label htmlFor="telefono-prueba">Teléfono de prueba (10 dígitos)</Label>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground" aria-hidden>+52</span>
-            <Input
-              id="telefono-prueba" className="flex-1" inputMode="numeric" autoComplete="tel-national" placeholder="81 1234 5678"
-              value={formatoDiez(digitos)} disabled={alCliente || enviando} autoFocus={!alCliente}
-              onChange={(e) => { setDigitos(diezDigitos(e.target.value)); setTocado(true); }}
-              onBlur={() => setTocado(true)} aria-invalid={!alCliente && tocado && !telefono}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); envia(); } }}
-            />
-          </div>
-          {!alCliente && tocado && !telefono && (
-            <p role="alert" className="text-sm text-[var(--crit)]">Escribe los 10 dígitos del número, sin el +52.</p>
-          )}
-        </div>
-
-        <label className={cn("flex items-start gap-3 rounded-md border p-3 cursor-pointer", alCliente && "border-[var(--crit)] bg-[var(--crit-bg)]")}>
-          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--crit)]" checked={alCliente} onChange={(e) => setAlCliente(e.target.checked)} disabled={enviando} />
-          <span className="text-sm">
-            <span className="font-medium">Enviar al cliente real</span>
-            <span className="block text-muted-foreground">
-              {telefonoCliente ? `Se enviará a ${telefonoCliente}. El teléfono de prueba no se usa.` : "Esta oferta no tiene teléfono del cliente."}
-            </span>
-          </span>
-        </label>
+        {campos}
 
         <DialogFooter>
           <Button variant="outline" onClick={onCerrar} disabled={enviando}>Cancelar</Button>
-          <Button variant={alCliente ? "destructive" : "default"} disabled={!valido || enviando} onClick={envia}>
+          <Button variant={alCliente ? "destructive" : "default"} disabled={!destino || enviando} onClick={envia}>
             {enviando ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
             {enviando ? "Enviando…" : alCliente ? "Enviar al cliente" : "Enviar a mi número de prueba"}
           </Button>

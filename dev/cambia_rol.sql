@@ -12,18 +12,22 @@
  *   agencias  ids separados por coma; '*' = todas las de la marca en valuacion.configuraciones_agencias;
  *             '' = conservar las que ya tenga en la marca
  *   modulo    normalmente valuacion
+ *   equipo    id o nombre del equipo del módulo en la marca; '*' = el único equipo activo del módulo en la marca;
+ *             '' = conservar el que ya tenga; 'NINGUNO' = quitarlo. Sin equipo, un rol que no es ADMINISTRADOR no ve
+ *             conversaciones (hub_cleber.equipos_visibles)
  *
- * Qué cambia: hub_cleber.usuarios.es_super_admin, la membresía en la marca (usuarios_marcas.agencias) y el rol
- * en el módulo (usuarios_roles_modulo). Al final muestra lo que verá el módulo (hub_cleber.usuarios_contexto).
+ * Qué cambia: hub_cleber.usuarios.es_super_admin, la membresía en la marca (usuarios_marcas.agencias) y el rol y
+ * equipo en el módulo (usuarios_roles_modulo). Al final muestra lo que verá el módulo (hub_cleber.usuarios_contexto).
  * No cambia Firestore: el menú del dashboard que aún sale de Firestore no se entera.
  */
 
 -- 1. Edita estos valores --------------------------------------------------------------------------------------------
 SELECT set_config('cambia_rol.email',    'juan.ayala@cleber.com', false) AS email,
        set_config('cambia_rol.rol',      'VALUADOR',              false) AS rol,
-       set_config('cambia_rol.org',      'prueba-org',      false) AS org,
-       set_config('cambia_rol.agencias', 'prueba-100',           false) AS agencias,
-       set_config('cambia_rol.modulo',   'valuacion',             false) AS modulo;
+       set_config('cambia_rol.org',      'TO',      false) AS org,
+       set_config('cambia_rol.agencias', '107',           false) AS agencias,
+       set_config('cambia_rol.modulo',   'valuacion',             false) AS modulo,
+       set_config('cambia_rol.equipo',   '*',                     false) AS equipo;
 
 -- 2. Aplica el cambio (todo o nada) ---------------------------------------------------------------------------------
 DO $$
@@ -33,8 +37,11 @@ DECLARE
   v_org      text := nullif(btrim(current_setting('cambia_rol.org')), '');
   v_agencias text := nullif(btrim(current_setting('cambia_rol.agencias')), '');
   v_modulo   text := lower(btrim(current_setting('cambia_rol.modulo')));
+  v_equipo   text := nullif(btrim(coalesce(current_setting('cambia_rol.equipo', true), '')), '');
   v_usuario  hub_cleber.usuarios;
   v_lista    text[];
+  v_id_equipo text;
+  v_opciones  text;
 BEGIN
   SELECT * INTO v_usuario FROM hub_cleber.usuarios WHERE email = v_email;
   IF NOT FOUND THEN
@@ -77,6 +84,26 @@ BEGIN
     SELECT array_agg(DISTINCT btrim(a)) INTO v_lista FROM unnest(string_to_array(v_agencias, ',')) a WHERE btrim(a) <> '';
   END IF;
 
+  -- Equipo: '*' = el único activo del módulo en la marca; id o nombre; NINGUNO = quitar; vacío = no cambiar
+  SELECT string_agg(e.id_equipo || ' (' || e.nombre || CASE WHEN e.es_activo THEN '' ELSE ', inactivo' END || ')', ', ' ORDER BY e.nombre)
+    INTO v_opciones
+    FROM hub_cleber.equipos e WHERE e.id_marca = v_org AND e.modulo = v_modulo;
+  IF v_equipo = '*' THEN
+    IF (SELECT count(*) FROM hub_cleber.equipos WHERE id_marca = v_org AND modulo = v_modulo AND es_activo) <> 1 THEN
+      RAISE EXCEPTION 'equipo = ''*'' necesita exactamente un equipo activo de % en %. Pon el id o el nombre. Opciones: %',
+        v_modulo, v_org, coalesce(v_opciones, 'ninguno (créalo en Equipos)');
+    END IF;
+    SELECT id_equipo INTO v_id_equipo FROM hub_cleber.equipos WHERE id_marca = v_org AND modulo = v_modulo AND es_activo;
+  ELSIF v_equipo IS NOT NULL AND upper(v_equipo) <> 'NINGUNO' THEN
+    SELECT id_equipo INTO v_id_equipo FROM hub_cleber.equipos
+     WHERE id_marca = v_org AND modulo = v_modulo AND (id_equipo = v_equipo OR lower(nombre) = lower(v_equipo))
+     ORDER BY (id_equipo = v_equipo) DESC LIMIT 1;
+    IF v_id_equipo IS NULL THEN
+      RAISE EXCEPTION 'No existe el equipo % de % en %. Opciones: %', v_equipo, v_modulo, v_org,
+        coalesce(v_opciones, 'ninguno (créalo en Equipos)');
+    END IF;
+  END IF;
+
   UPDATE hub_cleber.usuarios SET es_super_admin = false, actualizado_en = now() WHERE id_usuario = v_usuario.id_usuario;
 
   INSERT INTO hub_cleber.usuarios_marcas (id_usuario, id_marca, agencias)
@@ -84,11 +111,16 @@ BEGIN
   ON CONFLICT (id_usuario, id_marca) DO UPDATE
     SET agencias = coalesce(v_lista, usuarios_marcas.agencias), actualizado_en = now();
 
-  INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_marca, modulo, rol)
-  VALUES (v_usuario.id_usuario, v_org, v_modulo, v_rol)
-  ON CONFLICT (id_usuario, id_marca, modulo) DO UPDATE SET rol = EXCLUDED.rol, actualizado_en = now();
+  INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_marca, modulo, rol, id_equipo)
+  VALUES (v_usuario.id_usuario, v_org, v_modulo, v_rol, v_id_equipo)
+  ON CONFLICT (id_usuario, id_marca, modulo) DO UPDATE SET
+    rol            = EXCLUDED.rol,
+    id_equipo      = CASE WHEN v_equipo IS NULL THEN usuarios_roles_modulo.id_equipo ELSE EXCLUDED.id_equipo END,
+    actualizado_en = now();
 
-  RAISE NOTICE '% ahora es % en % (%), sin super admin', v_email, v_rol, v_org, v_modulo;
+  RAISE NOTICE '% ahora es % en % (%), equipo %, sin super admin', v_email, v_rol, v_org, v_modulo,
+    coalesce((SELECT rm.id_equipo FROM hub_cleber.usuarios_roles_modulo rm
+               WHERE rm.id_usuario = v_usuario.id_usuario AND rm.id_marca = v_org AND rm.modulo = v_modulo), 'ninguno');
 END;
 $$;
 
