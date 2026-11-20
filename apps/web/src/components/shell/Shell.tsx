@@ -79,8 +79,12 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className={`app${collapsed ? " collapsed" : ""}`}>
       <aside className="side" aria-label="Menú principal">
         <div className="side-h">
-          <div className="brand-mark">C</div>
-          <div className="brand"><b>Cleber Hub</b></div>
+          {/* Logo de Cleber (el de la plataforma comercial); con el menú colapsado queda la marca "C" */}
+          <div className="brand-mark" aria-hidden="true">C</div>
+          <div className="brand">
+            {/* eslint-disable-next-line @next/next/no-img-element -- PNG estático de public/, sin optimización */}
+            <img src="/CLEBER_Logo.png" alt="Cleber" className="brand-logo" />
+          </div>
           <span className="env">DEV</span>
           <button type="button" className="icon-btn theme-btn" aria-label="Cambiar tema" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
             {resolvedTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
