@@ -139,6 +139,19 @@ BEGIN
 END;
 $$;
 
+-- ¿Su rol en el módulo de la marca es de supervisor (catálogo)? Ve las conversaciones de todos los equipos, solo de
+-- sus agencias. No incluye al super admin ni al administrador: esos ya ven todo por es_administrador_modulo.
+CREATE OR REPLACE FUNCTION hub_cleber.es_supervisor_modulo(p_usuario hub_cleber.usuarios, p_id_marca text, p_modulo text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (SELECT 1 FROM hub_cleber.usuarios_roles_modulo rm
+                   JOIN hub_cleber.roles_modulo c ON c.modulo = rm.modulo AND c.rol = rm.rol
+                  WHERE rm.id_usuario = (p_usuario).id_usuario AND rm.id_marca = p_id_marca
+                    AND rm.modulo = p_modulo AND c.es_supervisor);
+$$;
+
 -- ¿Administra algún módulo de la marca? Es lo que se pide para editar lo que es de la marca y no de un módulo
 -- (las agencias del usuario, Q39). Super admin: siempre.
 CREATE OR REPLACE FUNCTION hub_cleber.es_administrador_marca(p_usuario hub_cleber.usuarios, p_id_marca text)

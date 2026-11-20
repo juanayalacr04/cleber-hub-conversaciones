@@ -83,6 +83,7 @@ DECLARE
   v_ag_b    uuid;
   v_serv    uuid;
   v_cons    uuid;
+  v_gerente uuid;
   v_conv3   text;
   v_eq_a    text;
   v_eq_b    text;
@@ -301,6 +302,21 @@ BEGIN
   PERFORM pg_temp.como(c_serv);
   PERFORM pg_temp.error(pg_temp.llama('Hub.consultaConversaciones', jsonb_build_object('idMarca', c_marca, 'modulo', 'valuacion')),
                         'SIN_PERMISO', '4.12 Sin rol en el módulo no hay bandeja');
+
+  -- Supervisor (roles_modulo.es_supervisor, GERENTE de valuación): todos los equipos, solo sus agencias, sin equipo
+  INSERT INTO hub_cleber.usuarios (email, nombre) VALUES ('gerente@prueba-conv.invalid', 'Gerente') RETURNING id_usuario INTO v_gerente;
+  INSERT INTO hub_cleber.usuarios_marcas (id_usuario, id_marca, agencias) VALUES (v_gerente, c_marca, ARRAY['AG-2']);
+  INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_marca, modulo, rol) VALUES (v_gerente, c_marca, 'valuacion', 'GERENTE');
+  UPDATE hub_cleber.conversaciones SET id_agencia = 'AG-1' WHERE id_conversacion = v_ext;
+  PERFORM pg_temp.como('gerente@prueba-conv.invalid');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaConversaciones', jsonb_build_object('idMarca', c_marca, 'modulo', 'valuacion')),
+                  '4.12a Un GERENTE sin equipo consulta la bandeja');
+  PERFORM pg_temp.igual(jsonb_array_length(i->'conversaciones')::text, '1', '4.12b ... ve la sin agencia, no la de otra agencia');
+  UPDATE hub_cleber.usuarios_marcas SET agencias = ARRAY['AG-1', 'AG-2'] WHERE id_usuario = v_gerente AND id_marca = c_marca;
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaConversaciones', jsonb_build_object('idMarca', c_marca, 'modulo', 'valuacion')),
+                  '4.12c Con la agencia de la oferta');
+  PERFORM pg_temp.igual(jsonb_array_length(i->'conversaciones')::text, '2', '4.12d ... ve también la de la oferta (equipo A, sin ser del equipo)');
+  UPDATE hub_cleber.conversaciones SET id_agencia = NULL WHERE id_conversacion = v_ext;
 
   PERFORM pg_temp.como(c_ag_a);
   i := pg_temp.ok(pg_temp.llama('Hub.consultaMensajes', jsonb_build_object('idConversacion', v_conv)), '4.13 El chat de una conversación');

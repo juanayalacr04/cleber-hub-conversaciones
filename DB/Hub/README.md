@@ -137,7 +137,7 @@ Reglas:
 - **Ninguna credencial en la base**: `config` de bots y `configProveedor` / `plantillas` de números rechazan llaves de credenciales; van en Secrets Manager y `secretos_configurados` solo dice cuáles están puestas.
 - Cada cambio de una conversación sube `version` (el aviso de tiempo real la lleva).
 
-Permisos: configurar un módulo = administrador del módulo en la marca (o super admin; el sistema para importar). Ver conversaciones: el administrador del módulo ve todas las de la marca; los demás roles, solo las de su equipo en ese módulo (como `canAccessTeam` de las reglas de Firestore).
+Permisos: configurar un módulo = administrador del módulo en la marca (o super admin; el sistema para importar). Ver conversaciones: el administrador del módulo ve todas las de la marca; un rol **supervisor** (`roles_modulo.es_supervisor`, hoy `GERENTE` de valuación) ve las de todos los equipos pero solo de sus agencias, sin necesitar equipo; los demás roles, solo las de su equipo en ese módulo (como `canAccessTeam` de las reglas de Firestore), también acotadas a sus agencias. Bases existentes: `Migraciones/004_roles_supervisor.sql` antes de `Alta_db.sql`.
 
 | Acción | Función | Quién | Params → Info |
 |--------|---------|-------|---------------|

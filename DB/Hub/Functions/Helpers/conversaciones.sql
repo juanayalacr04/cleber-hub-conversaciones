@@ -4,7 +4,8 @@
     Permisos por módulo (mismo criterio que canAccessTeam de las reglas de Firestore, ahora por marca y módulo):
       - Super admin y sistema: todo.
       - Con rol de administrador del módulo en la marca: todas las conversaciones del módulo en la marca.
-      - Con otro rol del módulo: solo las conversaciones de su equipo en ese módulo.
+      - Con rol supervisor (roles_modulo.es_supervisor, ej. GERENTE de valuación): las de todos los equipos, de sus agencias.
+      - Con otro rol del módulo: solo las conversaciones de su equipo en ese módulo (y de sus agencias).
       - Sin rol en el módulo de la marca: nada.
 
     @Acceso No-Publica
@@ -165,14 +166,15 @@ END;
 $$;
 
 -- Equipos cuyas conversaciones ve el usuario en el módulo de la marca. NULL = todas (super admin, sistema,
--- administrador del módulo); '{}' = ninguna.
+-- administrador o supervisor del módulo; al supervisor lo acota agencias_visibles); '{}' = ninguna.
 CREATE OR REPLACE FUNCTION hub_cleber.equipos_visibles(p_usuario hub_cleber.usuarios, p_id_marca text, p_modulo text)
 RETURNS text[]
 LANGUAGE sql
 STABLE
 AS $$
   SELECT CASE
-    WHEN coalesce((p_usuario).es_sistema, false) OR hub_cleber.es_administrador_modulo(p_usuario, p_id_marca, p_modulo) THEN NULL
+    WHEN coalesce((p_usuario).es_sistema, false) OR hub_cleber.es_administrador_modulo(p_usuario, p_id_marca, p_modulo)
+         OR hub_cleber.es_supervisor_modulo(p_usuario, p_id_marca, p_modulo) THEN NULL
     ELSE coalesce((SELECT ARRAY[rm.id_equipo] FROM hub_cleber.usuarios_roles_modulo rm
                     WHERE rm.id_usuario = (p_usuario).id_usuario AND rm.id_marca = p_id_marca
                       AND rm.modulo = p_modulo AND rm.id_equipo IS NOT NULL), '{}')

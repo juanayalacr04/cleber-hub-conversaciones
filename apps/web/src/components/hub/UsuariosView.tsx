@@ -436,7 +436,7 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
                           </p>
                           <p className="flex items-center gap-1.5 text-muted-foreground">
                             <Users2 className="h-3.5 w-3.5" aria-hidden="true" />
-                            {equipo ?? (rol?.esAdministrador ? "Sin equipo (ve todas)" : "Sin equipo")}
+                            {equipo ?? (rol?.esAdministrador ? "Sin equipo (ve todas)" : rol?.esSupervisor ? "Sin equipo (ve sus agencias)" : "Sin equipo")}
                           </p>
                         </div>
                       );
@@ -546,9 +546,17 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
                     {equipos.filter((e) => e.vertical === moduloAlta).map((e) => <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                {!alta.idEquipo && !rolesDe(moduloAlta).find((r) => r.rol === alta.rol)?.esAdministrador && (
-                  <p className="text-xs text-muted-foreground">Sin equipo no verá conversaciones: solo los administradores ven todas.</p>
-                )}
+                {!alta.idEquipo && (() => {
+                  const r = rolesDe(moduloAlta).find((x) => x.rol === alta.rol);
+                  if (r?.esAdministrador) return null;
+                  return (
+                    <p className="text-xs text-muted-foreground">
+                      {r?.esSupervisor
+                        ? "Sin equipo ve las conversaciones de sus agencias y no se le asignan automáticamente."
+                        : "Sin equipo no verá conversaciones: solo los administradores y supervisores las ven sin equipo."}
+                    </p>
+                  );
+                })()}
               </div>
             )}
 

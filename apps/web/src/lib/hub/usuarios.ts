@@ -35,6 +35,8 @@ export interface RolModulo {
   nombre: string;
   descripcion: string | null;
   esAdministrador: boolean;
+  /** Ve las conversaciones de sus agencias sin necesitar equipo (ej. GERENTE de valuación) */
+  esSupervisor?: boolean;
 }
 
 export interface ConsultaUsuarios {

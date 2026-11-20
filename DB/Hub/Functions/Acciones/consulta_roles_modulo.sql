@@ -4,7 +4,8 @@
     Catálogo de roles por módulo (hub_cleber.roles_modulo), para los selectores del editor de usuarios.
 
     Params: modulo? (ventas | servicio | valuacion)
-    Info: { roles: [ { modulo, rol, nombre, descripcion, esAdministrador } ] }   por módulo y orden del catálogo
+    Info: { roles: [ { modulo, rol, nombre, descripcion, esAdministrador, esSupervisor } ] }   por módulo y orden del catálogo
+          esSupervisor: ve las conversaciones de sus agencias sin necesitar equipo
 
     @Acceso Publica
 */
@@ -27,7 +28,8 @@ BEGIN
              'rol',             r.rol,
              'nombre',          r.nombre,
              'descripcion',     r.descripcion,
-             'esAdministrador', r.es_administrador) ORDER BY r.modulo, r.orden, r.rol)
+             'esAdministrador', r.es_administrador,
+             'esSupervisor',    r.es_supervisor) ORDER BY r.modulo, r.orden, r.rol)
       FROM hub_cleber.roles_modulo r
      WHERE v_modulo IS NULL OR r.modulo = v_modulo), '[]'::jsonb)));
 
