@@ -6,8 +6,10 @@ falla, el webhook suelta la marca de deduplicación y responde 500 para que el p
 (salvo `processed_events`, que es su deduplicación): lo que hay que guardar viaja en el evento y lo guarda la función 2
 (`channels/ingest.py`). `channels/router.py` los enruta.
 """
+import hmac
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -42,8 +44,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# En AWS el router no deduplica en Firestore: lo hace SQS FIFO (MessageDeduplicationId = id del proveedor, 5 min) y, sin
+# límite de tiempo, Hub.guardaMensaje (idempotente por id del proveedor). handlers.router lo apaga.
+DEDUPLICA_EN_FIRESTORE = True
+
+
 def _publish(publish, event: ChannelEvent, dedupe: tuple[str, str] | None = None, db=None) -> bool:
     """Deduplica (si hay ID), publica y devuelve True; False si no se pudo publicar (se suelta la marca para que el reintento pase)."""
+    if not DEDUPLICA_EN_FIRESTORE:
+        dedupe = None
     if dedupe and idempotency.is_duplicate(*dedupe, db=db):
         log.info("%s: duplicado ignorado, id=%s", dedupe[0], dedupe[1])
         return True
@@ -70,12 +79,15 @@ def handle_twilio(form, publish, db=None) -> tuple:
         return ("", 200) if _publish(publish, ChannelEvent.of(status), db=db) else ("", 500)
 
     from_number, to_number = form.get("From", ""), form.get("To", "")
-    body, profile_name = form.get("Body", "").strip(), form.get("ProfileName", "").strip()
+    # Un boton de respuesta rapida de una plantilla llega con su id (ButtonPayload) y su texto (ButtonText, que Twilio repite en Body)
+    button_payload, button_text = form.get("ButtonPayload", "").strip(), form.get("ButtonText", "").strip()
+    body, profile_name = (form.get("Body", "").strip() or button_text), form.get("ProfileName", "").strip()
     if not from_number or not body:
         return "", 200
     sid = form.get("MessageSid", "")
     message = IncomingMessage(message_id=sid or uuid.uuid4().hex, provider="twilio", from_number=normalize_mx_phone(from_number),
-                              to_number=to_number, body=body, contact_name=profile_name, received_at=_now())
+                              to_number=to_number, body=body, contact_name=profile_name, received_at=_now(),
+                              button_payload=button_payload, button_text=button_text)
     # Twilio reintenta si tardamos en contestar: se deduplica por MessageSid
     return ("", 200) if _publish(publish, ChannelEvent.of(message), ("twilio", sid), db=db) else ("", 500)
 
@@ -131,10 +143,17 @@ def handle_valuetext(raw_body: str, publish, db=None) -> tuple:
 # --------------------------------------------------------------------------- Meta
 
 def handle_meta_verification(args, db=None) -> tuple:
-    """GET de verificación del webhook: el token debe pertenecer a un número de Meta activo."""
+    """GET de verificación del webhook: el token debe ser el del ambiente o pertenecer a un número de Meta activo.
+
+    En AWS las credenciales están en Secrets Manager, que no busca por valor: ahí vale el token del ambiente
+    (META_WEBHOOK_VERIFY_TOKEN). Meta configura un webhook por app, no por número, así que basta uno.
+    """
     mode, token, challenge = args.get("hub.mode", ""), args.get("hub.verify_token", ""), args.get("hub.challenge", "")
     if mode != "subscribe" or not token:
         return "Bad Request", 400
+    esperado = (os.environ.get("META_WEBHOOK_VERIFY_TOKEN") or "").strip()
+    if esperado and hmac.compare_digest(token.encode(), esperado.encode()):
+        return challenge, 200
     db = db or get_db()
     number_id = credentials.find_number_by_verify_token(db, token)
     if number_id:

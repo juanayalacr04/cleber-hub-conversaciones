@@ -29,9 +29,17 @@ export interface ModuleDef {
   nav?: NavItem[];
 }
 
-export const MODULES: ModuleDef[] = [
+/**
+ * Ventas, Servicio y General todavía leen Firestore, que ya no está configurado en la web: se ocultan hasta que se
+ * muden a hub_cleber (fases 3 y 4). Para volver a mostrarlos, regresarlos a MODULES.
+ */
+export const MODULOS_EN_MUDANZA: ModuleDef[] = [
   { id: "servicio", label: "Servicio", description: "Taller y posventa", vertical: "servicio", icon: "wrench" },
   { id: "ventas", label: "Ventas", description: "Prospectos y citas", vertical: "ventas", icon: "tag" },
+  { id: "general", label: "General", description: "Resumen de los módulos", vertical: null, icon: "grid" },
+];
+
+export const MODULES: ModuleDef[] = [
   {
     id: "valuacion", label: "Valuación", description: "Avalúo de autos usados", vertical: null, icon: "gauge",
     // Prototipo con datos inventados (src/lib/valuacion/store.ts). El valuador también configura.
@@ -39,10 +47,20 @@ export const MODULES: ModuleDef[] = [
       { slug: "dashboard", label: "Dashboard", icon: "dash", ready: true },
       { slug: "ofertas", label: "Ofertas", icon: "offer", ready: true },
       { slug: "conversaciones", label: "Conversaciones", icon: "msg", ready: true },
-      { slug: "configuracion", label: "Configuración", icon: "gear", ready: true },
+      // Solo quien administra valuación en alguna marca (permiso `configurar` en la base)
+      { slug: "configuracion", label: "Configuración", icon: "gear", group: "admin", ready: true },
+      // Número de WhatsApp de Valuación de la marca y plantilla de la oferta (hub_cleber)
+      { slug: "whatsapp", label: "WhatsApp", icon: "phone", group: "admin", ready: true },
+      // Equipos de Valuación: quién ve las conversaciones y cómo se asignan al pasar a un valuador (hub_cleber)
+      { slug: "equipos", label: "Equipos", icon: "teams", group: "admin", ready: true },
+      // Bots de la marca: Deployment de Abacus, handoff, horarios y clasificación del resultado (hub_cleber)
+      { slug: "bots", label: "Bots", icon: "bot", group: "admin", ready: true },
+      // Editor de usuarios de la marca (hub_cleber)
+      { slug: "agentes", label: "Usuarios", icon: "user", group: "admin", ready: true },
+      // Alta de marcas (hub_cleber), solo super admin
+      { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
     ],
   },
-  { id: "general", label: "General", description: "Resumen de los módulos", vertical: null, icon: "grid" },
 ];
 
 export function getModule(id: string): ModuleDef | undefined {
@@ -54,7 +72,7 @@ export function getModuleNav(mod: ModuleDef): NavItem[] {
   return mod.nav ?? NAV;
 }
 
-/** Quién ve la opción: todos (operacion), administradores de la organización (admin) o solo superadministradores (plataforma). */
+/** Quién ve la opción: todos (operacion), administradores de la marca (admin) o solo superadministradores (plataforma). */
 export type NavGroup = "operacion" | "admin" | "plataforma";
 
 export const NAV_GROUPS: { id: NavGroup; label: string }[] = [
@@ -83,7 +101,7 @@ export const NAV: NavItem[] = [
   { slug: "campanas", label: "Campañas", icon: "mega", group: "admin", ready: true },
   { slug: "plantillas", label: "Plantillas", icon: "file", group: "admin", ready: true },
   { slug: "configuracion", label: "Configuración", icon: "gear", group: "plataforma", ready: true },
-  { slug: "organizaciones", label: "Organizaciones", icon: "org", group: "plataforma", ready: true },
+  { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
 ];
 
 /** Opciones del módulo que el usuario puede ver, agrupadas y sin grupos vacíos. */

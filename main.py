@@ -58,8 +58,8 @@ import functions_framework
 
 from ai import service as bot_service
 import modules  # noqa: F401  registra los handlers de cada módulo contra el núcleo
-from channels import (check_campaign_ready, delivery_statuses, send_campaign_template, send_handoff_template,
-                      send_whatsapp_message)
+from channels import (check_campaign_ready, delivery_statuses, describe_template, render_template_text, send_campaign_template,
+                      send_handoff_template, send_whatsapp_message)
 from channels import event_queue, ingest
 from channels import router as channel_router
 from core import actions, close_by_phone as close_by_phone_mod, outbound, situacion, user_actions
@@ -72,7 +72,8 @@ from jobs.auth import cron_authorized
 def wire_outbound() -> None:
     """Inyecta en `core.outbound` los envíos del router (`channels/`)."""
     outbound.configure(send_text=send_whatsapp_message, send_template=send_handoff_template, send_campaign=send_campaign_template,
-                       check_campaign=check_campaign_ready, delivery_statuses=delivery_statuses)
+                       check_campaign=check_campaign_ready, delivery_statuses=delivery_statuses,
+                       render_template=render_template_text, describe_template=describe_template)
 
 
 wire_outbound()

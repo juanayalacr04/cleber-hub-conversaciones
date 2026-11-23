@@ -1,0 +1,14 @@
+{
+  "name": "authorizer-appsync",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Lambda authorizer genérico de AppSync Events: valida el id_token de Google y pregunta a la función <Prefijo>.autorizaCanal del namespace",
+  "main": "index.mjs",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -6,14 +6,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { Toaster } from "@/components/ui/sonner";
 
-/** Guardia de sesión: todo lo que cuelga de (app) exige usuario con perfil. */
+/** Guardia de sesión: todo lo que cuelga de (app) exige usuario con perfil en hub_cleber. */
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { user, userData, loading } = useAuth();
+  const { userData, loading } = useAuth();
   const router = useRouter();
 
+  // Sin perfil del hub (sin sesión, acceso negado o error al cargarlo) se va al login, que dice por qué
   useEffect(() => {
-    if (!loading && !user) router.replace("/login");
-  }, [loading, user, router]);
+    if (!loading && !userData) router.replace("/login");
+  }, [loading, userData, router]);
 
   if (loading || !userData) return <div className="center"><span>Cargando…</span></div>;
   return (

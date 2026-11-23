@@ -18,7 +18,6 @@ import { conversationPath, modulePath } from "@/lib/routes";
 function Stat({ label, value, note, icon, hot, href }: { label: string; value: string; note: string; icon: string; hot?: boolean; href?: string }) {
   const body = (
     <>
-      <Icon name={icon} className="big" />
       <div className="top">{label}<span className="chipi"><Icon name={icon} /></span></div>
       <strong className="num">{value}</strong>
       <em>{note}</em>

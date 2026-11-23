@@ -18,7 +18,7 @@ const DEMO_NAV = [{ slug: "financiamiento", label: "Financiamiento", icon: "bank
 
 /**
  * Marco de la demo pública de Valuación: el mismo menú lateral del HUB, pero solo con
- * el módulo de Valuación, marca Toyota y sin sesión (no hay usuario, organización ni
+ * el módulo de Valuación, marca Toyota y sin sesión (no hay usuario, marca ni
  * cierre de sesión). Las pantallas son los mismos componentes que usa el HUB.
  */
 export function DemoShell({ children }: { children: ReactNode }) {
@@ -68,7 +68,7 @@ export function DemoShell({ children }: { children: ReactNode }) {
           <nav className="nav-wrap" aria-label="Navegación del módulo">
             <div className="nav-group" data-g="operacion">
               <p className="lbl">Operación</p>
-              {[...getModuleNav(mod), ...DEMO_NAV].map((n) => (
+              {[...getModuleNav(mod).filter((n) => n.group !== "plataforma"), ...DEMO_NAV].map((n) => (
                 <Link
                   key={n.slug} href={`${DEMO_BASE}/${n.slug}`} className="nav" aria-current={section === n.slug ? "page" : undefined}
                   title={collapsed ? n.label : undefined} aria-label={collapsed ? n.label : undefined}

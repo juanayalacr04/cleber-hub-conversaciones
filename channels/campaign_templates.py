@@ -6,18 +6,23 @@ Portado de `api/broadcasts/[id]/send|test-send|retry|check-status`, que repetía
     send(number, broadcast, recipient, phone, ...)  → id del mensaje; lanza `TemplateError(FAILED, detalle)`
     delivery_statuses(number, ids, sf_config)       → {id: {"state": delivered|read|failed, "message": ...}} solo de los que ya
                                                       llegaron a un estado final (lo demás sigue en tránsito)
+    render_text(number, template, variables)        → el texto que recibió el cliente (cuerpo con sus variables y botones), o None
+    describe(number, template_id)                   → la plantilla tal como la tiene el proveedor (nombre, idioma, cuerpo, botones,
+                                                      variables); lanza TemplateError si no se puede leer
 """
 import base64
 import copy
 import json
 import logging
 import os
+import re
+import time
 import urllib.parse
 
 from channels.meta_wa import GRAPH_VERSION
 from core import http
 from core.db import get_executor
-from core.outbound import FAILED, TemplateError
+from core.outbound import FAILED, NOT_CONFIGURED, TemplateError
 from crm import salesforce
 
 log = logging.getLogger(__name__)
@@ -127,6 +132,87 @@ def send(number: dict, broadcast: dict, recipient: dict, phone: str, sf_config: 
     if provider == "valuetext":
         return _send_valuetext(number, broadcast, recipient, phone, sf_config or {})
     return _send_twilio(number, broadcast, recipient, phone, track)
+
+
+# --------------------------------------------------------------------------- texto de la plantilla
+
+CONTENT_TTL = 600          # una plantilla aprobada no cambia: 10 min de caché por Content SID
+_content_cache: dict[str, dict] = {}
+
+
+def _twilio_content(number: dict, content_sid: str) -> dict | None:
+    """La plantilla de la Content API de Twilio (types: {"twilio/quick-reply": {"body", "actions"}, ...}), con caché."""
+    hit = _content_cache.get(content_sid)
+    if hit and time.time() < hit["expires"]:
+        return hit["content"]
+    headers = {"Authorization": "Basic " + base64.b64encode(f"{number['twilioAccountSid']}:{number['twilioAuthToken']}".encode()).decode()}
+    _, body = http.request(f"https://content.twilio.com/v1/Content/{content_sid}", None, headers, method="GET", timeout=10)
+    content = json.loads(body)
+    _content_cache[content_sid] = {"content": content, "expires": time.time() + CONTENT_TTL}
+    return content
+
+
+def fill_variables(text: str, variables: dict | None) -> str:
+    """{{1}}, {{2}}… con los valores del envío; las que no vienen se dejan como están."""
+    return re.sub(r"\{\{\s*(\w+)\s*\}\}", lambda m: str((variables or {}).get(m.group(1), m.group(0))), text or "")
+
+
+def describe(number: dict, template_id: str) -> dict:
+    """La plantilla tal como la tiene el proveedor, para configurarla y mostrar su vista previa.
+
+        { nombre, idioma, cuerpo, botones: [{ titulo, id }], variables: ["1", "2", ...] }
+
+    Solo Twilio (Content API). Lanza TemplateError: NOT_CONFIGURED si el proveedor no lo permite o faltan credenciales;
+    FAILED si Twilio no la encontró o no respondió.
+    """
+    provider = number.get("provider", "twilio")
+    if provider != "twilio":
+        raise TemplateError(NOT_CONFIGURED, f"La consulta de plantillas aún no está disponible para {provider}")
+    if not (number.get("twilioAccountSid") and number.get("twilioAuthToken")):
+        raise TemplateError(NOT_CONFIGURED, "Falta la cuenta de Twilio del ambiente (TWILIO_ACCOUNT_SID y TWILIO_AUTH_TOKEN)")
+    try:
+        _content_cache.pop(template_id, None)          # al configurar se lee fresca
+        content = _twilio_content(number, template_id) or {}
+    except Exception as e:
+        if isinstance(e, http.HTTPError) and e.code == 404:
+            raise TemplateError(FAILED, f"Twilio no encontró la plantilla {template_id} en esta cuenta") from None
+        raise _error("Twilio", e) from None
+    for kind, data in (content.get("types") or {}).items():
+        if isinstance(data, dict) and data.get("body"):
+            body = data["body"]
+            buttons = [{"titulo": a.get("title"), "id": a.get("id")} for a in (data.get("actions") or [])
+                       if isinstance(a, dict) and a.get("title")]
+            found = {m for m in re.findall(r"\{\{\s*(\w+)\s*\}\}", body + " ".join(b["titulo"] for b in buttons))}
+            variables = sorted(found, key=lambda v: (not v.isdigit(), int(v) if v.isdigit() else 0, v))
+            return {"nombre": content.get("friendly_name"), "idioma": content.get("language"), "tipo": kind,
+                    "cuerpo": body, "botones": buttons, "variables": variables}
+    raise TemplateError(FAILED, f"La plantilla {template_id} no tiene un cuerpo de texto que se pueda mostrar")
+
+
+def render_text(number: dict, template: dict, variables: dict | None = None) -> str | None:
+    """El texto que recibió el cliente: cuerpo de la plantilla con sus variables y, si tiene, los botones al final.
+
+    Hoy solo Twilio (Content API). Meta y ValueText regresan None: el que llama usa su texto capturado o un marcador.
+    Nunca lanza: si no se puede leer la plantilla, regresa None (el envío ya salió; esto es solo para mostrarlo).
+    """
+    try:
+        if number.get("provider", "twilio") != "twilio" or not template.get("contentSid"):
+            return None
+        if not (number.get("twilioAccountSid") and number.get("twilioAuthToken")):
+            return None
+        content = _twilio_content(number, template["contentSid"]) or {}
+        for kind, data in (content.get("types") or {}).items():
+            if not isinstance(data, dict) or not data.get("body"):
+                continue
+            text = fill_variables(data["body"], variables)
+            titles = [a.get("title") for a in (data.get("actions") or []) if isinstance(a, dict) and a.get("title")]
+            if titles:
+                text += "\n\n" + "  ".join(f"[{fill_variables(t, variables)}]" for t in titles)
+            return text
+        return None
+    except Exception as e:
+        log.warning("No se pudo leer el texto de la plantilla %s: %s", template.get("contentSid"), e)
+        return None
 
 
 def _valuetext_states(sf_config: dict, ids: list[str]) -> dict:

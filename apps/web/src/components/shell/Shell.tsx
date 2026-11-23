@@ -10,11 +10,16 @@ import { MODULES, getModule, getModuleNav, visibleNav, type ModuleDef } from "@/
 import { Icon } from "./icons";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { useDismiss } from "./useDismiss";
+import { rolEnModulo, useUsuarioHub } from "./useUsuarioHub";
 
-/** Módulos que el usuario puede ver: admin y superadmin todos; el resto, el de su equipo. */
+/**
+ * Módulos que el usuario puede ver en la marca activa: el superadmin, todos; los demás, aquellos donde tienen rol
+ * (hub_cleber), más General si administran algún módulo de la marca.
+ */
 export function allowedModules(userData: ReturnType<typeof useAuth>["userData"]): ModuleDef[] {
-  if (isAdmin(userData)) return MODULES;
-  return MODULES.filter((m) => m.vertical && m.vertical === userData?.vertical);
+  if (!userData) return [];
+  if (userData.isSuperAdmin) return MODULES;
+  return MODULES.filter((m) => (userData.modulos as string[]).includes(m.id) || (m.id === "general" && isAdmin(userData)));
 }
 
 const SIDEBAR_KEY = "hub_sidebar_collapsed";
@@ -42,13 +47,21 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const mod = getModule(moduleId);
   const allowed = allowedModules(userData);
-  const admin = isAdmin(userData);
+  // Menú y pastilla con el rol de hub_cleber en el módulo (el mismo con el que la base da permisos). En General, el
+  // resumen de la marca activa.
+  const enModulo = mod?.id === "ventas" || mod?.id === "servicio" || mod?.id === "valuacion";
+  const { usuario: usuarioHub, error: errorHub } = useUsuarioHub();
+  const hub = enModulo && usuarioHub ? rolEnModulo(usuarioHub, mod.id, userData?.organizationId ?? null) : null;
+  const admin = enModulo ? !!hub?.admin : isAdmin(userData);
+  const superAdmin = !!userData?.isSuperAdmin;
+  const etiquetaRol = !enModulo ? (userData?.isSuperAdmin ? "superadmin" : userData?.role === "admin" ? "Administrador" : "Usuario")
+    : hub ? hub.etiqueta : errorHub ? "rol no disponible" : "…";
   const section = pathname.split("/")[2] ?? "dashboard";
 
   useEffect(() => {
     if (!userData) return;
     if (!mod || !allowed.some((m) => m.id === mod.id)) {
-      router.replace(allowed.length ? `/${allowed[0].id}/dashboard` : "/login");
+      router.replace(allowed.length ? `/${allowed[0].id}/dashboard` : "/");
     }
   }, [userData, mod, allowed, router]);
 
@@ -66,8 +79,12 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className={`app${collapsed ? " collapsed" : ""}`}>
       <aside className="side" aria-label="Menú principal">
         <div className="side-h">
-          <div className="brand-mark">C</div>
-          <div className="brand"><b>Cleber Hub</b></div>
+          {/* Logo de Cleber (el de la plataforma comercial); con el menú colapsado queda la marca "C" */}
+          <div className="brand-mark" aria-hidden="true">C</div>
+          <div className="brand">
+            {/* eslint-disable-next-line @next/next/no-img-element -- PNG estático de public/, sin optimización */}
+            <img src="/CLEBER_Logo.png" alt="Cleber" className="brand-logo" />
+          </div>
           <span className="env">DEV</span>
           <button type="button" className="icon-btn theme-btn" aria-label="Cambiar tema" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
             {resolvedTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
@@ -116,7 +133,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="nav-wrap" aria-label="Navegación del módulo">
-          {visibleNav(mod, { admin, superAdmin: !!userData?.isSuperAdmin }).map((g) => (
+          {visibleNav(mod, { admin, superAdmin }).map((g) => (
             <div key={g.id} className="nav-group" data-g={g.id}>
               <p className="lbl">{g.label}</p>
               {g.items.map((n) => (
@@ -131,7 +148,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="side-f">
           <div className="me">
             <div className="avatar">{initials}</div>
-            <div className="grow"><b>{userData?.name || user?.displayName || "Usuario"}</b><small>{userData?.isSuperAdmin ? "superadmin" : userData?.role}</small></div>
+            <div className="grow"><b>{userData?.name || user?.displayName || "Usuario"}</b><small title={errorHub ?? undefined}>{etiquetaRol}</small></div>
             <button type="button" className="icon-btn" style={{ marginLeft: 0 }} aria-label="Cerrar sesión" onClick={signOut}><LogOut size={16} /></button>
           </div>
         </div>
@@ -145,14 +162,12 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-export function PageHead({ title, subtitle, mod }: { title: string; subtitle: string; mod: ModuleDef }) {
+/** Encabezado de página. El módulo ya lo indican la franja de color y el menú: aquí no se repite. */
+export function PageHead({ title, subtitle, actions }: { title: string; subtitle: string; mod?: ModuleDef; actions?: ReactNode }) {
   return (
     <header className="head">
       <div><h1>{title}</h1><p>{subtitle}</p></div>
-      <span className="modchip">
-        <span className="dot"><Icon name={mod.icon} className="i" /></span>
-        {mod.id === "general" ? "Todos los módulos" : `Módulo ${mod.label}`}
-      </span>
+      {actions && <div className="head-acts">{actions}</div>}
     </header>
   );
 }

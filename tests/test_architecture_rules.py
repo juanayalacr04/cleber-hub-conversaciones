@@ -46,3 +46,12 @@ def test_clientes_globales_solo_en_core_db():
         txt = f.read_text(encoding="utf-8")
         assert "firestore.Client(" not in txt, f"{f.name} crea su propio cliente de Firestore"
         assert "ThreadPoolExecutor(" not in txt, f"{f.name} crea su propio executor"
+
+
+def test_postgrest_solo_desde_core_postgrest():
+    """Nadie fuera de core/postgrest.py arma llamadas a PostgREST (DISENO_MIGRACION_POSTGRES.md §7)."""
+    for f in _py_files(ROOT):
+        if f == ROOT / "core" / "postgrest.py":
+            continue
+        txt = f.read_text(encoding="utf-8")
+        assert "Content-Profile" not in txt and "/rpc/" not in txt, f"{f.name} llama a PostgREST sin core/postgrest.py"

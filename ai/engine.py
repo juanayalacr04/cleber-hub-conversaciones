@@ -145,6 +145,7 @@ def send_to_bot(bot_config: dict, messages: list, conv_id: str | None = None, cu
         payload = {
             "deploymentToken": abacus.get("deploymentToken"), "deploymentId": abacus.get("deploymentId"),
             "message": last, "executeUsercodeTools": True,
+            "excludeThinkingSegments": True,   # el razonamiento de los modelos que "piensan" no le llega al cliente
         }
         headers["User-Agent"] = "WhatsAppProxy/2.0"
 
@@ -166,7 +167,7 @@ def prime_session(bot_config: dict, conv_id: str, message: str) -> bool:
         else:
             abacus = bot_config.get("abacusConfig", {})
             payload = {"deploymentToken": abacus.get("deploymentToken"), "deploymentId": abacus.get("deploymentId"),
-                       "message": message, "externalSessionId": conv_id}
+                       "message": message, "externalSessionId": conv_id, "excludeThinkingSegments": True}
             result = _post_json(f"{abacus.get('apiHost') or DEFAULT_CHATLLM_HOST}/api/v0/getConversationResponse", payload,
                                 {"Content-Type": "application/json", "User-Agent": "WhatsAppProxy/2.0"})
         return "error" not in result

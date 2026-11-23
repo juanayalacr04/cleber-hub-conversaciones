@@ -31,6 +31,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { callHubAction } from "@/lib/hub-actions";
 import { getModule } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
+import { BotsValuacionView } from "@/components/valuacion/BotsValuacionView";
 
 interface BotData {
   id: string;
@@ -63,7 +64,7 @@ function botVertical(bot: { vertical?: string; category?: string | null }): stri
   return cat === "servicio" || cat === "ventas" ? cat : null;
 }
 
-export default function BotsPage() {
+function BotsPageFirestore() {
   const { module: moduleId } = useParams<{ module: string }>();
   const vertical = getModule(moduleId)?.vertical ?? null;
   const { userData, user } = useAuth();
@@ -131,7 +132,7 @@ export default function BotsPage() {
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-gray-500">
-              Necesitas pertenecer a una organizacion para ver bots.
+              Necesitas pertenecer a una marca para ver bots.
             </p>
           </CardContent>
         </Card>
@@ -174,7 +175,7 @@ export default function BotsPage() {
             <p className="text-gray-500 text-center mb-4">
               {userData?.isSuperAdmin
                 ? "Crea tu primer bot para empezar a responder mensajes de WhatsApp automaticamente."
-                : "Un superadministrador debe crear el bot de tu organizacion."}
+                : "Un superadministrador debe crear el bot de tu marca."}
             </p>
             {userData?.isSuperAdmin && (
               <Link href={modulePath(moduleId, "/bots/new")}>
@@ -266,4 +267,12 @@ export default function BotsPage() {
       )}
     </div>
   );
+}
+
+/** Valuación tiene sus bots en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
+export default function BotsPage() {
+  const { module: moduleId } = useParams<{ module: string }>();
+  const mod = getModule(moduleId);
+  if (mod?.id === "valuacion") return <BotsValuacionView mod={mod} />;
+  return <BotsPageFirestore />;
 }

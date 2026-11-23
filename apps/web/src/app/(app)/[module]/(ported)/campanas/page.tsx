@@ -115,7 +115,7 @@ export default function BroadcastsPage() {
     return () => unsubscribe();
   }, [userData?.organizationId]);
 
-  // Vertical de bots y números (por su equipo) de la organización
+  // Vertical de bots y números (por su equipo) de la marca
   useEffect(() => {
     const orgId = userData?.organizationId;
     if (!orgId) return;
@@ -159,7 +159,7 @@ export default function BroadcastsPage() {
   if (!userData?.organizationId) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Card><CardContent className="p-6">Necesitas pertenecer a una organización.</CardContent></Card>
+        <Card><CardContent className="p-6">Necesitas pertenecer a una marca.</CardContent></Card>
       </div>
     );
   }

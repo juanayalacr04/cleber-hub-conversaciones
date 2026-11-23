@@ -25,8 +25,9 @@ import { callHubAction } from "@/lib/hub-actions";
 import Link from "next/link";
 import { getModule } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
+import { BotValuacionEditor } from "@/components/valuacion/BotValuacionEditor";
 
-export default function NewBotPage() {
+function NewBotPageFirestore() {
   const router = useRouter();
   const { module: moduleId } = useParams<{ module: string }>();
   const moduleVertical = getModule(moduleId)?.vertical ?? null;
@@ -55,7 +56,7 @@ export default function NewBotPage() {
     const vertical = moduleVertical ?? (chosenVertical || null);
     if (!name.trim()) return;
     if (!orgId) {
-      alert("No hay una organización activa. Si eres superadmin, crea una en Organizaciones y elígela en el selector.");
+      alert("No hay una marca activa. Si eres superadmin, crea una en Marcas y elígela en el selector.");
       return;
     }
     if (!vertical) {
@@ -126,7 +127,7 @@ export default function NewBotPage() {
   if (!userData?.organizationId) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">Necesitas pertenecer a una organizacion para crear bots.</p>
+        <p className="text-gray-500">Necesitas pertenecer a una marca para crear bots.</p>
         <Link href={modulePath(moduleId, "/bots")}>
           <Button variant="link">Volver a Bots</Button>
         </Link>
@@ -165,10 +166,10 @@ export default function NewBotPage() {
           <CardContent className="space-y-4">
             {userData?.isSuperAdmin && authOrgs.length > 0 && (
               <div className="space-y-2">
-                <Label>Organizacion</Label>
+                <Label>Marca</Label>
                 <Select value={formOrgId || userData?.organizationId || ""} onValueChange={setFormOrgId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar organizacion" />
+                    <SelectValue placeholder="Seleccionar marca" />
                   </SelectTrigger>
                   <SelectContent>
                     {authOrgs.map((org) => (
@@ -370,4 +371,12 @@ export default function NewBotPage() {
       </div>
     </div>
   );
+}
+
+/** Valuación crea sus bots en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
+export default function NewBotPage() {
+  const { module: moduleId } = useParams<{ module: string }>();
+  const mod = getModule(moduleId);
+  if (mod?.id === "valuacion") return <BotValuacionEditor mod={mod} idBot={null} />;
+  return <NewBotPageFirestore />;
 }

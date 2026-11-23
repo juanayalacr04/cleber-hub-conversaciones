@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { EquiposValuacionView } from "@/components/valuacion/EquiposValuacionView";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -76,6 +77,14 @@ interface WhatsAppNumber {
 }
 
 export default function TeamsPage() {
+  const { module: moduleId } = useParams<{ module: string }>();
+  const mod = getModule(moduleId);
+  if (mod?.id === "valuacion") return <EquiposValuacionView mod={mod} />;
+  return <TeamsPageFirestore />;
+}
+
+/** Equipos de Ventas y Servicio (Firestore). Los de Valuación están en hub_cleber (EquiposValuacionView). */
+function TeamsPageFirestore() {
   const { userData, user, organizations: authOrgs } = useAuth();
   const { module: moduleId } = useParams<{ module: string }>();
   const vertical = getModule(moduleId)?.vertical ?? null;
@@ -130,7 +139,7 @@ export default function TeamsPage() {
           id: doc.id,
           name: data.name || data.email?.split("@")[0] || "Sin nombre",
           email: data.email || "",
-          // Equipo en la organización activa (orgTeams) o el legacy teamId
+          // Equipo en la marca activa (orgTeams) o el legacy teamId
           teamId: data.orgTeams?.[userData.organizationId as string] || data.teamId || null,
           isAvailable: data.isAvailable ?? true,
           role: data.role || "viewer",
@@ -187,7 +196,7 @@ export default function TeamsPage() {
     const teamVertical = vertical ?? (formVertical || null);
     if (!formName.trim()) return;
     if (!orgId) {
-      alert("No hay una organización activa. Si eres superadmin, crea una en Organizaciones y elígela en el selector.");
+      alert("No hay una marca activa. Si eres superadmin, crea una en Marcas y elígela en el selector.");
       return;
     }
     if (!teamVertical) {
@@ -300,7 +309,7 @@ export default function TeamsPage() {
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-gray-500">
-              Necesitas pertenecer a una organizacion para ver los equipos.
+              Necesitas pertenecer a una marca para ver los equipos.
             </p>
           </CardContent>
         </Card>
@@ -489,10 +498,10 @@ export default function TeamsPage() {
           <div className="space-y-4 py-4">
             {userData?.isSuperAdmin && authOrgs.length > 0 && (
               <div className="space-y-2">
-                <Label>Organizacion</Label>
+                <Label>Marca</Label>
                 <Select value={formOrgId || userData?.organizationId || ""} onValueChange={setFormOrgId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar organizacion" />
+                    <SelectValue placeholder="Seleccionar marca" />
                   </SelectTrigger>
                   <SelectContent>
                     {authOrgs.map((org) => (
@@ -600,10 +609,10 @@ export default function TeamsPage() {
           <div className="space-y-4 py-4">
             {userData?.isSuperAdmin && authOrgs.length > 0 && (
               <div className="space-y-2">
-                <Label>Organizacion</Label>
+                <Label>Marca</Label>
                 <Select value={formOrgId || userData?.organizationId || ""} onValueChange={setFormOrgId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar organizacion" />
+                    <SelectValue placeholder="Seleccionar marca" />
                   </SelectTrigger>
                   <SelectContent>
                     {authOrgs.map((org) => (

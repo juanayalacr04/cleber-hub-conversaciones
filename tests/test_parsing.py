@@ -103,3 +103,60 @@ def test_extract_bot_response_formatos():
     assert extract_bot_response(wf) == "Hola"
     chat = _ok({"messages": [{"is_user": True, "text": "hi"}, {"is_user": False, "text": "Buenas"}]})
     assert extract_bot_response(chat) == "Buenas"
+
+
+# ---- Ejecutar_Accion_Externo (tool genérico de señales) ----
+
+def _externo(**params):
+    return {"toolName": "Ejecutar_Accion_Externo", "input": params}
+
+
+def test_externo_se_traduce_al_tool_que_nombra():
+    from ai.parsing import detect_handoff, expande_acciones_externas
+    r = expande_acciones_externas(_ok({"toolResults": [_externo(accion="Transferir_a_Asesor", motivo="precio")]}))
+    assert detect_handoff(r, "chatllm") == {"triggered": True, "motivo": "precio"}
+
+
+def test_externo_varias_senales_en_un_turno_y_datos_como_texto():
+    import json
+    from ai.parsing import expande_acciones_externas
+    original = _ok({"toolResults": [
+        _externo(accion="Clasificar_Motivo", motivo="oferta_aceptada_venta"),
+        _externo(accion="Transferir_a_Asesor", motivo="quiere cita", datos=json.dumps({"urgente": True}))]})
+    r = expande_acciones_externas(original)
+    assert detect_action(r, "chatllm", {"oferta_aceptada_venta"}, tool_name="Clasificar_Motivo") == "oferta_aceptada_venta"
+    assert detect(r, "chatllm", "Transferir_a_Asesor")["input"] == {"urgente": True, "motivo": "quiere cita"}
+    assert len(original["result"]["toolResults"]) == 2          # no modifica la respuesta original
+
+
+def test_externo_por_segments_sin_duplicar_el_segment_de_texto():
+    import json
+    from ai.parsing import expande_acciones_externas
+    params = "params = " + json.dumps({"accion": "Clasificar_Motivo", "motivo": "contacto_futuro"})
+    segs = [{"title": "Executing Ejecutar_Accion_Externo", "type": "text"}, _collapsible("Executing Ejecutar_Accion_Externo", params)]
+    r = expande_acciones_externas(_ok({"segments": segs}))
+    assert r["result"]["toolResults"] == [{"toolName": "Clasificar_Motivo", "input": {"motivo": "contacto_futuro"}}]
+
+
+def test_externo_sin_accion_o_sin_llamadas_no_cambia_nada():
+    from ai.parsing import expande_acciones_externas
+    sin_accion = _ok({"toolResults": [_externo(motivo="x"), _externo(accion="Ejecutar_Accion_Externo")]})
+    assert expande_acciones_externas(sin_accion) is sin_accion
+    normal = _ok({"toolResults": [{"toolName": "Crear_Lead", "input": {}}]})
+    assert expande_acciones_externas(normal) is normal
+    assert expande_acciones_externas({"error": "x"}) == {"error": "x"}
+
+
+def test_externo_con_el_titulo_que_manda_abacus():
+    """Abacus titula con el nombre de la función de Python (minúsculas) y agrega un segment "<Tool> output"."""
+    import json
+    from ai.parsing import detect_handoff, expande_acciones_externas
+    params = "params = " + json.dumps({"accion": "Transferir_a_Asesor", "motivo": "financiamiento"})
+    segs = [{"title": "Processing", "type": "text"},
+            {"title": "Executing ejecutar_accion_externo", "type": "text"},
+            _collapsible("Executing ejecutar_accion_externo", params),
+            _collapsible("Ejecutar_Accion_Externo output", "params = " + json.dumps({"ok": True, "accion": "otra"})),
+            {"title": "", "type": "text"}]
+    r = expande_acciones_externas(_ok({"segments": segs}))
+    assert r["result"]["toolResults"] == [{"toolName": "Transferir_a_Asesor", "input": {"motivo": "financiamiento"}}]
+    assert detect_handoff(r, "chatllm") == {"triggered": True, "motivo": "financiamiento"}
