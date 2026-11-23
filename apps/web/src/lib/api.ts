@@ -59,7 +59,7 @@ async function call<T>(ruta: RutaApi, funcion: string, action: string, params: R
 
   if (res.status === 401) return { successful: false, errorCode: "SESION_EXPIRADA", errorMessage: "Inicia sesión de nuevo" };
   if (res.status === 403) {
-    console.error(`api.call ${ruta}/${funcion}: 403 (API key o ruta)`);
+    console.error(`api.call ${ruta}/${funcion}: 403 (API key o ruta)`, (await res.text().catch(() => "")).slice(0, 300));
     return { successful: false, errorCode: "CONFIGURACION", errorMessage: "Error de configuración del servidor" };
   }
   if (!res.ok) {
@@ -114,7 +114,7 @@ async function lambda<T>(ruta: RutaLambda, action: string, params: Record<string
 
   if (res.status === 401) return { successful: false, errorCode: "SESION_EXPIRADA", errorMessage: "Inicia sesión de nuevo" };
   if (res.status === 403) {
-    console.error(`api.lambda ${ruta} ${action}: 403 (API key o ruta)`);
+    console.error(`api.lambda ${ruta} ${action}: 403 (API key o ruta)`, (await res.text().catch(() => "")).slice(0, 300));
     return { successful: false, errorCode: "CONFIGURACION", errorMessage: "Error de configuración del servidor" };
   }
   const texto = await res.text().catch(() => "");
