@@ -2,18 +2,18 @@
 
 Bot **ChatLLM** de preguntas y respuestas sobre la oferta de compra de un auto, atendido por WhatsApp.
 
-**Alcance de esta versión (de prueba):** responde con la base de conocimiento y usa el contexto de la oferta que le manda el hub. **Todavía no tiene herramientas**: no clasifica la decisión del cliente ni pasa la conversación a un asesor. Eso se agrega después (sección 6).
+**Alcance:** responde con la base de conocimiento, usa el contexto de la oferta que le manda el hub, clasifica la decisión del cliente y pasa la conversación a un asesor cuando la respuesta no está en la base (sección 6).
 
-Fuente del contenido: `abacus/docs/plantilla_base_conocimiento_bot_wa - F1 INOVATON.pdf` (Frente 1 · Toma de Autos). Al 18 de noviembre de 2026 esa plantilla trae las 6 preguntas y sus guías de redacción, pero **los textos de respuesta están vacíos** y no se marcó el tono. Por eso hay un conocimiento provisional (sección 3).
+Fuente del contenido: `abacus/docs/plantilla_base_conocimiento_bot_wa - F1 INOVATON.pdf` (Frente 1 · Toma de Autos), versión del 23 de noviembre de 2026. La plantilla es **material de referencia**: el bot toma de ahí la información y redacta con sus palabras. Por eso la base que se carga (`abacus/docs/conocimiento_bot_valuacion.md`) está escrita como datos, salvo la respuesta de documentos (pregunta 06) y los mensajes para pasar con un asesor, que la plantilla marca como literales.
 
 Contenido:
 
 1. [Pasos para crearlo](#1-pasos-para-crearlo)
 2. [Instrucciones del bot (para pegar)](#2-instrucciones-del-bot-para-pegar)
-3. [Conocimiento provisional](#3-conocimiento-provisional-hasta-que-la-base-esté-completa)
+3. [Base de conocimiento](#3-base-de-conocimiento)
 4. [Pruebas](#4-pruebas)
 5. [Pendientes de la base de conocimiento](#5-pendientes-de-la-base-de-conocimiento)
-6. [Para más adelante: herramientas y paso a asesor](#6-para-más-adelante-herramientas-y-paso-a-asesor)
+6. [Herramienta y paso a asesor](#6-herramienta-y-paso-a-asesor)
 
 ---
 
@@ -24,24 +24,24 @@ Contenido:
 ### Paso 1 · Preparar el contenido
 Ten a la mano:
 - Las instrucciones de la sección 2 (dos bloques: behavior y response).
-- El conocimiento de la sección 3. Si la base ya trae los textos aprobados, usa esos; si no, el provisional.
+- La base de conocimiento de la sección 3.
 
 ### Paso 2 · Cargar la base de conocimiento
-En el paso del asistente **Create or Attach Dataset**, sube `abacus/docs/conocimiento_bot_valuacion.md` (el mismo contenido de la sección 3, ya limpio) como dataset de documentos. Si no acepta `.md`, cámbiale la extensión a `.txt`. Es mejor que el PDF de la plantilla: el PDF tiene el texto partido en renglones y las respuestas vacías. Cuando la plantilla esté completa, se reemplaza por la versión final.
+En el paso del asistente **Create or Attach Dataset**, sube `abacus/docs/conocimiento_bot_valuacion.md` como dataset de documentos. Si no acepta `.md`, cámbiale la extensión a `.txt`. No subas el PDF de la plantilla: tiene el texto partido en renglones y mezcla las guías de redacción y notas para TI con lo que se le dice al cliente.
 
 ### Paso 3 · Crear el bot
 1. Crea un bot de tipo **ChatLLM**.
 2. Pega el bloque 2.1 en **Behavior instructions** y el bloque 2.2 en **Response instructions** (sección 2).
 3. Conecta la base de conocimiento del paso 2.
-4. **No agregues herramientas** por ahora.
+4. Agrega la herramienta `Ejecutar_Accion_Externo` (sección 6).
 
 ### Paso 4 · Probarlo en el chat de Abacus, antes de conectarlo
 El hub le manda al bot, en el primer mensaje del cliente, un contexto con los datos de la oferta. Para probar lo mismo, pega esto como **primer mensaje** en el chat de prueba de Abacus:
 
 ```
-<<PLANTILLA>> Mensaje que se le envió al cliente: "Hola Juan Pérez, tenemos una oferta de compra por tu HONDA CIVIC 2019: $270,000. ¿Te interesa?"
+<<PLANTILLA>> Mensaje que se le envió al cliente: "Hola Juan Pérez, tenemos una oferta de compra por tu TOYOTA COROLLA 2019: $270,000. ¿Te interesa?"
 
-<<CONTEXTO>> Se le envió al cliente una oferta de compra de su vehículo. Cliente: Juan Pérez. Vehículo: HONDA CIVIC 2019. Kilometraje: 64,000 km. Monto ofrecido: $270,000. Agencia: Honda Satélite. Cita de servicio: 12/11/2026 09:30. Id de oferta: 123.
+<<CONTEXTO>> Se le envió al cliente una oferta de compra de su vehículo. Cliente: Juan Pérez. Vehículo: TOYOTA COROLLA 2019. Kilometraje: 64,000 km. Monto ofrecido: $270,000. Agencia: Toyota Satélite. Cita de servicio: 12/11/2026 09:30. Id de oferta: 123.
 
 <<CONTEXTO>> Teléfono del cliente: "+528126390927"
 
@@ -50,7 +50,7 @@ Me interesa, pero ¿por qué dice que es estimado?
 
 Revisa:
 - Que lo llame por su nombre y mencione su vehículo.
-- Que explique el punto 1 de la base sin inventar nada.
+- Que explique la pregunta 1 de la base sin inventar nada.
 - Que **no repita** los bloques `<<PLANTILLA>>` ni `<<CONTEXTO>>`.
 
 Prueba también las preguntas de la sección 4. Ajusta las instrucciones hasta que respondan bien.
@@ -73,7 +73,7 @@ Revisa también que exista `"ABACUS_API_KEY": "<llave de la organización de Aba
 
 ### Paso 7 · Dar de alta el bot en el hub
 
-**Con la pantalla de Bots (recomendado):** en Valuación → Administración → **Bots**, pulsa **Crear Bot**, pon el nombre, el **Deployment ID** del paso 5 y guarda. Después, en **WhatsApp**, elige ese bot como "Bot por defecto" del número de la marca. La pestaña **Avanzado** ya trae el vocabulario de resultados de Valuación. Para cambiar el `deploymentId` de un bot existente, edítalo ahí.
+**Con la pantalla de Bots (recomendado):** en Valuación → Administración → **Bots**, pulsa **Crear Bot**, pon el nombre, el **Deployment ID** del paso 5 y guarda. Después, en **WhatsApp**, elige ese bot como "Bot por defecto" del número de la marca. En la pestaña **Avanzado**, revisa que "Acciones de clasificación de motivo" tenga los cuatro valores de la sección 6. Para cambiar el `deploymentId` de un bot existente, edítalo ahí.
 
 **Con el script** (sirve si la pantalla aún no está desplegada):
 Abre `dev/alta_bot_valuacion.sql` y en el bloque **DATOS DEL BOT** cambia `deployment_id` por el del paso 5:
@@ -88,7 +88,7 @@ El resto (`marca TO`, `id_bot bot-valuacion-to`, `tipo chatllm`) se queda. Luego
 \i dev/alta_bot_valuacion.sql
 ```
 
-Debe mostrar `Bot: bot-valuacion-to (creado: false)` si ya existía, o `true` si es nuevo, y `bot default = bot-valuacion-to`. Como el script actualiza si el bot ya existe, sirve para cambiar el `deploymentId` del bot de prueba actual por este.
+Debe mostrar `Bot: bot-valuacion-to (creado: false)` si ya existía, o `true` si es nuevo, y `bot default = bot-valuacion-to`. Como el script actualiza si el bot ya existe, sirve para cambiar el `deploymentId` del bot de prueba actual por este. El script no configura las acciones de clasificación: ponlas después en la pantalla de Bots (sección 6).
 
 ### Paso 8 · Probar por WhatsApp
 1. Activa `LOG_CONTENIDO=true` en `hub-msj-entrantes-dev` para ver los textos en los registros.
@@ -114,8 +114,9 @@ La base de conocimiento va aparte, como archivo (sección 3): **no la repitas** 
 ---8<---
 # Quién eres
 
-Eres el asistente virtual de la agencia por WhatsApp. Atiendes a clientes que recibieron una oferta de compra por su auto
-y tienen dudas sobre el proceso. Tu único trabajo es responder esas dudas con la información de tu base de conocimiento.
+Eres el asistente virtual de la agencia Toyota por WhatsApp. Atiendes a clientes que recibieron una oferta de compra por
+su auto y tienen dudas sobre el proceso. Tu trabajo es responder esas dudas con la información de tu base de conocimiento
+y, cuando la respuesta no está ahí, comunicar al cliente con un asesor.
 
 # Lo que recibes al inicio de la conversación
 
@@ -136,22 +137,24 @@ SOLO lo que está en tu base de conocimiento, que cubre:
 1. Por qué el precio enviado es estimado y no el definitivo.
 2. Cuánto tarda el proceso para tomar el auto y recibir el pago.
 3. Si al confirmar su interés tiene que dejar el auto ese mismo día.
-4. El proceso para vender su auto.
-5. Qué documentos necesita para vender su auto.
-
-Por este medio solo se ofrece la VENTA de su auto. No ofrezcas ni preguntes si quiere comprar uno nuevo. Si el cliente
-pregunta por comprar uno nuevo o por un cambio de auto, dile que eso lo puede platicar con la agencia el día de su cita, y
-sigue con la venta.
+4. El proceso si quiere vender su auto y comprar uno nuevo.
+5. El proceso si solo quiere vender su auto.
+6. Qué documentos necesita para vender su auto.
+7. Preguntas frecuentes sobre los documentos y el trámite: baja de placas, constancia fiscal, comprobantes de tenencias o
+   refrendos, factura original, factura a nombre de otra persona y pago a otra persona.
 
 Reglas:
 
-- Responde con la información de la base. No agregues plazos, montos, políticas ni requisitos que no estén ahí.
-- Si el cliente pregunta algo que la base no cubre, o la base no trae ese dato, dilo con naturalidad ("ese dato lo confirma el
-  valuador el día de tu cita") y no improvises una respuesta.
+- La base es información, no un guion: redacta la respuesta con tus palabras, usando solo los datos que trae. No agregues
+  plazos, montos, políticas ni requisitos que no estén ahí.
+- Excepción: cuando pregunte por documentos, envía el texto de la pregunta 6 de la base TAL CUAL, completo, sin quitar,
+  cambiar ni resumir nada. Si además pregunta por la inspección, aclara que para la inspección y la oferta final no se pide
+  ningún documento: los documentos son para la venta.
+- Usa el tono que la base marca en cada pregunta (informativo o comercial); si no marca uno, informativo.
+- No ofrezcas por tu cuenta la compra de un auto nuevo. Solo habla de eso si el cliente pregunta. Cuando le expliques el
+  proceso de vender y comprar (pregunta 4), termina ofreciéndole ayuda para agendar una cita, como dice la base.
 - El monto de la oferta es un estimado que el valuador puede confirmar o ajustar al inspeccionar el auto. Nunca lo cambies,
   nunca ofrezcas más, nunca negocies, y nunca garantices un precio final.
-- Responde solo sobre este proceso. Si preguntan otra cosa (otro tema, otro trámite, otro vehículo), explica amablemente
-  que solo puedes ayudar con la oferta de compra de su auto.
 
 # Tu herramienta: Ejecutar_Accion_Externo
 
@@ -166,28 +169,40 @@ Cuando la decisión es clara, llama a `Ejecutar_Accion_Externo` con `accion` = `
 - `oferta_aceptada_venta` si le interesa la oferta o quiere vender su auto ("sí me interesa", "sí", "me parece bien",
   "acepto"). Agradécele, y recuérdale que el valuador revisará su auto el día de su cita de servicio y le confirmará la
   oferta final. No prometas nada más.
+- `oferta_aceptada_venta_y_compra` si quiere vender su auto y comprar uno nuevo, o si acepta la ayuda para agendar la cita
+  de la pregunta 4. En ese mismo turno pásalo con un asesor (sección siguiente) y dile que un asesor lo va a contactar para
+  agendar su cita. Tú no la agendas ni le das fecha u hora.
 - `oferta_rechazada` si dice que no le interesa. Agradece su tiempo con amabilidad y dile que, si cambia de opinión, aquí
   estamos. No insistas.
 - `contacto_futuro` si dice que lo ve más adelante. Dile que con gusto lo contactamos después.
 
 Si no está claro qué decidió (solo pregunta, o dice "déjame pensarlo" sin más), no la llames: responde su duda. Si dice que le
-interesa y además pregunta algo, clasifícalo como `oferta_aceptada_venta` y responde su pregunta. Llámala una
-sola vez por decisión; si cambia de opinión después, llámala otra vez con la nueva.
+interesa y además pregunta algo, clasifícalo y responde su pregunta. Llámala una sola vez por decisión; si cambia de opinión
+después, llámala otra vez con la nueva.
 
 # Cuando hay que pasarlo con un asesor
 
-Quejas formales, negociación del precio, problemas con su crédito o financiamiento, cuando pide hablar con una persona, o
-cuando insiste en algo que tu base de conocimiento no cubre. En esos casos no intentes resolverlo: llama a
-`Ejecutar_Accion_Externo` con `accion` = `Transferir_a_Asesor` y en `motivo` una frase corta con la razón (p. ej. "quiere
-negociar el precio"), y en ese mismo mensaje dile al cliente que lo vas a comunicar con un asesor de la agencia. No prometas un
-plazo. Después de eso ya no le respondes tú: lo atiende el asesor.
+Pásalo con un asesor, sin preguntarle antes, cuando:
+
+- Pregunta algo cuya respuesta no está en tu base de conocimiento, aunque sea sobre el proceso o los documentos (por
+  ejemplo, en cuántos días le pagan o si un documento va en original o copia).
+- Quiere vender su auto y comprar uno nuevo, o acepta la ayuda para agendar la cita.
+- Tiene una queja formal, quiere negociar el precio o tiene un problema con su crédito o financiamiento.
+- Pide hablar con una persona.
+
+En esos casos no intentes resolverlo: llama a `Ejecutar_Accion_Externo` con `accion` = `Transferir_a_Asesor` y en `motivo`
+una frase corta con la razón (p. ej. "pregunta en cuántos días le pagan"), y en ese mismo mensaje envía al cliente el texto
+de la base ("Mensajes para pasar con un asesor") que corresponda, tal cual: uno es para la pregunta que no está en la base y
+otro para los demás casos. Si es venta y compra, dile en cambio que un asesor lo va a contactar para agendar su cita. No
+prometas un plazo. Después de eso ya no le respondes tú: lo atiende el asesor.
 
 # Lo que nunca haces
 
 - No inventas información, cifras, fechas ni políticas.
 - No hablas mal de otras agencias, marcas ni personas.
 - No pides datos bancarios, contraseñas ni documentos por este chat.
-- No confirmas citas, pagos ni fechas de entrega: eso lo confirma el valuador.
+- No confirmas ni agendas citas, pagos ni fechas de entrega. Cuando ofreces ayuda para agendar una cita, quien la agenda es
+  el asesor.
 ---8<---
 ```
 
@@ -200,10 +215,10 @@ plazo. Después de eso ya no le respondes tú: lo atiende el asesor.
 - Español de México, en segunda persona (tú). Tono amable, claro y cercano; nunca presionas.
 - Escribes como en WhatsApp: mensajes cortos, de pocas líneas. Si la respuesta es larga, la divides en pasos.
 - Puedes usar una lista corta (con guiones o números) cuando enumeras pasos o documentos. No uses títulos, negritas ni
-  formato elaborado.
+  formato elaborado. Los textos literales de la base (documentos y paso a asesor) se envían como están, aunque sean largos.
 - En el primer mensaje, saluda al cliente por su nombre, si lo tienes.
 - Responde primero lo que preguntó, sin rodeos ni introducciones largas. Una sola idea principal por mensaje.
-- Transmites confianza: si no sabes algo, lo dices con naturalidad, sin disculpas excesivas.
+- Transmites confianza: eres transparente y no generas expectativas de cambios grandes en el precio.
 - Termina con una frase breve que invite a seguir preguntando, solo cuando haga falta.
 - Nunca muestres al cliente los bloques `<<PLANTILLA>>` ni `<<CONTEXTO>>`, ni los repitas, ni menciones que los recibiste.
 - Tu mensaje es solo lo que el cliente va a leer. No escribas tu razonamiento, planes, notas para ti, análisis del mensaje
@@ -213,73 +228,18 @@ plazo. Después de eso ya no le respondes tú: lo atiende el asesor.
 ---8<---
 ```
 
-## 3. Conocimiento provisional (hasta que la base esté completa)
+## 3. Base de conocimiento
 
-Mientras la plantilla no traiga los textos de respuesta, este es el contenido que el bot puede usar. **Solo incluye lo que las guías de la plantilla afirman**. Lo que las guías dejan a "completar con la política real" no está aquí: el bot debe decir que lo confirma el valuador. Cuando la base esté completa, esta sección se reemplaza por ella.
+Está en `abacus/docs/conocimiento_bot_valuacion.md` y se carga como dataset (paso 2). Se armó a partir de la plantilla con estos criterios:
 
-Se carga como base de conocimiento del bot (o al final de las instrucciones).
+- Entran los textos de respuesta y las guías de redacción ("consideraciones") de las preguntas 01 a 05, escritos como datos, con el tono que marca la plantilla. Si chocan, manda el texto de respuesta. Las guías que solo dicen "completar con la política real de la agencia" no entran.
+- La pregunta 04 trae el ofrecimiento para agendar una cita de venta y compra. En la plantilla, si el cliente confirma, pasa con un asesor de BDC Comercial; en el hub pasa con un asesor de Valuación, que agenda la cita y coordina con BDC fuera del hub (sección 6). Por ahora es simulado: el bot no agenda nada.
+- La pregunta 06 es **respuesta literal**: se copió el texto de la plantilla con la ortografía corregida, más la nota de que para la inspección no se pide ningún documento.
+- Entran las preguntas de la pág. 6 de la plantilla ("Sección de recomendaciones, dudas y preguntas frecuentes") como preguntas frecuentes.
+- Entran, como textos literales, los dos mensajes de la sección "Notas generales" para pasar con un asesor: el de preguntas no contempladas y el de temas que se escalan.
+- Dice "Toyota" tal cual: cada marca tendrá su propio bot y su propia copia de la base.
 
-```
----8<---
-# Conocimiento (provisional)
-
-## 1. ¿Por qué el precio que me enviaron es estimado y no el definitivo?
-- El precio se calculó de forma automática con datos del sistema: modelo, año, kilometraje e historial de servicio
-  registrado en la agencia.
-- El día de la cita, el valuador inspecciona físicamente el auto y puede confirmar o ajustar el valor según su condición
-  real: carrocería, interiores, neumáticos, cristales y mecánica.
-- El precio estimado es el punto de partida, no una promesa que se vaya a romper. Queremos ser honestos desde el primer mensaje.
-- El valuador es certificado y el proceso es objetivo y transparente.
-
-## 2. ¿Cuánto tarda el proceso para tomar mi auto y recibir mi pago?
-- Pasos: inspección el día de la cita → oferta final → firma de documentos → entrega del auto → pago.
-- Se agiliza con la documentación completa y con el auto sin adeudo financiero.
-- Si el auto tiene financiamiento vigente, hay que liquidar el adeudo antes o durante el proceso.
-- Los tiempos exactos y si el pago es el mismo día no están definidos: dile que lo confirma el valuador el día de la cita.
-
-## 3. Si confirmo que me interesa, ¿tengo que dejar mi auto ese mismo día?
-- El día de la cita de servicio, el valuador inspecciona el auto y entrega la oferta final.
-- El cliente no necesariamente entrega el auto ese mismo día.
-- No hay presión: el cliente decide con calma.
-- Cuándo ocurre la entrega formal y si puede llevarse el auto mientras decide no está definido: dile que lo confirma el
-  valuador el día de la cita.
-
-## 4. ¿Cuál es el proceso si quiero vender mi auto y comprar uno nuevo?
-1. Inspección del auto actual.
-2. Oferta final del valuador.
-3. El valor se aplica como parte de pago o enganche del auto nuevo.
-4. Selección y prueba de manejo del auto nuevo con un asesor.
-5. Cierre y firma de documentos.
-- El mismo día de la cita puede iniciar el contacto con el asesor de autos nuevos, si lo desea.
-- La prueba de manejo se puede agendar el mismo día o en otro momento conveniente.
-- Te atiende el valuador para la toma de tu auto y un asesor de autos nuevos para la compra.
-
-## 5. ¿Cuál es el proceso si solo quiero vender mi auto?
-1. Inspección durante la cita de servicio.
-2. Oferta final del valuador.
-3. Aceptación y firma de documentos.
-4. Entrega del auto.
-5. Pago.
-- A diferencia de venta + compra, el cliente solo recibe el pago: no necesita pasar con el área de autos nuevos.
-- Si el auto tiene un adeudo financiero vigente, se debe liquidar. El tiempo total y la política de liquidación no están
-  definidos: dile que lo confirma el valuador el día de la cita.
-
-## 6. ¿Qué documentos necesito para vender mi auto?
-- Factura original del vehículo.
-- Identificación oficial vigente (INE o pasaporte).
-- Tarjeta de circulación.
-- Juego completo de llaves.
-- Comprobante de domicilio reciente (si aplica).
-- Si el auto está financiado: estado de cuenta del crédito o carta de saldo del banco.
-- Si es persona moral: acta constitutiva, poder notarial y RFC.
-- Opcionales que agilizan el proceso: póliza de seguro, manual del vehículo y facturas de servicios previos.
-- Cierre sugerido: "Si tienes duda sobre algún documento, escríbenos y con gusto te orientamos."
-- Si cada documento se pide en original o en copia no está definido: dile que lo confirma el valuador el día de la cita.
-
-## Temas que el bot no resuelve
-Quejas formales, negociaciones de precio fuera del rango autorizado y problemas con crédito o financiamiento.
----8<---
-```
+Cuando la plantilla cambie, actualiza ese archivo y vuelve a cargarlo en Abacus.
 
 ---
 
@@ -290,16 +250,21 @@ Se hacen primero en el chat de Abacus (paso 4) y después por WhatsApp (paso 8).
 | Prueba | Qué debe pasar |
 |---|---|
 | Primer mensaje con el contexto de la oferta | Saluda por su nombre y menciona su vehículo. No muestra `<<CONTEXTO>>` ni `<<PLANTILLA>>` |
-| "¿Por qué el precio es estimado?" | Responde con el punto 1 |
-| "¿Cuánto tardan en pagarme?" | Explica los pasos y dice que el plazo lo confirma el valuador |
-| "¿Qué documentos necesito?" | Lista los documentos |
-| "Si quiero vender y comprar uno nuevo, ¿cómo es?" | Dice que lo puede platicar con la agencia el día de su cita y sigue con la venta; no ofrece compra-venta |
-| "¿Cuánto cuesta un Corolla nuevo?" | Dice que solo puede ayudar con la oferta de su auto |
-| "¿Me dan más por mi auto?" | No negocia ni cambia el monto; si insiste, lo pasa a un asesor (`Transferir_a_Asesor`) |
-| "Quiero hablar con una persona" | Le dice que lo comunica con un asesor y llama `Transferir_a_Asesor`; la conversación pasa a asesor |
-| "Sí, quiero vender" o "sí me interesa" | Agradece, recuerda la inspección del día de la cita y llama `Clasificar_Motivo` con `oferta_aceptada_venta`; no pregunta si también quiere comprar |
+| "¿Por qué el precio es estimado?" | Responde con la pregunta 1, con sus palabras |
+| "¿Cómo es el proceso?" | Explica los pasos de la pregunta 5 |
+| "¿Tengo que dejar mi auto ese día?" | Dice que no necesariamente; la decisión es suya |
+| "¿Qué documentos necesito?" | Nombra todos los documentos de la lista y aclara que para la inspección no se pide ninguno |
+| "¿En cuántos días me pagan?" | No está en la base: avisa que lo comunica con un asesor y llama `Transferir_a_Asesor` |
+| "¿La factura va en original o copia?" | No está en la base: pasa a asesor |
+| "¿Dónde doy de baja las placas?" | Pregunta de la pág. 6, fuera de la base por ahora: pasa a asesor |
+| "Si vendo, ¿puedo comprar uno nuevo?" | Explica el proceso de la pregunta 4; no lo transfiere todavía |
+| "Sí, quiero vender y comprar uno nuevo" | Llama `Clasificar_Motivo` con `oferta_aceptada_venta_y_compra` y `Transferir_a_Asesor`; no promete agendar cita |
+| "Sí, quiero vender" o "sí me interesa" | Agradece, recuerda la inspección del día de la cita y llama `Clasificar_Motivo` con `oferta_aceptada_venta`; no ofrece la compra de un auto nuevo |
+| "¿Cuánto cuesta un Corolla nuevo?" | No está en la base: pasa a asesor |
+| "¿Me dan más por mi auto?" | No negocia ni cambia el monto; pasa a asesor |
+| "Quiero hablar con una persona" | Le dice que lo comunica con un asesor y llama `Transferir_a_Asesor` |
+| "No me interesa" | Agradece sin insistir y llama `Clasificar_Motivo` con `oferta_rechazada` |
 | Cualquier mensaje | Solo trae la respuesta al cliente: sin razonamiento, notas ni texto en inglés |
-| "No me interesa" | Agradece sin insistir |
 
 Por WhatsApp, en los registros de `hub-msj-entrantes-dev` (CloudWatch):
 - `turno.bot_llamada ... preambulo=True`: el primer mensaje llevó el contexto de la oferta.
@@ -309,19 +274,17 @@ Por WhatsApp, en los registros de `hub-msj-entrantes-dev` (CloudWatch):
 
 ## 5. Pendientes de la base de conocimiento
 
-La plantilla se entrega a TI con estos huecos. Hasta que se llenen, el bot deriva estas preguntas al valuador:
+Hasta que se definan, el bot pasa estas preguntas a un asesor:
 
 | # | Pregunta | Falta definir |
 |---|---|---|
-| Todas | Texto de respuesta | Los 6 campos "RESPUESTA DEL BOT" están vacíos. El conocimiento provisional sale de las guías de redacción, no de textos aprobados |
-| Todas | Tono | No marcaron Informativo / Empático / Comercial en ninguna |
-| General | Trato | La plantilla dice "tú/usted según política interna". Estas instrucciones usan **tú** (como en el ejemplo "te orientamos"); si la política es "usted", se cambia en la sección "Cómo hablas" |
-| 02 | Pago y tiempos | Si el pago es el mismo día o en un plazo, y el tiempo estimado total |
+| 02, 05 | Pago y tiempos | Si el pago es el mismo día o en un plazo, y el tiempo total del proceso |
 | 02, 05 | Financiamiento | La política de liquidación del adeudo |
-| 03 | Entrega | Cuándo es la entrega formal y si el cliente puede llevarse el auto tras la inspección |
-| 06 | Documentos | Si cada uno se pide en original, copia o ambos |
-| Notas | Preguntas frecuentes adicionales | Vacío |
-| Notas | Temas que se escalan a un asesor | Vacío (solo trae los ejemplos de la plantilla: quejas formales, negociación de precio fuera del rango, problemas con crédito o financiamiento) |
+| 02 | Tono | No está marcado (el bot usa informativo) |
+| 03 | Entrega | Cuándo es la entrega formal y si el cliente puede llevarse el auto mientras decide |
+| 06 | Documentos | Si cada uno se pide en original, copia o ambos; cuándo aplica el comprobante de domicilio; qué significa "facturas intermedias (si no es factura original)". Las "consideraciones" de la 06 siguen con la lista anterior |
+| Notas | Preguntas frecuentes adicionales | El campo trae el mensaje para pasar a asesor en lugar de preguntas; no hay preguntas adicionales |
+| Notas | Temas que se escalan a un asesor | Solo los ejemplos de la plantilla (quejas formales, negociación de precio, problemas con crédito o financiamiento) |
 
 ---
 
@@ -335,13 +298,16 @@ Las instrucciones de la sección 2 ya usan la herramienta. Lo que hay que config
 | Valor | Etiqueta en la oferta |
 |---|---|
 | `oferta_aceptada_venta` | Acepta venta |
+| `oferta_aceptada_venta_y_compra` | Acepta venta y compra |
 | `oferta_rechazada` | Cliente declina |
 | `contacto_futuro` | Contacto futuro |
 
 `no_responde` no lo usa el bot: lo pone el sistema cuando el cliente no contesta.
 
-- **Solo venta por ahora:** el bot no ofrece compra-venta, así que no usa `oferta_aceptada_venta_y_compra` (Acepta venta y compra). Si se habilita, se agrega a las instrucciones, a esta tabla y a la configuración del hub.
-- **Configuración del bot en el hub** (pantalla de Bots, "Acciones de clasificación de motivo"): `oferta_aceptada_venta, oferta_rechazada, contacto_futuro`. Sin eso, el hub solo reconoce `interes_cita` y `otro_motivo` y descarta las clasificaciones de Valuación. `outcomeTool` no hace falta: por omisión es `Clasificar_Motivo`.
-- **Equipo con asesores:** el paso a asesor asigna según el modo de asignación del equipo del bot; sin asesores, la conversación queda en espera.
-- **Fuera de horario:** si el bot pide pasar a asesor fuera del horario del bot, el hub no escala, le avisa al cliente y en los turnos siguientes le antepone al bot un aviso de control (`__ADMIN_FOLLOW_INSTRUCTIONS_MESSAGE_OUTPUT__`). Pendiente: probar que el bot lo respeta con estas instrucciones.
+- **Configuración del bot en el hub** (pantalla de Bots, "Acciones de clasificación de motivo"): `oferta_aceptada_venta, oferta_aceptada_venta_y_compra, oferta_rechazada, contacto_futuro`. Un valor que no esté en esa lista **se descarta sin aviso**: si falta `oferta_aceptada_venta_y_compra`, el cliente sí pasa a asesor pero la oferta no queda clasificada. Sin la lista, el hub solo reconoce `interes_cita` y `otro_motivo`. `outcomeTool` no hace falta: por omisión es `Clasificar_Motivo`.
+- **Clasificar y transferir en el mismo turno:** el hub procesa las dos llamadas y siempre guarda primero la clasificación, así que queda aunque la conversación pase a asesor.
+- **Venta y compra (cita simulada):** la plantilla pide que el bot ofrezca agendar una cita y, si el cliente confirma, lo pase con un asesor de BDC Comercial. En el hub el paso a asesor se queda en el equipo de la conversación, que es el del número de WhatsApp de Valuación: ese asesor agenda la cita y coordina con BDC fuera del hub. El bot solo ofrece la ayuda y avisa que un asesor lo contactará; no agenda ni da fecha. Pasar de un módulo a otro (Valuación → Ventas) queda como desarrollo futuro.
+- **Pendiente con Valuación:** confirmar que `etiquetas.accion_hub` (repo `toma-unidades-en-taller`) acepta `oferta_aceptada_venta_y_compra` y qué hace con la oferta.
+- **Equipo con asesores:** el paso a asesor asigna según el modo de asignación del equipo de la conversación; sin asesores, la conversación queda en espera.
+- **Fuera de horario:** si el bot pide pasar a asesor fuera del horario del bot, el hub no escala, le avisa al cliente y en los turnos siguientes le antepone al bot un aviso de control (`__ADMIN_FOLLOW_INSTRUCTIONS_MESSAGE_OUTPUT__`). La clasificación sí queda guardada. Pendiente: probar que el bot respeta el aviso con estas instrucciones. Como ahora toda pregunta fuera de la base pasa a asesor, este caso va a ser más frecuente.
 - **Paso a asesor por palabras clave:** no depende del bot; se activa con `handoffConfig` (`enabled` y `triggerKeywords`) en la configuración del bot.
