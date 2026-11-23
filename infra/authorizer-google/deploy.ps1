@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Empaqueta y despliega la Lambda "authorizer-google" (Lambda authorizer del API Gateway REST v1) en dev o prd.
+    Empaqueta y despliega la Lambda "authorizer-google" (Lambda authorizer del API Gateway REST v1) en dev, qa o prd.
 
 .DESCRIPTION
     Basado en toma-unidades-en-taller/deploy.ps1.
@@ -22,7 +22,7 @@
     Guía completa: Arquitectura/GUIA_API_GATEWAY.md (pasos 1 y 2).
 
 .PARAMETER Ambiente
-    dev o prd. Define el nombre de la función (prd -> authorizer-google, dev -> authorizer-google-dev).
+    dev, qa o prd. Define el nombre de la función (prd -> authorizer-google, dev -> authorizer-google-dev, qa -> authorizer-google-qa).
 
 .PARAMETER Perfil
     Perfil de AWS CLI. Si se omite, usa el predeterminado.
@@ -56,7 +56,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('dev', 'prd')]
+    [ValidateSet('dev', 'qa', 'prd')]
     [string]$Ambiente,
 
     [string]$Perfil,
@@ -82,7 +82,7 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $nombreBase = 'authorizer-google'
-$nombreLambda = if ($Ambiente -eq 'prd') { $nombreBase } else { "$nombreBase-dev" }
+$nombreLambda = if ($Ambiente -eq 'prd') { $nombreBase } else { "$nombreBase-$Ambiente" }
 $carpeta = $PSScriptRoot
 $zipPath = Join-Path $carpeta "$nombreBase-$Ambiente.zip"
 $staging = Join-Path ([System.IO.Path]::GetTempPath()) "deploy-$nombreBase-$([guid]::NewGuid())"

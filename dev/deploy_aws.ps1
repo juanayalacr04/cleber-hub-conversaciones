@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Empaqueta y despliega una Lambda del hub en AWS (dev o prd). Mismo patrón que toma-unidades-en-taller/deploy.ps1.
+    Empaqueta y despliega una Lambda del hub en AWS (dev, qa o prd). Mismo patrón que toma-unidades-en-taller/deploy.ps1.
 
 .DESCRIPTION
     Todas las Lambdas del hub comparten el mismo paquete (handlers.py + core/, channels/, ai/, crm/, modules/...); cambia solo
@@ -18,7 +18,7 @@
     Nombre corto de la función (ver $Funciones): entry-point, acciones-usuario, router, msj-entrantes.
 
 .PARAMETER Ambiente
-    dev o prd. La función se llama hub-<funcion>-<ambiente>.
+    dev, qa o prd. La función se llama hub-<funcion>-<ambiente>.
 
 .PARAMETER Secret
     Solo al crear: secreto con las variables del ambiente (JSON plano; se guarda en SECRET_NAME, core/entorno.py).
@@ -51,7 +51,7 @@ param(
     [string]$Funcion,
 
     [Parameter(Mandatory, Position = 1)]
-    [ValidateSet('dev', 'prd')]
+    [ValidateSet('dev', 'qa', 'prd')]
     [string]$Ambiente,
 
     [string]$Perfil,

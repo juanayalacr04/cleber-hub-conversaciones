@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Empaqueta y despliega la Lambda "authorizer-appsync" (Lambda authorizer genérico de AppSync Events) en dev o prd.
+    Empaqueta y despliega la Lambda "authorizer-appsync" (Lambda authorizer genérico de AppSync Events) en dev, qa o prd.
 
 .DESCRIPTION
     Basado en infra/authorizer-google/deploy.ps1.
@@ -29,7 +29,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('dev', 'prd')]
+    [ValidateSet('dev', 'qa', 'prd')]
     [string]$Ambiente,
 
     [string]$Perfil,
@@ -48,7 +48,7 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $nombreBase = 'authorizer-appsync'
-$nombreLambda = if ($Ambiente -eq 'prd') { $nombreBase } else { "$nombreBase-dev" }
+$nombreLambda = if ($Ambiente -eq 'prd') { $nombreBase } else { "$nombreBase-$Ambiente" }
 $carpeta = $PSScriptRoot
 $zipPath = Join-Path $carpeta "$nombreBase-$Ambiente.zip"
 
