@@ -13,7 +13,7 @@ PLANTILLA = {
     "contentSid": "HX123",
     "templateName": "oferta_compra",
     "variables": ["nombreCliente", "vehiculo", "montoOferta"],
-    "texto": "Hola {{1}}, por tu {{2}} te ofrecemos {{3}}.",
+    "texto": "Hola {{1}}, por tu {{2}} te ofrecemos ${{3}}.",
 }
 CONTEXTO = {"nombreCliente": "Juan Pérez", "vehiculo": "HONDA CIVIC 2019", "kilometraje": 64000, "montoOferta": 270000.0,
             "agencia": "Honda Satélite", "fechaCita": "2026-11-12", "horaCita": "09:30"}
@@ -129,11 +129,11 @@ def test_envia_la_oferta_de_punta_a_punta(base, envios, avisos):
     assert enviado["number"]["twilioAuthToken"] == "tok"                       # la cuenta de Twilio del ambiente...
     assert enviado["number"]["twilioAccountSid"] == "AC-ambiente"              # ...no la que traiga el número
     assert enviado["plantilla"]["contentSid"] == "HX123"
-    assert enviado["recipient"]["variables"] == {"1": "Juan Pérez", "2": "HONDA CIVIC 2019", "3": "$270,000"}
+    assert enviado["recipient"]["variables"] == {"1": "Juan Pérez", "2": "HONDA CIVIC 2019", "3": "270,000"}
 
     contexto, plantilla = base.mensajes
     assert contexto["remitente"] == "system" and contexto["texto"].startswith("<<CONTEXTO>> Se le envió al cliente una oferta")
-    assert "Monto ofrecido: $270,000" in contexto["texto"] and "Cita de servicio: 12/11/2026 09:30" in contexto["texto"]
+    assert "Monto ofrecido: $270,000" in contexto["texto"] and "Cita de servicio: 12 de noviembre 09:30" in contexto["texto"]
     assert "Id de oferta: 123" in contexto["texto"]
     assert plantilla == {"idConversacion": "c1", "remitente": "bot", "esPlantilla": True,
                          "texto": "Hola Juan Pérez, por tu HONDA CIVIC 2019 te ofrecemos $270,000.", "idMensajeProveedor": "SM1"}
@@ -283,10 +283,12 @@ def test_error_inesperado_no_se_escapa(base, envios, monkeypatch):
 # --------------------------------------------------------------------------- piezas de Valuación
 
 def test_formatos_de_valuacion():
-    assert valuacion.valor({"montoOferta": 270000}, "montoOferta") == "$270,000"
-    assert valuacion.valor({"montoOferta": "270000.5"}, "montoOferta") == "$270,000.50"
+    assert valuacion.valor({"montoOferta": 270000}, "montoOferta") == "270,000"
+    assert valuacion.valor({"montoOferta": "270000.5"}, "montoOferta") == "270,000.50"
+    assert valuacion.valor({"fechaCita": "2026-11-05"}, "fechaCita") == "5 de noviembre"
+    assert valuacion.valor({"fechaCita": "2026-13-05"}, "fechaCita") == "2026-13-05"
     assert valuacion.valor({"kilometraje": 64000}, "kilometraje") == "64,000 km"
-    assert valuacion.valor({"fechaCita": "2026-11-12"}, "fechaCita") == "12/11/2026"
+    assert valuacion.valor({"fechaCita": "2026-11-12"}, "fechaCita") == "12 de noviembre"
     assert valuacion.valor({}, "agencia") == ""
 
 
@@ -294,7 +296,7 @@ def test_meta_sin_componentes_arma_el_body_con_las_variables():
     numero = {"plantillas": {"ofertaValuacion": {"templateName": "oferta", "variables": ["nombreCliente", "montoOferta"]}}}
     envio = valuacion.prepara_oferta({"idExterno": "1"}, numero, CONTEXTO)
     assert envio.plantilla["templateComponents"] == [{"type": "body", "parameters": [
-        {"type": "text", "text": "Juan Pérez"}, {"type": "text", "text": "$270,000"}]}]
+        {"type": "text", "text": "Juan Pérez"}, {"type": "text", "text": "270,000"}]}]
 
 
 def test_para_canal_de_meta_y_valuetext():

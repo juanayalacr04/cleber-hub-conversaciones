@@ -76,4 +76,4 @@ def test_el_chat_guarda_el_texto_de_la_plantilla_del_proveedor(monkeypatch):
         outbound.configure()
         credentials.configure(None)
     assert base.mensajes[-1]["texto"] == "Hola Juan Pérez…"
-    assert vistos == [{"1": "Juan Pérez", "2": "HONDA CIVIC 2019", "3": "$270,000"}]
+    assert vistos == [{"1": "Juan Pérez", "2": "HONDA CIVIC 2019", "3": "270,000"}]

@@ -48,9 +48,9 @@ const DATOS: { llave: string; etiqueta: string; ejemplo: string }[] = [
   { llave: "nombreCliente", etiqueta: "Nombre del cliente", ejemplo: "Juan Pérez" },
   { llave: "vehiculo", etiqueta: "Vehículo", ejemplo: "TOYOTA COROLLA 2020" },
   { llave: "kilometraje", etiqueta: "Kilometraje", ejemplo: "64,000 km" },
-  { llave: "montoOferta", etiqueta: "Monto de la oferta", ejemplo: "$270,000" },
+  { llave: "montoOferta", etiqueta: "Monto de la oferta", ejemplo: "270,000" },
   { llave: "agencia", etiqueta: "Agencia", ejemplo: "Toyota Satélite" },
-  { llave: "fechaCita", etiqueta: "Fecha de la cita", ejemplo: "12/11/2026" },
+  { llave: "fechaCita", etiqueta: "Fecha de la cita", ejemplo: "12 de noviembre" },
   { llave: "horaCita", etiqueta: "Hora de la cita", ejemplo: "09:30" },
 ];
 const ejemploDe = (llave: string) => DATOS.find((d) => d.llave === llave)?.ejemplo ?? `[${llave}]`;

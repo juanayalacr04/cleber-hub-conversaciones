@@ -34,7 +34,8 @@ def _monto(valor) -> str:
         numero = float(valor)
     except (TypeError, ValueError):
         return str(valor or "")
-    return f"${numero:,.0f}" if numero == int(numero) else f"${numero:,.2f}"
+    # Sin "$": el signo ya viene en el texto de la plantilla
+    return f"{numero:,.0f}" if numero == int(numero) else f"{numero:,.2f}"
 
 
 def _kilometraje(valor) -> str:
@@ -44,10 +45,16 @@ def _kilometraje(valor) -> str:
         return str(valor or "")
 
 
+MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre",
+         "diciembre")
+
+
 def _fecha(valor) -> str:
-    """2026-11-12 → 12/11/2026 (las fechas de la cita son locales de México, sin zona)."""
+    """2026-11-25 → 25 de noviembre (las fechas de la cita son locales de México, sin zona)."""
     m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", str(valor or ""))
-    return f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else str(valor or "")
+    if not m or not 1 <= int(m.group(2)) <= 12:
+        return str(valor or "")
+    return f"{int(m.group(3))} de {MESES[int(m.group(2)) - 1]}"
 
 
 # Cómo se escribe cada dato del contexto en la plantilla y en el contexto del bot
@@ -65,7 +72,7 @@ def contexto_bot(contexto: dict, id_oferta: str) -> str:
         ("Cliente", valor(contexto, "nombreCliente")),
         ("Vehículo", valor(contexto, "vehiculo")),
         ("Kilometraje", valor(contexto, "kilometraje")),
-        ("Monto ofrecido", valor(contexto, "montoOferta")),
+        ("Monto ofrecido", f"${monto}" if (monto := valor(contexto, "montoOferta")) else ""),
         ("Agencia", valor(contexto, "agencia")),
         ("Cita de servicio", " ".join(x for x in (valor(contexto, "fechaCita"), valor(contexto, "horaCita")) if x)),
         ("Id de oferta", id_oferta),

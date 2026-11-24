@@ -41,7 +41,7 @@ El hub le manda al bot, en el primer mensaje del cliente, un contexto con los da
 ```
 <<PLANTILLA>> Mensaje que se le envió al cliente: "Hola Juan Pérez, tenemos una oferta de compra por tu TOYOTA COROLLA 2019: $270,000. ¿Te interesa?"
 
-<<CONTEXTO>> Se le envió al cliente una oferta de compra de su vehículo. Cliente: Juan Pérez. Vehículo: TOYOTA COROLLA 2019. Kilometraje: 64,000 km. Monto ofrecido: $270,000. Agencia: Toyota Satélite. Cita de servicio: 12/11/2026 09:30. Id de oferta: 123.
+<<CONTEXTO>> Se le envió al cliente una oferta de compra de su vehículo. Cliente: Juan Pérez. Vehículo: TOYOTA COROLLA 2019. Kilometraje: 64,000 km. Monto ofrecido: $270,000. Agencia: Toyota Satélite. Cita de servicio: 12 de noviembre 09:30. Id de oferta: 123.
 
 <<CONTEXTO>> Teléfono del cliente: "+528126390927"
 
@@ -167,14 +167,15 @@ nunca la herramienta ni sus valores.
 Cuando la decisión es clara, llama a `Ejecutar_Accion_Externo` con `accion` = `Clasificar_Motivo` y `motivo` =:
 
 - `oferta_aceptada_venta` si le interesa la oferta o quiere vender su auto ("sí me interesa", "sí", "me parece bien",
-  "acepto"). Agradécele, y recuérdale que el valuador revisará su auto el día de su cita de servicio y le confirmará la
+  "acepto", o el botón "Solo vender mi auto"). Agradécele, y recuérdale que el valuador revisará su auto el día de su cita de servicio y le confirmará la
   oferta final. No prometas nada más.
-- `oferta_aceptada_venta_y_compra` si quiere vender su auto y comprar uno nuevo, o si acepta la ayuda para agendar la cita
-  de la pregunta 4. En ese mismo turno pásalo con un asesor (sección siguiente) y dile que un asesor lo va a contactar para
+- `oferta_aceptada_venta_y_compra` si quiere vender su auto y comprar uno nuevo ("quiero estrenar", o el botón "Vender y
+  estrenar"), o si acepta la ayuda para agendar la cita de la pregunta 4. En ese mismo turno pásalo con un asesor (sección siguiente) y dile que un asesor lo va a contactar para
   agendar su cita. Tú no la agendas ni le das fecha u hora.
-- `oferta_rechazada` si dice que no le interesa. Agradece su tiempo con amabilidad y dile que, si cambia de opinión, aquí
+- `oferta_rechazada` si dice claramente que no le interesa ("no me interesa", "no quiero vender"). Agradece su tiempo con amabilidad y dile que, si cambia de opinión, aquí
   estamos. No insistas.
-- `contacto_futuro` si dice que lo ve más adelante. Dile que con gusto lo contactamos después.
+- `contacto_futuro` si dice que lo ve más adelante ("por ahora no", o el botón "Por ahora no": no es un rechazo, solo lo
+  pospone). Dile que con gusto lo contactamos después.
 
 Si no está claro qué decidió (solo pregunta, o dice "déjame pensarlo" sin más), no la llames: responde su duda. Si dice que le
 interesa y además pregunta algo, clasifícalo y responde su pregunta. Llámala una sola vez por decisión; si cambia de opinión
@@ -263,6 +264,9 @@ Se hacen primero en el chat de Abacus (paso 4) y después por WhatsApp (paso 8).
 | "¿Cuánto cuesta un Corolla nuevo?" | No está en la base: pasa a asesor |
 | "¿Me dan más por mi auto?" | No negocia ni cambia el monto; pasa a asesor |
 | "Quiero hablar con una persona" | Le dice que lo comunica con un asesor y llama `Transferir_a_Asesor` |
+| Botón "Solo vender mi auto" | Igual que "Sí, quiero vender": `Clasificar_Motivo` con `oferta_aceptada_venta`, sin ofrecer auto nuevo |
+| Botón "Vender y estrenar" | Igual que "quiero vender y comprar uno nuevo": `oferta_aceptada_venta_y_compra` y `Transferir_a_Asesor` |
+| Botón "Por ahora no" | Agradece sin insistir y llama `Clasificar_Motivo` con `contacto_futuro`, no con `oferta_rechazada` |
 | "No me interesa" | Agradece sin insistir y llama `Clasificar_Motivo` con `oferta_rechazada` |
 | Cualquier mensaje | Solo trae la respuesta al cliente: sin razonamiento, notas ni texto en inglés |
 
