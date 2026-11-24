@@ -177,7 +177,8 @@ def invita(monkeypatch):
     return Invita
 
 
-def test_envia_invitacion(invita):
+def test_envia_invitacion(invita, monkeypatch):
+    monkeypatch.setenv("AMBIENTE", "prd")
     assert acciones_usuario.maneja(INVITA, "ana@cleber.com") == {"successful": True, "info": {"enviado": True}}
     (url, headers, cuerpo), = invita.correos
     assert url == "https://correo.test/enviar" and headers["x-api-key"] == "k-correo" and cuerpo["action"] == "Cleber.enviarEmail"
@@ -187,6 +188,14 @@ def test_envia_invitacion(invita):
     assert p["content"].startswith("<!DOCTYPE html>") and "Asesor de valuación" in p["content"]
     assert 'href="https://dev.hub.test"' in p["content"]
     assert p["subject"].startswith("Invitación al módulo de Valuación") and "<h2>Invitación al módulo de Valuación</h2>" in p["content"]
+
+
+@pytest.mark.parametrize("ambiente, etiqueta", [("qa", "QA"), ("dev", "DEV"), ("", "DEV")])
+def test_invitacion_indica_el_ambiente(invita, monkeypatch, ambiente, etiqueta):
+    monkeypatch.setenv("AMBIENTE", ambiente)
+    acciones_usuario.maneja(INVITA, "ana@cleber.com")
+    p = invita.correos[0][2]["params"]
+    assert p["subject"].startswith(f"[{etiqueta}] Invitación al módulo de Valuación") and f"Ambiente {etiqueta}" in p["content"]
 
 
 def test_invitacion_solo_a_quien_tiene_rol(invita):

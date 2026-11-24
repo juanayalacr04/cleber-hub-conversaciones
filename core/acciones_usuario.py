@@ -44,6 +44,7 @@ from typing import Callable
 from urllib.parse import urlsplit
 
 from core import http, outbound, postgrest, tiempo_real
+from core.ambiente import asunto_con_ambiente, aviso_ambiente_html
 from core.datos import bots, numeros
 from core.postgrest import ErrorHub
 
@@ -133,12 +134,14 @@ def envia_invitacion(email: str, params: dict) -> dict:
     marca = html.escape(str(params.get("nombreMarca") or "").strip()[:100] or id_marca)
     rol = html.escape(_etiqueta_rol(modulo, permisos["rol"]))
     nombre_modulo = html.escape(NOMBRE_MODULO.get(modulo, modulo))
+    asunto = asunto_con_ambiente(f"Invitación al módulo de {nombre_modulo} — {marca}")
     contenido = "\n".join([
         "<!DOCTYPE html>", '<html lang="es">', "<head>", '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        f"<title>Invitación al módulo de {nombre_modulo} — {marca}</title>", "</head>",
+        f"<title>{asunto}</title>", "</head>",
         '<body style="margin: 0; padding: 16px;">',
         '<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">',
+        aviso_ambiente_html(),
         f"<h2>Invitación al módulo de {nombre_modulo}</h2>",
         f"<p>Un administrador te ha invitado a unirte al equipo de <strong>{marca}</strong> como <strong>{rol}</strong> en el módulo de <strong>{nombre_modulo}</strong>.</p>",
         "<p>Haz clic en el siguiente enlace para acceder:</p>",
@@ -147,7 +150,7 @@ def envia_invitacion(email: str, params: dict) -> dict:
         f'<p style="color: #666; font-size: 14px;">Inicia sesión con tu cuenta de Google asociada a <strong>{html.escape(destino)}</strong>.</p>',
         "</div>", "</body>", "</html>"])
     cuerpo = json.dumps({"action": "Cleber.enviarEmail", "params": {
-        "subject": f"Invitación al módulo de {nombre_modulo} — {marca}", "fromName": NOMBRE_REMITENTE,
+        "subject": asunto, "fromName": NOMBRE_REMITENTE,
         "to": [destino], "cc": [], "bcc": [], "content": contenido}}).encode("utf-8")
     try:
         _, texto = http.request(url, cuerpo, {"Content-Type": "application/json", **({"x-api-key": clave} if clave else {})}, timeout=15)

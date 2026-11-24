@@ -11,6 +11,7 @@ import { Icon } from "./icons";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { useDismiss } from "./useDismiss";
 import { rolEnModulo, useUsuarioHub } from "./useUsuarioHub";
+import { etiquetaAmbiente } from "@/lib/ambiente";
 
 /**
  * Módulos que el usuario puede ver en la marca activa: el superadmin, todos; los demás, aquellos donde tienen rol
@@ -85,7 +86,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {/* eslint-disable-next-line @next/next/no-img-element -- PNG estático de public/, sin optimización */}
             <img src="/CLEBER_Logo.png" alt="Cleber" className="brand-logo" />
           </div>
-          <span className="env">DEV</span>
+          {etiquetaAmbiente && <span className="env">{etiquetaAmbiente}</span>}
           <button type="button" className="icon-btn theme-btn" aria-label="Cambiar tema" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
             {resolvedTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>

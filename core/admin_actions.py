@@ -31,6 +31,7 @@ from google.cloud import firestore
 
 from contracts.actions import DATOS_INVALIDOS, NO_AUTORIZADO, PRECONDICION_FALLIDA
 from core import authz, credentials, http
+from core.ambiente import asunto_con_ambiente, aviso_ambiente_html
 from core.conversations import resolve_vertical
 from core.schema import BOT_TYPES, VERTICALS, assert_unique_brand_code
 from core.user_actions import UserActionError, UserContext, declare
@@ -475,6 +476,7 @@ def _send_invite_email(ctx: UserContext, email: str, role: str) -> bool:
     app_url = ctx.origin or os.environ.get("APP_URL", "").strip().rstrip("/") or FALLBACK_APP_URL  # el origen ya viene validado
     content = (
         '<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">'
+        f"{aviso_ambiente_html()}"
         "<h2>Has sido invitado a la plataforma</h2>"
         f"<p>Un administrador te ha invitado a unirte al equipo de <strong>{org_name}</strong> como "
         f"<strong>{ROLE_LABELS[role]}</strong>.</p><p>Haz clic en el siguiente enlace para acceder:</p>"
@@ -483,7 +485,7 @@ def _send_invite_email(ctx: UserContext, email: str, role: str) -> bool:
         f'<p style="color: #666; font-size: 14px;">Inicia sesión con tu cuenta de Google asociada a <strong>{html.escape(email)}</strong>.</p></div>'
     )
     body = json.dumps({"to": email, "from": os.environ.get("INVITE_EMAIL_FROM", DEFAULT_INVITE_FROM),
-                       "subject": f"Invitación a la plataforma de Conversaciones — {org_name}", "content": content}).encode("utf-8")
+                       "subject": asunto_con_ambiente(f"Invitación a la plataforma de Conversaciones — {org_name}"), "content": content}).encode("utf-8")
     try:
         http.request(url, body, {"Content-Type": "application/json"}, timeout=15)
         return True
