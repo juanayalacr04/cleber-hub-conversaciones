@@ -105,7 +105,12 @@ def router(event, context=None):
         log.exception("router: no se pudo preparar la instancia")
         return http_lambda.respuesta(500, "Service Unavailable")
     peticion = http_lambda.Peticion.de_evento(event)
-    return http_lambda.de_flask(canal_router.route(peticion, event_queue.publish))
+    resp = http_lambda.de_flask(canal_router.route(peticion, event_queue.publish))
+    # Twilio marca "Invalid Content-Type" (12300) si el 200 llega vacío y sin tipo (API Gateway lo manda como application/json):
+    # espera TwiML. Un <Response/> vacío es el ACK que no contesta nada al cliente.
+    if peticion.path.rstrip("/").endswith(canal_router.TWILIO) and resp["statusCode"] == 200 and not resp["body"]:
+        resp = http_lambda.respuesta(200, "<Response></Response>", {"Content-Type": "text/xml"})
+    return resp
 
 
 def _aplica_evento(evento: ChannelEvent) -> None:

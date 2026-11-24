@@ -62,6 +62,12 @@ def test_router_valida_firma_y_publica_en_sqs_fifo(router):
     assert webhooks.DEDUPLICA_EN_FIRESTORE is False
 
 
+def test_router_responde_twiml_vacio_a_twilio(router):
+    resp = handlers.router(_evento_api(FORM, _firma("tok", BASE + "/webhook/twilio", FORM)))
+    assert resp["headers"]["Content-Type"] == "text/xml"      # sin tipo, Twilio reporta 12300 Invalid Content-Type
+    assert resp["body"] == "<Response></Response>"
+
+
 def test_router_rechaza_firma_invalida(router):
     resp = handlers.router(_evento_api(FORM, "firma-falsa"))
     assert resp["statusCode"] == 403 and router.enviados == []
