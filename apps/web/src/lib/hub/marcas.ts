@@ -10,6 +10,7 @@ export interface Marca {
   nombre: string;
   sfCalendario: string | null;
   esActiva: boolean;
+  esSeminuevos: boolean;
   creadoEn: string;
   actualizadoEn: string;
 }
@@ -18,6 +19,7 @@ export interface GuardaMarca {
   idMarca: string;
   nombre?: string;
   esActiva?: boolean;
+  esSeminuevos?: boolean;
 }
 
 export async function consultaMarcas() {

@@ -48,7 +48,7 @@ type TipoDialogo = "descartar" | "retomar" | "cerrar" | "respuesta" | "enviar" |
 type Dialogo = { tipo: TipoDialogo; oferta: Oferta } | null;
 
 const dinero = (n: number | null | undefined) => (n == null ? "—" : fmtMoney(Number(n)));
-const modelo = (o: Oferta) => [o.vehiculo.marca, o.vehiculo.modelo].filter(Boolean).join(" ") || "Vehículo sin identificar";
+const modelo = (o: Oferta) => o.vehiculo.modelo || "Vehículo sin identificar";
 const fechaHora = (s: string | null) => (s ? new Date(s).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" }) : "—");
 
 /** "Hoy", "Ayer", "Mañana" o "mar 17 nov" (contra el día real, no contra la fecha elegida). */

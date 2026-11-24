@@ -28,3 +28,6 @@ infra/**/*.zip
 
 # Paquetes de dev/deploy_aws.ps1
 /hub-*.zip
+
+
+/.abacusai

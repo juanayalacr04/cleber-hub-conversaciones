@@ -28,7 +28,7 @@ BEGIN
   PERFORM hub_cleber.exige_sistema(v_actor);
 
   v_usuario := hub_cleber.busca_usuario(hub_cleber.param_email(v_params, 'email'));
-  v_marca   := upper(hub_cleber.param_texto(v_params, 'idMarca'));
+  v_marca   := hub_cleber.param_texto(v_params, 'idMarca');
   v_modulo  := hub_cleber.param_modulo(v_params);
 
   IF v_usuario.id_usuario IS NULL OR v_usuario.es_sistema THEN
