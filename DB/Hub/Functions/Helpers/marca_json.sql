@@ -1,7 +1,7 @@
 /**
     Objeto Marca.
 
-    { idMarca, nombre, sfCalendario, esActiva, esSeminuevos, creadoEn, actualizadoEn }   idMarca = código de la marca
+    { idMarca, nombre, sfCalendario, idSalesforce, esActiva, esSeminuevos, creadoEn, actualizadoEn }   idMarca = código de la marca
 
     El horario y la configuración de Salesforce no van aquí: los edita su propia pantalla.
 
@@ -16,6 +16,7 @@ AS $$
     'idMarca',       m.id_marca,
     'nombre',        m.nombre,
     'sfCalendario',  m.sf_calendario,
+    'idSalesforce',  m.id_salesforce,
     'esActiva',      m.es_activa,
     'esSeminuevos',  m.es_seminuevos,
     'creadoEn',      m.creado_en,

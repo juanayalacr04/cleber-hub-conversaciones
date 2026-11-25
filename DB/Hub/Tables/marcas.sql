@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.marcas (
   horario           jsonb       NOT NULL DEFAULT '{}',   -- resto de settings (businessHours, ...)
   sf_calendario     text,                                -- sfCalendario
   salesforce_config jsonb       NOT NULL DEFAULT '{}',   -- sin secretos
+  id_salesforce     text,                                -- ID de la marca en Salesforce (opcional, editable)
   es_activa         boolean     NOT NULL DEFAULT true,
   es_seminuevos     boolean     NOT NULL DEFAULT false,  -- su catálogo de agencias trae las de todas las marcas con seminuevo = true
   creado_en         timestamptz NOT NULL DEFAULT now(),

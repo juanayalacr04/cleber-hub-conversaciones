@@ -23,8 +23,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /** idMarca es el código de la marca (TO, HO...): filtra el catálogo de agencias y no cambia después del alta. */
-interface Form { idMarca: string; nombre: string; esActiva: boolean; esSeminuevos: boolean }
-const VACIO: Form = { idMarca: "", nombre: "", esActiva: true, esSeminuevos: false };
+interface Form { idMarca: string; nombre: string; idSalesforce: string; esActiva: boolean; esSeminuevos: boolean }
+const VACIO: Form = { idMarca: "", nombre: "", idSalesforce: "", esActiva: true, esSeminuevos: false };
 
 export default function MarcasPage() {
   const { userData, refreshOrganizations } = useAuth();
@@ -49,7 +49,7 @@ export default function MarcasPage() {
   const nueva = () => { setEditando(null); setForm(VACIO); setErrorCampo(null); setAbierto(true); };
   const edita = (m: Marca) => {
     setEditando(m);
-    setForm({ idMarca: m.idMarca, nombre: m.nombre, esActiva: m.esActiva, esSeminuevos: m.esSeminuevos });
+    setForm({ idMarca: m.idMarca, nombre: m.nombre, idSalesforce: m.idSalesforce ?? "", esActiva: m.esActiva, esSeminuevos: m.esSeminuevos });
     setErrorCampo(null);
     setAbierto(true);
   };
@@ -61,7 +61,7 @@ export default function MarcasPage() {
   const guarda = async () => {
     setGuardando(true);
     const r = await guardaMarca({
-      idMarca: form.idMarca.trim(), nombre: form.nombre.trim(),
+      idMarca: form.idMarca.trim(), nombre: form.nombre.trim(), idSalesforce: form.idSalesforce.trim(),
       esActiva: form.esActiva, esSeminuevos: form.esSeminuevos,
     });
     setGuardando(false);
@@ -120,6 +120,7 @@ export default function MarcasPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className="text-xs font-mono">{m.idMarca}</Badge>
+                  {m.idSalesforce && <Badge variant="outline" className="text-xs font-mono">SF: {m.idSalesforce}</Badge>}
                   {!m.esActiva && <Badge variant="outline" className="text-xs">Inactiva</Badge>}
                   <Button variant="ghost" size="sm" onClick={() => edita(m)} aria-label={`Editar ${m.nombre}`}><Pencil className="h-4 w-4" /></Button>
                 </div>
@@ -154,6 +155,14 @@ export default function MarcasPage() {
                 {err("idMarca")}
               </div>
             )}
+            <div className="space-y-2">
+              <Label htmlFor="m-sf">ID de Salesforce (opcional)</Label>
+              <Input
+                id="m-sf" className="font-mono" value={form.idSalesforce} placeholder="Ej. TOYOTA"
+                onChange={(e) => set("idSalesforce", e.target.value)}
+              />
+              {err("idSalesforce")}
+            </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.esActiva} onChange={(e) => set("esActiva", e.target.checked)} />
               Marca activa

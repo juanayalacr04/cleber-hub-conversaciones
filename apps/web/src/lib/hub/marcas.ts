@@ -9,6 +9,8 @@ export interface Marca {
   idMarca: string;
   nombre: string;
   sfCalendario: string | null;
+  /** ID de la marca en Salesforce (opcional) */
+  idSalesforce: string | null;
   esActiva: boolean;
   esSeminuevos: boolean;
   creadoEn: string;
@@ -18,6 +20,7 @@ export interface Marca {
 export interface GuardaMarca {
   idMarca: string;
   nombre?: string;
+  idSalesforce?: string;
   esActiva?: boolean;
   esSeminuevos?: boolean;
 }
