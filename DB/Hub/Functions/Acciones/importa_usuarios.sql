@@ -90,9 +90,6 @@ BEGIN
         PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'Cada marca debe ser un objeto');
       END IF;
       v_id_org := hub_cleber.param_texto(e, 'idMarca');
-      IF v_id_org !~ '^[A-Za-z0-9_-]+$' THEN
-        PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'idMarca solo admite letras, dígitos, _ y -', '{"campo":"idMarca"}');
-      END IF;
 
       INSERT INTO hub_cleber.marcas AS o (id_marca, nombre, horario, sf_calendario,
                                            salesforce_config, es_activa, creado_en)

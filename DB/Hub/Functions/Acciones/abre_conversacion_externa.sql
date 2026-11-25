@@ -46,7 +46,7 @@ BEGIN
 
   v_fuente   := lower(hub_cleber.param_texto(v_params, 'fuente'));
   v_externo  := hub_cleber.param_texto(v_params, 'idExterno');
-  v_marca    := upper(hub_cleber.param_texto(v_params, 'idMarca'));
+  v_marca    := hub_cleber.param_texto(v_params, 'idMarca');
   v_modulo   := hub_cleber.param_modulo(v_params);
   v_telefono := hub_cleber.param_telefono(v_params, 'telefono');
   v_contexto := hub_cleber.param_objeto(v_params, 'contexto', false);

@@ -39,7 +39,7 @@ DECLARE
 BEGIN
   v_params := hub_cleber.valida_peticion(peticion, 'Hub.consultaConversaciones');
   v_actor  := hub_cleber.usuario_actual();
-  v_marca  := upper(hub_cleber.param_texto(v_params, 'idMarca'));
+  v_marca  := hub_cleber.param_texto(v_params, 'idMarca');
   v_modulo := hub_cleber.param_modulo(v_params);
   PERFORM hub_cleber.exige_modulo(v_actor, v_marca, v_modulo);
 

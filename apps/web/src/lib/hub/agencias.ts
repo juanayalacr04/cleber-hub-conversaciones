@@ -6,6 +6,7 @@
  *
  * Se filtra por el id de la marca, que es su código (p. ej. "TO"). Antes se revisa que esté entre las marcas que el
  * usuario puede ver (Hub.consultaUsuarioActual): así nadie consulta agencias de una marca que no es suya.
+ * Una marca con esSeminuevos manda "marcas" vacío (todas las agencias) y conserva solo las que traen seminuevo = true.
  * El hub guarda las agencias por valor como texto: el id numérico del catálogo (107 → "107").
  */
 
@@ -28,7 +29,7 @@ function urlCatalogo(base: string) {
   return b.endsWith(`/rpc/${FUNCION}`) ? b : `${b}/rpc/${FUNCION}`;
 }
 
-interface AgenciaApi { id: number | string; nombre: string; nombreMunicipio?: string | null; nombreEstado?: string | null }
+interface AgenciaApi { id: number | string; nombre: string; nombreMunicipio?: string | null; nombreEstado?: string | null; seminuevo?: boolean | null }
 
 export async function consultaAgenciasMarca(idMarca: string): Promise<ApiResponse<{ agencias: AgenciaCatalogo[] }>> {
   const base = process.env.CLEBER_API_DB_URL;
@@ -46,6 +47,8 @@ export async function consultaAgenciasMarca(idMarca: string): Promise<ApiRespons
   const marca = yo.info.marcasVisibles.find((m) => m.idMarca === idMarca);
   if (!marca) return { successful: false, errorCode: "SIN_PERMISO", errorMessage: "No tienes acceso a esta marca" };
 
+  const esSeminuevos = marca.esSeminuevos === true;
+
   let res: Response;
   try {
     res = await fetch(urlCatalogo(base), {
@@ -53,7 +56,7 @@ export async function consultaAgenciasMarca(idMarca: string): Promise<ApiRespons
       headers: { "Content-Type": "application/json", "Content-Profile": "cleber", Prefer: "params=single-object", "x-api-key": key },
       body: JSON.stringify({
         action: "Cleber.catalogoQuiterWorkshopsDealersWarehouses",
-        params: { estados: [], municipios: [], agencias: [], marcas: [marca.idMarca], workshops: [], warehouses: [], empresas: [] },
+        params: { estados: [], municipios: [], agencias: [], marcas: esSeminuevos ? [] : [marca.idMarca], workshops: [], warehouses: [], empresas: [] },
       }),
       cache: "no-store",
     });
@@ -67,7 +70,12 @@ export async function consultaAgenciasMarca(idMarca: string): Promise<ApiRespons
   }
   const r = (await res.json()) as ApiResponse<{ agencias?: AgenciaApi[] }>;
   if (!r.successful) return r;
-  const agencias = (r.info.agencias ?? [])
+  const crudas = r.info.agencias ?? [];
+  if (esSeminuevos) {
+    console.error(`catalogo seminuevos: ${crudas.length} agencias del API, ${crudas.filter((a) => a.seminuevo === true).length} con seminuevo=true; campos: ${Object.keys(crudas[0] ?? {}).join(",")}`);
+  }
+  const agencias = crudas
+    .filter((a) => !esSeminuevos || a.seminuevo === true)
     .map((a) => ({ idAgencia: String(a.id), nombre: a.nombre, municipio: a.nombreMunicipio ?? null, estado: a.nombreEstado ?? null }))
     .sort((a, b) => a.idAgencia.localeCompare(b.idAgencia, undefined, { numeric: true }));   // por id (107 antes que 1001)
   return { successful: true, info: { agencias } };

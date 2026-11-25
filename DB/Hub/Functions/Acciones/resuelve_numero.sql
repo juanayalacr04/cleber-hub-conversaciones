@@ -33,7 +33,7 @@ BEGIN
 
   v_telefono := hub_cleber.param_telefono_numero(v_params, 'telefono', false);
   v_meta     := hub_cleber.param_texto(v_params, 'metaPhoneNumberId', false);
-  v_marca    := upper(hub_cleber.param_texto(v_params, 'idMarca', false));
+  v_marca    := hub_cleber.param_texto(v_params, 'idMarca', false);
   v_modulo   := hub_cleber.param_modulo(v_params, 'modulo', false);
 
   IF v_telefono IS NOT NULL THEN

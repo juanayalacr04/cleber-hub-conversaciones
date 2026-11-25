@@ -48,7 +48,7 @@ BEGIN
   IF v_partes[1] IS DISTINCT FROM 'hub' OR cardinality(v_partes) NOT IN (3, 4) THEN
     RETURN cleber.construye_respuesta_exitosa(jsonb_build_object('autorizado', false, 'motivo', 'CANAL_INVALIDO'));
   END IF;
-  v_marca  := upper(v_partes[2]);
+  v_marca  := v_partes[2];
   v_modulo := lower(v_partes[3]);
   IF v_modulo NOT IN ('ventas', 'servicio', 'valuacion') THEN
     RETURN cleber.construye_respuesta_exitosa(jsonb_build_object('autorizado', false, 'motivo', 'CANAL_INVALIDO'));

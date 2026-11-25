@@ -77,7 +77,7 @@ BEGIN
     v_marca := v_numero.id_marca;
     v_modulo := v_numero.modulo;
   ELSE
-    v_marca  := upper(hub_cleber.param_texto(v_params, 'idMarca'));
+    v_marca  := hub_cleber.param_texto(v_params, 'idMarca');
     v_modulo := hub_cleber.param_modulo(v_params);
     IF NOT EXISTS (SELECT 1 FROM hub_cleber.marcas WHERE id_marca = v_marca) THEN
       PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', 'La marca no existe', '{"campo":"idMarca"}');
