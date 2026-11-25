@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+
 .pytest_cache/
 node_modules/
 .env
@@ -28,3 +29,6 @@ infra/**/*.zip
 
 # Paquetes de dev/deploy_aws.ps1
 /hub-*.zip
+
+
+/.abacusai
