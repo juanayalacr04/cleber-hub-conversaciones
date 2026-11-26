@@ -50,7 +50,7 @@ BEGIN
   END IF;
   v_marca  := v_partes[2];
   v_modulo := lower(v_partes[3]);
-  IF v_modulo NOT IN ('ventas', 'servicio', 'valuacion') THEN
+  IF v_modulo NOT IN ('ventas', 'servicio', 'valuacion', 'verificacion') THEN
     RETURN cleber.construye_respuesta_exitosa(jsonb_build_object('autorizado', false, 'motivo', 'CANAL_INVALIDO'));
   END IF;
 

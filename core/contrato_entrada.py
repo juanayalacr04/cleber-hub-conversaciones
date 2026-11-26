@@ -76,8 +76,16 @@ Preparador = Callable[[dict, dict, dict], Envio]
 _FUENTES: dict[str, Preparador] = {}
 
 
-def registra_fuente(fuente: str, preparar: Preparador) -> None:
+# fuente → alta(conversacion, params): registra lo propio de la fuente en cuanto la conversación existe, también en un reintento
+# (antes de decidir si ya se envió). Puede lanzar ErrorHub para rechazar la petición.
+Alta = Callable[[dict, dict], None]
+_ALTAS: dict[str, Alta] = {}
+
+
+def registra_fuente(fuente: str, preparar: Preparador, alta: Alta | None = None) -> None:
     _FUENTES[fuente] = preparar
+    if alta is not None:
+        _ALTAS[fuente] = alta
 
 
 def fuentes() -> list[str]:
@@ -184,6 +192,8 @@ def _abre(fuente: str, preparar: Preparador, params: dict, telefono: str, contex
         "contexto": contexto, "idAgencia": str(params["idAgencia"]) if params.get("idAgencia") not in (None, "") else None,
     })
     conv, creada = abierta["conversacion"], abierta["creada"]
+    if fuente in _ALTAS:
+        _ALTAS[fuente](conv, params)
     envio_previo = (conv.get("metadatos") or {}).get("envio")
     if envio_previo:
         return {"idConversacion": conv["idConversacion"], "creada": False, "enviada": True,

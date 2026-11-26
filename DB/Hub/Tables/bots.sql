@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.bots (
   actualizado_en         timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_bots PRIMARY KEY (id_bot),
   CONSTRAINT fk_bots_marca FOREIGN KEY (id_marca) REFERENCES hub_cleber.marcas (id_marca),
-  CONSTRAINT chk_bots_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion')),
+  CONSTRAINT chk_bots_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion', 'verificacion')),
   CONSTRAINT chk_bots_tipo CHECK (tipo IN ('chatllm', 'workflow', 'vertex_ai', 'external')),
   CONSTRAINT chk_bots_config CHECK (jsonb_typeof(config) = 'object')
 );

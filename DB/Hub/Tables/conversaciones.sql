@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.conversaciones (
   CONSTRAINT fk_conversaciones_numero FOREIGN KEY (id_numero) REFERENCES hub_cleber.numeros (id_numero),
   CONSTRAINT fk_conversaciones_equipo FOREIGN KEY (id_equipo) REFERENCES hub_cleber.equipos (id_equipo),
   CONSTRAINT fk_conversaciones_bot FOREIGN KEY (id_bot) REFERENCES hub_cleber.bots (id_bot),
-  CONSTRAINT chk_conversaciones_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion')),
+  CONSTRAINT chk_conversaciones_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion', 'verificacion')),
   CONSTRAINT chk_conversaciones_direccion CHECK (direccion IN ('inbound', 'outbound')),
   CONSTRAINT chk_conversaciones_estado CHECK (estado IN ('bot', 'waiting_agent', 'with_agent', 'closed')),
   CONSTRAINT chk_conversaciones_remitente CHECK (ultimo_remitente IN ('customer', 'bot', 'agent')),

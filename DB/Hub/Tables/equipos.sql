@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.equipos (
   actualizado_en             timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_equipos PRIMARY KEY (id_equipo),
   CONSTRAINT fk_equipos_marca FOREIGN KEY (id_marca) REFERENCES hub_cleber.marcas (id_marca),
-  CONSTRAINT chk_equipos_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion')),
+  CONSTRAINT chk_equipos_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion', 'verificacion')),
   CONSTRAINT chk_equipos_accion_opt_out CHECK (accion_opt_out IN ('close', 'handoff')),
   CONSTRAINT chk_equipos_max CHECK (max_conversaciones_agente > 0),
   CONSTRAINT chk_equipos_umbrales CHECK (jsonb_typeof(umbrales_semaforo) = 'object')

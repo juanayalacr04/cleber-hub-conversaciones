@@ -78,6 +78,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Tables/bitacora.sql
 \echo 'Tables/notas.sql'
 \i Tables/notas.sql
+\echo 'Tables/verificacion_datos.sql'
+\i Tables/verificacion_datos.sql
 
 -- 3. Funciones auxiliares (en orden: las funciones LANGUAGE sql validan sus dependencias al crearse)
 \echo '================================================================================'
@@ -96,6 +98,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Helpers/marca_json.sql
 \echo 'Functions/Helpers/conversaciones.sql'
 \i Functions/Helpers/conversaciones.sql
+\echo 'Functions/Helpers/verificacion.sql'
+\i Functions/Helpers/verificacion.sql
 
 -- 4. Funciones de acciones
 \echo '================================================================================'
@@ -178,6 +182,10 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/consulta_permisos_usuario.sql
 \echo 'Functions/Acciones/autoriza_canal.sql'
 \i Functions/Acciones/autoriza_canal.sql
+\echo 'Functions/Acciones/registra_verificacion.sql'
+\i Functions/Acciones/registra_verificacion.sql
+\echo 'Functions/Acciones/actualiza_verificacion.sql'
+\i Functions/Acciones/actualiza_verificacion.sql
 
 -- 5. Datos maestros
 \echo '================================================================================'

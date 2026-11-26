@@ -52,6 +52,7 @@ DEFAULT_TOOLS = [
     {"name": "Detectar_Situacion", "event": "situacion", "phase": "main"},
     {"name": "Registrar_Cita", "event": "registrar_cita", "phase": "main"},
     {"name": "cita_agendada", "event": "registrar_cita", "phase": "main"},
+    {"name": "Verificar_Telefono", "event": "verificar_telefono", "phase": "main"},
 ]
 
 

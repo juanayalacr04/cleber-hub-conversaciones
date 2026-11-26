@@ -9,7 +9,7 @@
     @Acceso No-Publica
 */
 
--- Módulo del hub (ventas / servicio / valuacion), en minúsculas. Única definición: la usan también las acciones
+-- Módulo del hub (ventas / servicio / valuacion / verificacion), en minúsculas. Única definición: la usan también las acciones
 -- de conversaciones (Functions/Helpers/conversaciones.sql), con p_campo = 'modulo' por omisión.
 CREATE OR REPLACE FUNCTION hub_cleber.param_modulo(p_params jsonb, p_campo text DEFAULT 'modulo', p_requerido boolean DEFAULT true)
 RETURNS text
@@ -18,7 +18,7 @@ AS $$
 DECLARE
   v_modulo text := lower(hub_cleber.param_texto(p_params, p_campo, p_requerido));
 BEGIN
-  IF v_modulo IS NOT NULL AND v_modulo NOT IN ('ventas', 'servicio', 'valuacion') THEN
+  IF v_modulo IS NOT NULL AND v_modulo NOT IN ('ventas', 'servicio', 'valuacion', 'verificacion') THEN
     PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('Módulo desconocido: %s', v_modulo), jsonb_build_object('campo', p_campo));
   END IF;
   RETURN v_modulo;
