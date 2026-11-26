@@ -55,7 +55,7 @@ BEGIN
   PERFORM hub_cleber.exige_miembro(v_id, v_org);
 
   FOR v_modulo IN SELECT jsonb_object_keys(coalesce(v_modulos, '{}'::jsonb)) LOOP
-    IF v_modulo NOT IN ('ventas', 'servicio', 'valuacion') THEN
+    IF v_modulo NOT IN ('ventas', 'servicio', 'valuacion', 'verificacion') THEN
       PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('Módulo desconocido: %s', v_modulo), '{"campo":"modulos"}');
     END IF;
     PERFORM hub_cleber.exige_administrador_modulo(v_actor, v_org, v_modulo);

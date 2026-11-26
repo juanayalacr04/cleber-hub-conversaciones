@@ -12,7 +12,9 @@ INSERT INTO hub_cleber.roles_modulo (modulo, rol, nombre, descripcion, es_admini
   ('valuacion', 'ADMINISTRADOR', 'Administrador', 'Configura valuación y administra a sus usuarios en la marca', true,  false, 1),
   ('valuacion', 'GERENTE',       'Gerente',       'Supervisa las ofertas y conversaciones de sus agencias y da el VoBo de montos', false, true, 2),
   ('valuacion', 'VALUADOR',      'Valuador',      'Valúa y opera ofertas',                                       false, false, 3),
-  ('valuacion', 'CONSULTA',      'Consulta',      'Solo lectura',                                                false, false, 4)
+  ('valuacion', 'CONSULTA',      'Consulta',      'Solo lectura',                                                false, false, 4),
+  ('verificacion', 'ADMINISTRADOR', 'Administrador', 'Configura verificación y administra a sus usuarios en la marca', true,  false, 1),
+  ('verificacion', 'CONSULTA',      'Consulta',      'Solo lectura',                                                false, false, 2)
 ON CONFLICT (modulo, rol) DO UPDATE SET
   nombre           = EXCLUDED.nombre,
   descripcion      = EXCLUDED.descripcion,

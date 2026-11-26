@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.numeros (
   CONSTRAINT fk_numeros_marca FOREIGN KEY (id_marca) REFERENCES hub_cleber.marcas (id_marca),
   CONSTRAINT fk_numeros_equipo FOREIGN KEY (id_equipo) REFERENCES hub_cleber.equipos (id_equipo),
   CONSTRAINT fk_numeros_bot FOREIGN KEY (id_bot_default) REFERENCES hub_cleber.bots (id_bot),
-  CONSTRAINT chk_numeros_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion')),
+  CONSTRAINT chk_numeros_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion', 'verificacion')),
   CONSTRAINT chk_numeros_proveedor CHECK (proveedor IN ('twilio', 'meta', 'valuetext')),
   CONSTRAINT chk_numeros_telefono CHECK (telefono ~ '^\+[0-9]{8,15}$'),
   CONSTRAINT chk_numeros_ventana CHECK (ventana_reapertura_horas >= 0),

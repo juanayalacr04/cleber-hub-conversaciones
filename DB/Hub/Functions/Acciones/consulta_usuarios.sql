@@ -50,7 +50,7 @@ BEGIN
                                              WHERE rm.id_usuario = u.id_usuario AND rm.id_marca = v_org
                                                AND rm.modulo = v_modulo))), '[]'::jsonb),
     'permisos', jsonb_build_object(
-        'modulos',  coalesce((SELECT jsonb_agg(m ORDER BY m) FROM unnest(ARRAY['ventas', 'servicio', 'valuacion']) m
+        'modulos',  coalesce((SELECT jsonb_agg(m ORDER BY m) FROM unnest(ARRAY['ventas', 'servicio', 'valuacion', 'verificacion']) m
                                WHERE hub_cleber.es_administrador_modulo(v_actor, v_org, m)), '[]'::jsonb),
         'agencias', true)));
 

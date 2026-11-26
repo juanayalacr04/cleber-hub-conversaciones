@@ -77,7 +77,7 @@ BEGIN
   PERFORM hub_cleber.exige_sistema(hub_cleber.usuario_actual());
 
   v_modulos := coalesce(hub_cleber.param_textos(v_params, 'modulos', false), ARRAY['ventas', 'servicio', 'valuacion']);
-  SELECT x INTO v_modulo FROM unnest(v_modulos) x WHERE x NOT IN ('ventas', 'servicio', 'valuacion') LIMIT 1;
+  SELECT x INTO v_modulo FROM unnest(v_modulos) x WHERE x NOT IN ('ventas', 'servicio', 'valuacion', 'verificacion') LIMIT 1;
   IF v_modulo IS NOT NULL THEN
     PERFORM hub_cleber.error_de_aplicacion('CAMPO_INVALIDO', format('Módulo desconocido: %s', v_modulo), '{"campo":"modulos"}');
   END IF;

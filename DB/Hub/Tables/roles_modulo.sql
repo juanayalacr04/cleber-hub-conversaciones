@@ -17,6 +17,6 @@ CREATE TABLE IF NOT EXISTS hub_cleber.roles_modulo (
   creado_en         timestamptz NOT NULL DEFAULT now(),
   actualizado_en    timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_roles_modulo PRIMARY KEY (modulo, rol),
-  CONSTRAINT chk_roles_modulo_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion')),
+  CONSTRAINT chk_roles_modulo_modulo CHECK (modulo IN ('ventas', 'servicio', 'valuacion', 'verificacion')),
   CONSTRAINT chk_roles_modulo_rol CHECK (rol ~ '^[A-Z][A-Z_]*$' AND rol <> 'SISTEMA')
 );

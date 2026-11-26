@@ -3,7 +3,7 @@
 
     Catálogo de roles por módulo (hub_cleber.roles_modulo), para los selectores del editor de usuarios.
 
-    Params: modulo? (ventas | servicio | valuacion)
+    Params: modulo? (ventas | servicio | valuacion | verificacion)
     Info: { roles: [ { modulo, rol, nombre, descripcion, esAdministrador, esSupervisor } ] }   por módulo y orden del catálogo
           esSupervisor: ve las conversaciones de sus agencias sin necesitar equipo
 
