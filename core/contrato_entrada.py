@@ -7,6 +7,8 @@ módulo que la registra (`modules/valuacion.py` registra "valuacion").
     Petición:  { "action": "Hub.abreConversacion", "params": { fuente, idExterno, idMarca, modulo, telefono,
                                                                telefonoDestino? | alCliente?,
                                                                nombreCliente?, claveCliente?, contexto?, idAgencia? } }
+               Un módulo puede registrar acciones propias con su body a medida (registra_accion); hoy Verificación registra
+               "Hub.VerificarTelefono" (ver modules/verificacion.py).
     Respuesta: envelope de la convención
                { successful: true,  info: { idConversacion, creada, enviada, idMensajeProveedor } }
                { successful: false, errorCode, errorMessage, info? }
@@ -82,6 +84,17 @@ Alta = Callable[[dict, dict], None]
 _ALTAS: dict[str, Alta] = {}
 
 
+# Acciones propias de un módulo (p. ej. Hub.VerificarTelefono de Verificación): el body lo dicta el sistema que llama y el módulo
+# lo traduce al contrato (params → params del contrato). Recibe los params tal cual y regresa los del contrato; puede lanzar
+# ErrorHub (CAMPO_REQUERIDO, CAMPO_INVALIDO...) para rechazar.
+Traductor = Callable[[dict], dict]
+_ACCIONES: dict[str, Traductor] = {}
+
+
+def registra_accion(accion: str, traduce: Traductor) -> None:
+    _ACCIONES[accion] = traduce
+
+
 def registra_fuente(fuente: str, preparar: Preparador, alta: Alta | None = None) -> None:
     _FUENTES[fuente] = preparar
     if alta is not None:
@@ -105,9 +118,16 @@ def _falla(codigo: str, mensaje: str, info: dict | None = None) -> dict:
 
 def maneja(cuerpo: dict | None) -> dict:
     """Atiende una petición del contrato ①. Nunca lanza: regresa el envelope."""
-    if not isinstance(cuerpo, dict) or cuerpo.get("action") != ACCION or not isinstance(cuerpo.get("params"), dict):
+    accion = cuerpo.get("action") if isinstance(cuerpo, dict) else None
+    if not isinstance(cuerpo, dict) or not isinstance(cuerpo.get("params"), dict) or not (
+            accion == ACCION or accion in _ACCIONES):
         return _falla("PETICION_INVALIDA", f"Se esperaba {{ action: {ACCION}, params }}")
     params = cuerpo["params"]
+    if accion != ACCION:  # acción propia de un módulo (p. ej. Hub.VerificarTelefono): traduce su body al contrato
+        try:
+            params = _ACCIONES[accion](params)
+        except ErrorHub as e:
+            return _falla(e.codigo, e.mensaje, e.info)
     for campo in REQUERIDOS:
         if not str(params.get(campo) or "").strip():
             return _falla("CAMPO_REQUERIDO", f"Falta el campo {campo}", {"campo": campo})

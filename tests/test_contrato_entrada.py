@@ -51,7 +51,8 @@ class BaseFalsa:
                 return {"conversacion": c, "numero": self.numero, "creada": False}
         cid = f"c{next(self._ids)}"
         self.conversaciones[cid] = {"idConversacion": cid, "idMarca": "HO", "modulo": "valuacion", "fuente": p["fuente"],
-                                    "idExterno": p["idExterno"], "telefonoCliente": p["telefono"], "metadatos": {"contexto": p["contexto"]},
+                                    "idExterno": p["idExterno"], "telefonoCliente": p["telefono"], "nombreCliente": p.get("nombreCliente"),
+                                    "claveCliente": p.get("claveCliente"), "metadatos": {"contexto": p["contexto"]},
                                     "idAgencia": p.get("idAgencia"), "version": 1}
         return {"conversacion": self.conversaciones[cid], "numero": self.numero, "creada": True}
 
