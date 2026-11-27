@@ -206,7 +206,7 @@ BEGIN
                         || (i#>>'{callback,pendiente}') || '/' || (i#>>'{callback,enviado}') || '/' || (i#>>'{callback,fallido}') || '/'
                         || (i#>>'{callback,simulados}') || '/' || (i->>'sinCallback'), '3/1/1/1/0/2/0/1/1',
                         '7.2 ... conteos por estado, por callback y simulados');
-  i := pg_temp.ok(pg_temp.llama('Hub.resumenVerificaciones', jsonb_build_object('idMarca', c_marca, 'desde', '2026-01-01T10:01:00+00')),
+  i := pg_temp.ok(pg_temp.llama('Hub.resumenVerificaciones', jsonb_build_object('idMarca', c_marca, 'desde', '2026-01-01T10:01:30+00')),
                   '7.3 El resumen desde una fecha');
   PERFORM pg_temp.igual((i->>'total') || '/' || (i->>'pendientes'), '2/1', '7.4 ... solo las dos más nuevas');
   i := pg_temp.ok(pg_temp.llama('Hub.resumenVerificaciones', jsonb_build_object('idMarca', c_marca, 'hasta', '2026-01-01T10:01:30+00')),
