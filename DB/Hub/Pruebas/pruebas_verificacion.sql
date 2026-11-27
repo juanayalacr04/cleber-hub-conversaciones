@@ -2,7 +2,9 @@
  * pruebas_verificacion.sql — pruebas del módulo verificacion de hub_cleber (solo desarrollo/QA)
  *
  * Alta idempotente de una verificación (ID opaco + teléfono), rechazo del mismo ID con otro teléfono, resultado válido / no
- * válido, primera decisión manda y permisos (solo el sistema). Requiere haber corrido Migraciones/008 y Alta_db.sql.
+ * válido, primera decisión manda y permisos (solo el sistema). Callback al sistema origen (enviado, fallido, simulado, ya
+ * enviado y pendiente), consulta y resumen del dashboard con sus permisos, y la simulación por marca en Hub.guardaMarca.
+ * Requiere haber corrido Migraciones/008 y 009 y Alta_db.sql.
  *
  * Todo corre en UNA transacción que termina en ROLLBACK: no deja datos. Usa la marca 'PRUEBAVER'.
  *
@@ -64,16 +66,23 @@ DO $$
 DECLARE
   c_sistema CONSTANT text := 'sistema@hub-conversaciones.internal';
   c_admin   CONSTANT text := 'admin@prueba-ver.invalid';
+  c_sin     CONSTANT text := 'sin-rol@prueba-ver.invalid';
+  c_super   CONSTANT text := 'super@prueba-ver.invalid';
   c_marca   CONSTANT text := 'PRUEBAVER';
   v_admin   uuid;
   v_numero  text;
   v_conv    text;
+  v_antes   text;
   i         jsonb;
 BEGIN
   INSERT INTO hub_cleber.marcas (id_marca, nombre) VALUES (c_marca, 'Marca de prueba de verificación');
   INSERT INTO hub_cleber.usuarios (email, nombre) VALUES (c_admin, 'Admin') RETURNING id_usuario INTO v_admin;
   INSERT INTO hub_cleber.usuarios_marcas (id_usuario, id_marca) VALUES (v_admin, c_marca);
   INSERT INTO hub_cleber.usuarios_roles_modulo (id_usuario, id_marca, modulo, rol) VALUES (v_admin, c_marca, 'verificacion', 'ADMINISTRADOR');
+  INSERT INTO hub_cleber.usuarios (email, nombre) VALUES (c_sin, 'Sin rol');
+  INSERT INTO hub_cleber.usuarios_marcas (id_usuario, id_marca)
+    SELECT id_usuario, c_marca FROM hub_cleber.usuarios WHERE email = c_sin;
+  INSERT INTO hub_cleber.usuarios (email, nombre, es_super_admin) VALUES (c_super, 'Super', true);
 
   -- 1. Módulo
   PERFORM pg_temp.como(c_admin);
@@ -123,6 +132,109 @@ BEGIN
                         'SIN_PERMISO', '4.1 Registrar es solo del sistema');
   PERFORM pg_temp.error(pg_temp.llama('Hub.actualizaVerificacion', jsonb_build_object('idExterno', 'SF-1', 'valido', true)),
                         'SIN_PERMISO', '4.2 Resolver es solo del sistema');
+
+  -- 5. Callback
+  PERFORM pg_temp.como(c_sistema);
+  i := pg_temp.ok(pg_temp.llama('Hub.registraCallbackVerificacion', jsonb_build_object('idExterno', 'SF-1', 'entregado', true)),
+                  '5.1 El callback entregado');
+  PERFORM pg_temp.igual((i->>'aplicada') || '/' || (i#>>'{verificacion,callback,estado}') || '/' || (i#>>'{verificacion,callback,intentos}')
+                        || '/' || (i#>>'{verificacion,callbackSimulado}'), 'true/enviado/1/false', '5.2 ... queda enviado, un intento y no simulado');
+  i := pg_temp.ok(pg_temp.llama('Hub.registraCallbackVerificacion', jsonb_build_object('idExterno', 'SF-1', 'entregado', false, 'error', 'HTTP 500')),
+                  '5.3 Un callback ya enviado');
+  PERFORM pg_temp.igual((i->>'aplicada') || '/' || (i#>>'{verificacion,callback,estado}') || '/' || (i#>>'{verificacion,callback,intentos}'),
+                        'false/enviado/1', '5.4 ... no cambia');
+  i := pg_temp.ok(pg_temp.llama('Hub.registraCallbackVerificacion', jsonb_build_object('idExterno', 'SF-3', 'entregado', false, 'error', 'HTTP 500')),
+                  '5.5 Un callback fallido');
+  PERFORM pg_temp.igual((i#>>'{verificacion,callback,estado}') || '/' || (i#>>'{verificacion,callback,ultimoError}') || '/'
+                        || (i#>>'{verificacion,callback,intentos}'), 'fallido/HTTP 500/1', '5.6 ... queda fallido con el último error');
+  i := pg_temp.ok(pg_temp.llama('Hub.registraCallbackVerificacion', jsonb_build_object('idExterno', 'SF-3', 'entregado', true, 'simulado', true)),
+                  '5.7 Un callback simulado');
+  PERFORM pg_temp.igual((i#>>'{verificacion,callback,estado}') || '/' || (i#>>'{verificacion,callbackSimulado}') || '/'
+                        || (i#>>'{verificacion,callback,intentos}'), 'enviado/true/2', '5.8 ... queda enviado, simulado y con dos intentos');
+  PERFORM pg_temp.ok(pg_temp.llama('Hub.registraVerificacion', jsonb_build_object('idExterno', 'SF-4', 'idMarca', c_marca, 'valor', '5544445555')),
+                     '5.9 Otra verificación, pendiente');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.registraCallbackVerificacion', jsonb_build_object('idExterno', 'SF-4', 'entregado', true)),
+                        'ESTADO_INVALIDO', '5.10 Una verificación pendiente no tiene nada que entregar');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.registraCallbackVerificacion', jsonb_build_object('idExterno', 'NO-HAY', 'entregado', true)),
+                        'RECURSO_NO_ENCONTRADO', '5.11 Un callback de una verificación inexistente');
+
+  -- 6. Consulta
+  -- now() es la fecha de la transacción: se separan los creado_en para probar el orden y la paginación
+  WITH orden AS (
+    SELECT id_verificacion, row_number() OVER (ORDER BY id_verificacion) AS n
+      FROM hub_cleber.verificacion_datos WHERE id_marca = c_marca)
+  UPDATE hub_cleber.verificacion_datos vd
+     SET creado_en = timestamptz '2026-01-01 10:00:00+00' + o.n * interval '1 minute'
+    FROM orden o
+   WHERE o.id_verificacion = vd.id_verificacion;
+
+  PERFORM pg_temp.como(c_admin);
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaVerificaciones', jsonb_build_object('idMarca', c_marca)),
+                  '6.1 El administrador consulta las verificaciones de la marca');
+  PERFORM pg_temp.igual((jsonb_array_length(i->'verificaciones'))::text || '/' || (i->>'hayMas') || '/'
+                        || (i#>>'{verificaciones,0,idExterno}') || '/' || coalesce(i#>>'{verificaciones,0,conversacion,estado}', 'sin'),
+                        '3/false/SF-4/sin', '6.2 ... las tres, la más nueva primero y la pendiente sin conversación');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaVerificaciones', jsonb_build_object('idMarca', c_marca, 'estados', jsonb_build_array('valido'))),
+                  '6.3 Filtro por estado');
+  PERFORM pg_temp.igual((jsonb_array_length(i->'verificaciones'))::text || '/' || (i#>>'{verificaciones,0,idExterno}') || '/'
+                        || (i#>>'{verificaciones,0,conversacion,estado}'), '1/SF-1/bot', '6.4 ... solo la válida, con su conversación');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaVerificaciones', jsonb_build_object('idMarca', c_marca, 'callbackEstados', jsonb_build_array('enviado'))),
+                  '6.5 Filtro por estado del callback');
+  PERFORM pg_temp.igual((jsonb_array_length(i->'verificaciones'))::text, '2', '6.6 ... las dos enviadas');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaVerificaciones', jsonb_build_object('idMarca', c_marca, 'busqueda', 'SF-3')),
+                  '6.7 Búsqueda por ID externo');
+  PERFORM pg_temp.igual((jsonb_array_length(i->'verificaciones'))::text || '/' || (i#>>'{verificaciones,0,idExterno}'), '1/SF-3',
+                        '6.8 ... solo la que coincide');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaVerificaciones', jsonb_build_object('idMarca', c_marca, 'limite', 1)), '6.9 Paginación');
+  PERFORM pg_temp.igual((jsonb_array_length(i->'verificaciones'))::text || '/' || (i->>'hayMas') || '/' || (i#>>'{verificaciones,0,idExterno}'),
+                        '1/true/SF-4', '6.10 ... una y hay más');
+  v_antes := i#>>'{verificaciones,0,creadoEn}';
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaVerificaciones', jsonb_build_object('idMarca', c_marca, 'limite', 1, 'antesDe', v_antes)),
+                  '6.11 La página siguiente');
+  PERFORM pg_temp.igual((jsonb_array_length(i->'verificaciones'))::text || '/' || (i->>'hayMas') || '/' || (i#>>'{verificaciones,0,idExterno}'),
+                        '1/true/SF-3', '6.12 ... la anterior y todavía hay más');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.consultaVerificaciones', jsonb_build_object('idMarca', c_marca, 'estados', jsonb_build_array('otro'))),
+                        'CAMPO_INVALIDO', '6.13 Un estado que no existe');
+  PERFORM pg_temp.como(c_sin);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.consultaVerificaciones', jsonb_build_object('idMarca', c_marca)),
+                        'SIN_PERMISO', '6.14 Sin rol del módulo no se consulta');
+
+  -- 7. Resumen
+  PERFORM pg_temp.como(c_admin);
+  i := pg_temp.ok(pg_temp.llama('Hub.resumenVerificaciones', jsonb_build_object('idMarca', c_marca)), '7.1 El resumen de la marca');
+  PERFORM pg_temp.igual((i->>'total') || '/' || (i->>'pendientes') || '/' || (i->>'validas') || '/' || (i->>'noValidas') || '/'
+                        || (i#>>'{callback,pendiente}') || '/' || (i#>>'{callback,enviado}') || '/' || (i#>>'{callback,fallido}') || '/'
+                        || (i#>>'{callback,simulados}') || '/' || (i->>'sinCallback'), '3/1/1/1/0/2/0/1/1',
+                        '7.2 ... conteos por estado, por callback y simulados');
+  i := pg_temp.ok(pg_temp.llama('Hub.resumenVerificaciones', jsonb_build_object('idMarca', c_marca, 'desde', '2026-01-01T10:01:00+00')),
+                  '7.3 El resumen desde una fecha');
+  PERFORM pg_temp.igual((i->>'total') || '/' || (i->>'pendientes'), '2/1', '7.4 ... solo las dos más nuevas');
+  i := pg_temp.ok(pg_temp.llama('Hub.resumenVerificaciones', jsonb_build_object('idMarca', c_marca, 'hasta', '2026-01-01T10:01:30+00')),
+                  '7.5 El resumen hasta una fecha');
+  PERFORM pg_temp.igual((i->>'total') || '/' || (i->>'validas'), '1/1', '7.6 ... solo la primera');
+  PERFORM pg_temp.como(c_sin);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.resumenVerificaciones', jsonb_build_object('idMarca', c_marca)),
+                        'SIN_PERMISO', '7.7 Sin rol del módulo no hay resumen');
+
+  -- 8. Simulación por marca
+  PERFORM pg_temp.como(c_super);
+  i := pg_temp.ok(pg_temp.llama('Hub.guardaMarca', jsonb_build_object('idMarca', c_marca, 'simularCallbackSf', true)),
+                  '8.1 El super admin enciende la simulación del callback');
+  PERFORM pg_temp.igual(i#>>'{marca,simularCallbackSf}', 'true', '8.2 ... queda en la marca');
+  PERFORM pg_temp.como(c_admin);
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaVerificaciones', jsonb_build_object('idMarca', c_marca, 'limite', 1)),
+                  '8.3 La consulta con la simulación encendida');
+  PERFORM pg_temp.igual(i#>>'{verificaciones,0,simularCallback}', 'true', '8.4 ... la verificación la reporta');
+  PERFORM pg_temp.como(c_super);
+  i := pg_temp.ok(pg_temp.llama('Hub.guardaMarca', jsonb_build_object('idMarca', c_marca, 'nombre', 'Marca de prueba de verificación')),
+                  '8.5 Un cambio de la marca sin el campo');
+  PERFORM pg_temp.igual(i#>>'{marca,simularCallbackSf}', 'true', '8.6 ... no cambia la simulación');
+  i := pg_temp.ok(pg_temp.llama('Hub.guardaMarca', jsonb_build_object('idMarca', c_marca, 'simularCallbackSf', false)),
+                  '8.7 Se apaga la simulación');
+  PERFORM pg_temp.igual(i#>>'{marca,simularCallbackSf}', 'false', '8.8 ... queda apagada');
+  PERFORM pg_temp.como(c_admin);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaMarca', jsonb_build_object('idMarca', c_marca, 'simularCallbackSf', true)),
+                        'SIN_PERMISO', '8.9 Marcas es solo del super admin');
 
   RAISE NOTICE '========================================================================';
   RAISE NOTICE 'TODAS LAS PRUEBAS PASARON';

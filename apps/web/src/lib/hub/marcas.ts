@@ -13,6 +13,8 @@ export interface Marca {
   idSalesforce: string | null;
   esActiva: boolean;
   esSeminuevos: boolean;
+  /** El callback de verificación a Salesforce no sale a la red y queda marcado como simulado (solo pruebas) */
+  simularCallbackSf: boolean;
   creadoEn: string;
   actualizadoEn: string;
 }
@@ -23,6 +25,7 @@ export interface GuardaMarca {
   idSalesforce?: string;
   esActiva?: boolean;
   esSeminuevos?: boolean;
+  simularCallbackSf?: boolean;
 }
 
 export async function consultaMarcas() {

@@ -16,7 +16,7 @@ import { consultaUsuarioActual, registraInicioSesion, type UsuarioHub } from "@/
 // Solo el tipo (no carga Firebase): lo esperan las pantallas de Ventas y Servicio. `user` es siempre null.
 import type { User } from "firebase/auth";
 
-export type ModuloHub = "ventas" | "servicio" | "valuacion";
+export type ModuloHub = "ventas" | "servicio" | "valuacion" | "verificacion";
 
 export interface UserData {
   /** idUsuario del hub (antes, el uid de Firebase) */
@@ -76,7 +76,7 @@ const ROLES_OPERATIVOS = ["AGENTE", "VALUADOR", "GERENTE"];
 function construyeUserData(u: UsuarioHub, idMarca: string | null, uidFirebase: string | null): UserData {
   const marca = u.marcas.find((m) => m.idMarca === idMarca) ?? null;
   const roles = Object.values(marca?.modulos ?? {}).map((r) => r.rol);
-  const modulos = (Object.keys(marca?.modulos ?? {}) as ModuloHub[]).filter((m) => ["ventas", "servicio", "valuacion"].includes(m));
+  const modulos = (Object.keys(marca?.modulos ?? {}) as ModuloHub[]).filter((m) => ["ventas", "servicio", "valuacion", "verificacion"].includes(m));
   const vertical = marca?.modulos.ventas ? "ventas" : marca?.modulos.servicio ? "servicio" : null;
   const orgTeams: Record<string, string> = {};
   for (const m of u.marcas) {

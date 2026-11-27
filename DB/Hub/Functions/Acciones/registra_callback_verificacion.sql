@@ -3,12 +3,14 @@
 
     Deja asentado el intento: suma uno al conteo y guarda la fecha. Si se entregó, el callback queda enviado; si no, fallido con el
     último error. Un callback ya enviado no cambia (es idempotente: repetir el aviso regresa aplicada = false). Una verificación
-    pendiente (sin resultado) no tiene nada que entregar.
+    pendiente (sin resultado) no tiene nada que entregar. Un intento simulado (la marca tiene encendida la simulación) se guarda
+    igual pero queda marcado en callback_simulado: no es una entrega real.
 
     Params:
       idExterno (string)   ID opaco del sistema origen
       entregado (boolean)  true si el sistema origen aceptó el resultado
       error (string)       opcional, motivo del fallo
+      simulado? (boolean)  true si la entrega no salió a la red (simulación por marca); default false
     Info: { verificacion: Verificacion, aplicada: boolean }
     Errores: RECURSO_NO_ENCONTRADO (no hay verificación con ese ID), ESTADO_INVALIDO (la verificación sigue pendiente).
 
@@ -24,6 +26,7 @@ DECLARE
   v_externo   text;
   v_entregado boolean;
   v_error     text;
+  v_simulado  boolean;
   v_ver       hub_cleber.verificacion_datos;
   v_err_estado text; v_err_mensaje text; v_err_detalle text; v_err_info text; v_err_contexto text;
 BEGIN
@@ -34,6 +37,7 @@ BEGIN
   v_externo   := hub_cleber.param_texto(v_params, 'idExterno');
   v_entregado := hub_cleber.param_booleano(v_params, 'entregado');
   v_error     := left(hub_cleber.param_texto(v_params, 'error', false), 500);
+  v_simulado  := coalesce(hub_cleber.param_booleano(v_params, 'simulado', false), false);
 
   SELECT * INTO v_ver FROM hub_cleber.verificacion_datos WHERE id_externo = v_externo FOR UPDATE;
   IF v_ver.id_verificacion IS NULL THEN
@@ -54,6 +58,7 @@ BEGIN
          callback_ultimo_intento_en = now(),
          callback_ultimo_error = CASE WHEN v_entregado THEN NULL ELSE coalesce(v_error, 'Sin detalle') END,
          callback_enviado_en = CASE WHEN v_entregado THEN now() ELSE callback_enviado_en END,
+         callback_simulado = v_simulado,
          actualizado_en = now()
    WHERE id_verificacion = v_ver.id_verificacion
   RETURNING * INTO v_ver;

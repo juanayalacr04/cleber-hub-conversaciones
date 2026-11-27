@@ -102,7 +102,8 @@ def conversacion(env, monkeypatch):
         if accion == "Hub.actualizaVerificacion":
             env.llamadas_hub.append(params)
             return {"verificacion": {"idExterno": params["idExterno"], "estado": resultado["estado"],
-                                     "callback": {"estado": resultado.get("callback")}}, "aplicada": resultado["aplicada"]}
+                                     "callback": {"estado": resultado.get("callback")},
+                                     "simularCallback": resultado.get("simularCallback")}, "aplicada": resultado["aplicada"]}
         if accion == "Hub.registraCallbackVerificacion":
             env.callbacks.append(params)
             return {"verificacion": {}, "aplicada": True}
@@ -194,6 +195,14 @@ def test_entrega_el_resultado_a_sf_y_lo_asienta(conversacion, monkeypatch, accio
     assert conversacion.callbacks == [{"idExterno": "SF-1", "entregado": True}]
 
 
+def test_entrega_simulada_no_llama_a_sf_y_lo_asienta(conversacion, monkeypatch):
+    monkeypatch.setattr(salesforce.http, "request", lambda *a, **k: pytest.fail("no debía salir a la red"))
+    conversacion.resultado.update(estado="valido", callback="pendiente", simularCallback=True)
+    conversacion.estado["result"] = accion_workflow("result_confirmado")
+    conversacion.corre("Confirmo")
+    assert conversacion.callbacks == [{"idExterno": "SF-1", "entregado": True, "simulado": True}]
+
+
 def test_si_sf_falla_se_asienta_el_error_y_el_turno_sigue(conversacion, monkeypatch):
     monkeypatch.setattr(salesforce, "actualiza_validacion_cuenta", lambda *a, **k: (False, "HTTP 401"))
     conversacion.resultado.update(estado="valido", callback="pendiente")
@@ -254,9 +263,8 @@ class TestClienteSF:
         assert salesforce.actualiza_validacion_cuenta("1", celular=True) == (False, "sin red")
 
     def test_simulacion_no_toca_la_red_ni_pide_configuracion(self, monkeypatch):
-        monkeypatch.setenv("SF_VALIDACION_SIMULAR", "true")
         monkeypatch.delenv("SF_VALIDACION_URL", raising=False)
         monkeypatch.delenv("SF_VALIDACION_API_KEY", raising=False)
         llamadas = self._http(monkeypatch, "{}")
-        assert salesforce.actualiza_validacion_cuenta("123", celular=True) == (True, "QA-SIMULATED-123")
+        assert salesforce.actualiza_validacion_cuenta("123", celular=True, simular=True) == (True, "QA-SIMULATED-123")
         assert llamadas == []

@@ -16,8 +16,8 @@
  * `vertical` es el mismo valor que `teams.vertical` y `conversations.vertical` en Firestore.
  */
 export type Vertical = "servicio" | "ventas";
-export type ModuleId = Vertical | "general" | "valuacion";
-export type IconName = "wrench" | "tag" | "grid" | "gauge";
+export type ModuleId = Vertical | "general" | "valuacion" | "verificacion";
+export type IconName = "wrench" | "tag" | "grid" | "gauge" | "shield";
 
 export interface ModuleDef {
   id: ModuleId;
@@ -61,7 +61,30 @@ export const MODULES: ModuleDef[] = [
       { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
     ],
   },
+  {
+    id: "verificacion", label: "Verificación", description: "Validación de datos del cliente", vertical: null, icon: "shield",
+    // Módulo de consulta: las verificaciones las resuelve el bot y el resultado se entrega a Salesforce (hub_cleber)
+    nav: [
+      { slug: "dashboard", label: "Dashboard", icon: "dash", ready: true },
+      { slug: "conversaciones", label: "Conversaciones", icon: "msg", ready: true },
+      // Simulación del callback a Salesforce (hub_cleber)
+      { slug: "configuracion", label: "Configuración", icon: "gear", group: "admin", ready: true },
+      // Número de WhatsApp de Verificación de la marca (hub_cleber)
+      { slug: "whatsapp", label: "WhatsApp", icon: "phone", group: "admin", ready: true },
+      // Bots de la marca: Deployment de Abacus, handoff y horarios (hub_cleber)
+      { slug: "bots", label: "Bots", icon: "bot", group: "admin", ready: true },
+      // Editor de usuarios de la marca (hub_cleber)
+      { slug: "agentes", label: "Usuarios", icon: "user", group: "admin", ready: true },
+      // Alta de marcas (hub_cleber), solo super admin
+      { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
+    ],
+  },
 ];
+
+/** Módulos cuyas pantallas de WhatsApp y Bots leen hub_cleber (PostgREST) y no Firestore. Un módulo nuevo se agrega aquí y en CONFIG_BOTS / CONFIG_NUMERO. */
+export const MODULOS_EN_HUB = ["valuacion", "verificacion"] as const;
+export type ModuloEnHub = (typeof MODULOS_EN_HUB)[number];
+export const enHub = (id: string | undefined): id is ModuloEnHub => (MODULOS_EN_HUB as readonly string[]).includes(id ?? "");
 
 export function getModule(id: string): ModuleDef | undefined {
   return MODULES.find((m) => m.id === id);

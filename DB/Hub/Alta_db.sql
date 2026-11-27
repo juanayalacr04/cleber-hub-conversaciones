@@ -188,6 +188,10 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/actualiza_verificacion.sql
 \echo 'Functions/Acciones/registra_callback_verificacion.sql'
 \i Functions/Acciones/registra_callback_verificacion.sql
+\echo 'Functions/Acciones/consulta_verificaciones.sql'
+\i Functions/Acciones/consulta_verificaciones.sql
+\echo 'Functions/Acciones/resumen_verificaciones.sql'
+\i Functions/Acciones/resumen_verificaciones.sql
 
 -- 5. Datos maestros
 \echo '================================================================================'

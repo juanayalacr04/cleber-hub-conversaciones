@@ -11,6 +11,8 @@
       idSalesforce? (string)    ID de la marca en Salesforce; opcional en el alta. En un cambio, si viene vacío se borra
       esActiva? (boolean)
       esSeminuevos? (boolean)   si es true, el catálogo de agencias trae las de todas las marcas con seminuevo = true
+      simularCallbackSf? (boolean) si es true, el callback de verificación a Salesforce no sale a la red y la verificación
+                                queda marcada como simulada. En un cambio, si no viene no se toca
     Info: { marca: Marca, creada: boolean }
     Errores: CAMPO_INVALIDO / CAMPO_REQUERIDO con info.campo (idMarca, nombre)
 
@@ -28,6 +30,7 @@ DECLARE
   v_sf     text;
   v_activa boolean;
   v_semi   boolean;
+  v_simula boolean;
   v_existe boolean;
   v_marca  hub_cleber.marcas;
   v_err_estado text; v_err_mensaje text; v_err_detalle text; v_err_info text; v_err_contexto text;
@@ -41,6 +44,7 @@ BEGIN
   v_sf     := hub_cleber.param_texto(v_params, 'idSalesforce', false);
   v_activa := hub_cleber.param_booleano(v_params, 'esActiva', false);
   v_semi   := hub_cleber.param_booleano(v_params, 'esSeminuevos', false);
+  v_simula := hub_cleber.param_booleano(v_params, 'simularCallbackSf', false);
 
   PERFORM 1 FROM hub_cleber.marcas WHERE id_marca = v_id FOR UPDATE;
   v_existe := FOUND;
@@ -49,8 +53,8 @@ BEGIN
     IF v_nombre IS NULL THEN
       PERFORM hub_cleber.error_de_aplicacion('CAMPO_REQUERIDO', 'El nombre es requerido para dar de alta la marca', '{"campo":"nombre"}');
     END IF;
-    INSERT INTO hub_cleber.marcas (id_marca, nombre, id_salesforce, es_activa, es_seminuevos)
-    VALUES (v_id, v_nombre, v_sf, coalesce(v_activa, true), coalesce(v_semi, false))
+    INSERT INTO hub_cleber.marcas (id_marca, nombre, id_salesforce, es_activa, es_seminuevos, simular_callback_sf)
+    VALUES (v_id, v_nombre, v_sf, coalesce(v_activa, true), coalesce(v_semi, false), coalesce(v_simula, false))
     RETURNING * INTO v_marca;
   ELSE
     UPDATE hub_cleber.marcas SET
@@ -58,6 +62,7 @@ BEGIN
       id_salesforce   = CASE WHEN v_params ? 'idSalesforce' THEN v_sf ELSE id_salesforce END,
       es_activa       = coalesce(v_activa, es_activa),
       es_seminuevos   = coalesce(v_semi, es_seminuevos),
+      simular_callback_sf = CASE WHEN v_params ? 'simularCallbackSf' THEN v_simula ELSE simular_callback_sf END,
       actualizado_en  = now()
     WHERE id_marca = v_id
     RETURNING * INTO v_marca;

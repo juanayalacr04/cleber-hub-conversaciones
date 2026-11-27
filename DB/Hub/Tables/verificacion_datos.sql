@@ -3,6 +3,7 @@
 -- verificación. id_conversacion es opcional porque la verificación de un correo no pasa por una conversación de WhatsApp.
 -- estado: pendiente (sin respuesta; el sistema origen conserva su estatus) | valido | no_valido.
 -- callback_*: entrega del resultado al sistema origen. NULL mientras la verificación esté pendiente; después pendiente | enviado | fallido.
+-- callback_simulado: el intento no salió a Salesforce (simulación por marca, marcas.simular_callback_sf); no es una entrega real.
 CREATE TABLE IF NOT EXISTS hub_cleber.verificacion_datos (
   id_verificacion        bigint      GENERATED ALWAYS AS IDENTITY,
   id_marca               text        NOT NULL,
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.verificacion_datos (
   callback_ultimo_error  text,
   callback_ultimo_intento_en timestamptz,
   callback_enviado_en    timestamptz,
+  callback_simulado      boolean     NOT NULL DEFAULT false,
   creado_en              timestamptz NOT NULL DEFAULT now(),
   actualizado_en         timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_verificacion_datos PRIMARY KEY (id_verificacion),

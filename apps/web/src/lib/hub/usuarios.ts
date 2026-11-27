@@ -12,7 +12,7 @@
 import { headers } from "next/headers";
 import { api } from "@/lib/api";
 
-export type ModuloHub = "ventas" | "servicio" | "valuacion";
+export type ModuloHub = "ventas" | "servicio" | "valuacion" | "verificacion";
 
 export interface UsuarioEnMarca {
   idUsuario: string;
