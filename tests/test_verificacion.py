@@ -252,3 +252,11 @@ class TestClienteSF:
         assert salesforce.actualiza_validacion_cuenta("1", celular=True)[0] is False
         self._http(monkeypatch, OSError("sin red"))
         assert salesforce.actualiza_validacion_cuenta("1", celular=True) == (False, "sin red")
+
+    def test_simulacion_no_toca_la_red_ni_pide_configuracion(self, monkeypatch):
+        monkeypatch.setenv("SF_VALIDACION_SIMULAR", "true")
+        monkeypatch.delenv("SF_VALIDACION_URL", raising=False)
+        monkeypatch.delenv("SF_VALIDACION_API_KEY", raising=False)
+        llamadas = self._http(monkeypatch, "{}")
+        assert salesforce.actualiza_validacion_cuenta("123", celular=True) == (True, "QA-SIMULATED-123")
+        assert llamadas == []
