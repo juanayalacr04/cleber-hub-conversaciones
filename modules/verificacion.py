@@ -18,7 +18,9 @@ Verificación de la marca, `plantillas.verificacionTelefono` (Hub.guardaNumero):
 
 Sin esa configuración el envío falla con PLANTILLA_NO_CONFIGURADA.
 
-El bot de Abacus recibe el botón o el texto libre y devuelve la decisión con `Ejecutar_Accion_Externo`:
+El bot de Abacus recibe el botón o el texto libre y devuelve la decisión. Un bot ChatLLM usa `Ejecutar_Accion_Externo`; un IA
+Workflow devuelve en el segmento `action` el texto `result_confirmado` (valido true) o `result_declinado` (valido false)
+(core/entrada_mensajes.py, DEFAULT_TOOLS). Contrato del tool:
 
     accion = "Verificar_Telefono", motivo = <valor fijo, no decide nada>, datos = {"valido": true | false}
 

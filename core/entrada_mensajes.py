@@ -46,13 +46,17 @@ DEFAULT_HANDOFF_MESSAGE = "Entendido, te comunico con un asesor. En un momento t
 DEFAULT_WAITING_MESSAGE = "Tu mensaje fue recibido. Un asesor te atenderá pronto."
 OUT_OF_HOURS_INSTRUCTION = '__ADMIN_FOLLOW_INSTRUCTIONS_MESSAGE_OUTPUT__ , "{text}"'
 
-# Tools que el pipeline detecta en la respuesta del bot si el bot no trae `tools` propios (mismos que core/pipeline.py)
+# Tools que el pipeline detecta en la respuesta del bot si el bot no trae `tools` propios (mismos que core/pipeline.py).
+# `input` (opcional) es el dato fijo que se suma al input detectado: un IA Workflow solo devuelve la acción como texto en el
+# segmento "action" (p. ej. result_confirmado), sin parámetros, así que la acción ya implica el dato.
 DEFAULT_TOOLS = [
     {"name": "Guardar_Nombre_Cliente", "event": "guardar_nombre", "phase": "main"},
     {"name": "Detectar_Situacion", "event": "situacion", "phase": "main"},
     {"name": "Registrar_Cita", "event": "registrar_cita", "phase": "main"},
     {"name": "cita_agendada", "event": "registrar_cita", "phase": "main"},
     {"name": "Verificar_Telefono", "event": "verificar_telefono", "phase": "main"},
+    {"name": "result_confirmado", "event": "verificar_telefono", "phase": "main", "input": {"valido": True}},
+    {"name": "result_declinado", "event": "verificar_telefono", "phase": "main", "input": {"valido": False}},
 ]
 
 
@@ -417,7 +421,8 @@ def _corre_tools(t: Turno, fase: str, hechos: set) -> None:
         _ev(t, "tool_revisado", tool=spec["name"], evento=evento, fase=fase, detectado=hit["triggered"])
         if hit["triggered"]:
             hechos.add(evento)
-            _ev(t, "tool_detectado", tool=spec["name"], evento=evento, params=sorted((hit["input"] or {}).keys()))
-            t.emit(evento, input=hit["input"], tool=spec["name"])
+            entrada = {**(spec.get("input") or {}), **(hit["input"] or {})}
+            _ev(t, "tool_detectado", tool=spec["name"], evento=evento, params=sorted(entrada.keys()))
+            t.emit(evento, input=entrada, tool=spec["name"])
             if t.handled:
                 break
