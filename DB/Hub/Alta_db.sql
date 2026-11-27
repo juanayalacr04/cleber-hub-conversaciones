@@ -56,6 +56,8 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Tables/log_errores.sql
 \echo 'Tables/marcas.sql'
 \i Tables/marcas.sql
+\echo 'Tables/marcas_modulos.sql'
+\i Tables/marcas_modulos.sql
 \echo 'Tables/usuarios.sql'
 \i Tables/usuarios.sql
 \echo 'Tables/usuarios_marcas.sql'
@@ -128,6 +130,10 @@ CREATE SCHEMA IF NOT EXISTS hub_cleber;
 \i Functions/Acciones/consulta_marcas.sql
 \echo 'Functions/Acciones/guarda_marca.sql'
 \i Functions/Acciones/guarda_marca.sql
+\echo 'Functions/Acciones/consulta_modulos_marca.sql'
+\i Functions/Acciones/consulta_modulos_marca.sql
+\echo 'Functions/Acciones/guarda_modulo_marca.sql'
+\i Functions/Acciones/guarda_modulo_marca.sql
 \echo 'Functions/Acciones/guarda_equipo.sql'
 \i Functions/Acciones/guarda_equipo.sql
 \echo 'Functions/Acciones/guarda_bot.sql'

@@ -14,13 +14,15 @@ import { rolEnModulo, useUsuarioHub } from "./useUsuarioHub";
 import { etiquetaAmbiente } from "@/lib/ambiente";
 
 /**
- * Módulos que el usuario puede ver en la marca activa: el superadmin, todos; los demás, aquellos donde tienen rol
- * (hub_cleber), más General si administran algún módulo de la marca.
+ * Módulos que el usuario puede ver en la marca activa: solo los que el superadmin tiene activos en la marca. De ésos, el
+ * superadmin, todos; los demás, aquellos donde tienen rol (hub_cleber), más General si administran algún módulo de la marca.
+ * Si la marca no tiene ningún módulo activo, el superadmin ve todos para poder encenderlos.
  */
 export function allowedModules(userData: ReturnType<typeof useAuth>["userData"]): ModuleDef[] {
   if (!userData) return [];
-  if (userData.isSuperAdmin) return MODULES;
-  return MODULES.filter((m) => (userData.modulos as string[]).includes(m.id) || (m.id === "general" && isAdmin(userData)));
+  const activos = MODULES.filter((m) => m.id === "general" || userData.modulosActivos.includes(m.id));
+  if (userData.isSuperAdmin) return activos.length ? activos : MODULES;
+  return activos.filter((m) => (userData.modulos as string[]).includes(m.id) || (m.id === "general" && isAdmin(userData)));
 }
 
 const SIDEBAR_KEY = "hub_sidebar_collapsed";

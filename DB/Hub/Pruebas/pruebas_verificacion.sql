@@ -3,8 +3,8 @@
  *
  * Alta idempotente de una verificación (ID opaco + teléfono), rechazo del mismo ID con otro teléfono, resultado válido / no
  * válido, primera decisión manda y permisos (solo el sistema). Callback al sistema origen (enviado, fallido, simulado, ya
- * enviado y pendiente), consulta y resumen del dashboard con sus permisos, y la simulación por marca en Hub.guardaMarca.
- * Requiere haber corrido Migraciones/008 y 009 y Alta_db.sql.
+ * enviado y pendiente), consulta y resumen del dashboard con sus permisos, la simulación por marca en Hub.guardaMarca y los módulos activos por marca.
+ * Requiere haber corrido Migraciones/008, 009 y 010 y Alta_db.sql.
  *
  * Todo corre en UNA transacción que termina en ROLLBACK: no deja datos. Usa la marca 'PRUEBAVER'.
  *
@@ -235,6 +235,35 @@ BEGIN
   PERFORM pg_temp.como(c_admin);
   PERFORM pg_temp.error(pg_temp.llama('Hub.guardaMarca', jsonb_build_object('idMarca', c_marca, 'simularCallbackSf', true)),
                         'SIN_PERMISO', '8.9 Marcas es solo del super admin');
+
+  -- 9. Módulos por marca
+  PERFORM pg_temp.como(c_super);
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaUsuarioActual', '{}'::jsonb), '9.1 El super admin consulta sus marcas');
+  PERFORM pg_temp.igual((SELECT m->'modulosActivos' FROM jsonb_array_elements(i->'marcasVisibles') m WHERE m->>'idMarca' = c_marca)::text,
+                        '[]', '9.2 ... una marca sin filas no tiene módulos activos');
+  PERFORM pg_temp.ok(pg_temp.llama('Hub.guardaModuloMarca', jsonb_build_object('idMarca', c_marca, 'modulo', 'verificacion', 'esActivo', true)),
+                     '9.3 Se enciende verificacion');
+  PERFORM pg_temp.ok(pg_temp.llama('Hub.guardaModuloMarca', jsonb_build_object('idMarca', c_marca, 'modulo', 'valuacion', 'esActivo', true)),
+                     '9.4 Se enciende valuacion');
+  PERFORM pg_temp.ok(pg_temp.llama('Hub.guardaModuloMarca', jsonb_build_object('idMarca', c_marca, 'modulo', 'valuacion', 'esActivo', false)),
+                     '9.5 Se apaga valuacion');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaUsuarioActual', '{}'::jsonb), '9.6 Se vuelven a consultar las marcas');
+  PERFORM pg_temp.igual((SELECT m->'modulosActivos' FROM jsonb_array_elements(i->'marcasVisibles') m WHERE m->>'idMarca' = c_marca)::text,
+                        '["verificacion"]', '9.7 ... solo queda activo verificacion');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaModulosMarca', '{}'::jsonb), '9.8 El super admin consulta los módulos por marca');
+  PERFORM pg_temp.igual((SELECT m->'modulos' FROM jsonb_array_elements(i->'marcas') m WHERE m->>'idMarca' = c_marca)::text,
+                        '[{"modulo": "valuacion", "esActivo": false}, {"modulo": "verificacion", "esActivo": true}]', '9.9 ... con los dos estados');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaModuloMarca', jsonb_build_object('idMarca', c_marca, 'modulo', 'inventado', 'esActivo', true)),
+                        'CAMPO_INVALIDO', '9.10 No se dan de alta módulos nuevos');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaModuloMarca', jsonb_build_object('idMarca', 'NOEXISTE', 'modulo', 'verificacion', 'esActivo', true)),
+                        'RECURSO_NO_ENCONTRADO', '9.11 Una marca inexistente');
+  PERFORM pg_temp.como(c_admin);
+  PERFORM pg_temp.error(pg_temp.llama('Hub.guardaModuloMarca', jsonb_build_object('idMarca', c_marca, 'modulo', 'valuacion', 'esActivo', true)),
+                        'SIN_PERMISO', '9.12 Solo el super admin enciende o apaga módulos');
+  PERFORM pg_temp.error(pg_temp.llama('Hub.consultaModulosMarca', '{}'::jsonb), 'SIN_PERMISO', '9.13 Ni consulta la administración de módulos');
+  i := pg_temp.ok(pg_temp.llama('Hub.consultaUsuarioActual', '{}'::jsonb), '9.14 El administrador de la marca ve sus módulos activos');
+  PERFORM pg_temp.igual((SELECT m->'modulosActivos' FROM jsonb_array_elements(i->'marcasVisibles') m WHERE m->>'idMarca' = c_marca)::text,
+                        '["verificacion"]', '9.15 ... los mismos que el super admin');
 
   RAISE NOTICE '========================================================================';
   RAISE NOTICE 'TODAS LAS PRUEBAS PASARON';

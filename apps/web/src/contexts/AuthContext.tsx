@@ -43,6 +43,8 @@ export interface UserData {
   vertical?: "servicio" | "ventas" | null;
   /** Módulos donde tiene rol en la marca activa */
   modulos: ModuloHub[];
+  /** Módulos que el super admin tiene encendidos en la marca activa */
+  modulosActivos: string[];
 }
 
 interface OrgOption {
@@ -73,7 +75,7 @@ const MARCA_KEY = "superadmin_selected_org";
 const ROLES_OPERATIVOS = ["AGENTE", "VALUADOR", "GERENTE"];
 
 /** userData de la marca activa a partir del usuario del hub. */
-function construyeUserData(u: UsuarioHub, idMarca: string | null, uidFirebase: string | null): UserData {
+function construyeUserData(u: UsuarioHub, idMarca: string | null, uidFirebase: string | null, modulosActivos: string[]): UserData {
   const marca = u.marcas.find((m) => m.idMarca === idMarca) ?? null;
   const roles = Object.values(marca?.modulos ?? {}).map((r) => r.rol);
   const modulos = (Object.keys(marca?.modulos ?? {}) as ModuloHub[]).filter((m) => ["ventas", "servicio", "valuacion", "verificacion"].includes(m));
@@ -100,6 +102,7 @@ function construyeUserData(u: UsuarioHub, idMarca: string | null, uidFirebase: s
     lastLoginAt: u.ultimoAccesoEn ? new Date(u.ultimoAccesoEn) : null,
     vertical,
     modulos,
+    modulosActivos,
   };
 }
 
@@ -112,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userDataError, setUserDataError] = useState(false);
   const denegado = useRef(false);   // no reintentar en esta sesión después de negar el acceso
   const [organizations, setOrganizations] = useState<OrgOption[]>([]);
+  const [activosPorMarca, setActivosPorMarca] = useState<Record<string, string[]>>({});
   const [selectedOrgId, setSelectedOrgIdState] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     try { return localStorage.getItem(MARCA_KEY); } catch { return null; }
@@ -128,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (selectedOrgId && organizations.some((o) => o.id === selectedOrgId)) return selectedOrgId;
     return usuarioHub.marcas[0]?.idMarca ?? organizations[0]?.id ?? null;
   })();
-  const userData = usuarioHub ? construyeUserData(usuarioHub, idMarca, null) : null;
+  const userData = usuarioHub ? construyeUserData(usuarioHub, idMarca, null, idMarca ? activosPorMarca[idMarca] ?? [] : []) : null;
 
   /** Usuario y marcas visibles (Hub.consultaUsuarioActual). */
   const cargaUsuario = useCallback(async () => {
@@ -139,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUsuarioHub(r.info.usuario);
     setOrganizations(r.info.marcasVisibles.map((m) => ({ id: m.idMarca, name: m.nombre })));
+    setActivosPorMarca(Object.fromEntries(r.info.marcasVisibles.map((m) => [m.idMarca, m.modulosActivos ?? []])));
     return r;
   }, []);
 
