@@ -83,6 +83,7 @@ Hub: valida acción y booleano ─► guarda resultado ─► cierra conversaci�
 - **Dashboard**: mensajes enviados, estados (solicitud recibida, plantilla enviada/fallida, pendiente de respuesta, válida, inválida) y estado del callback (enviado/fallido). Sin datos sensibles innecesarios.
 - **Conversaciones**: consulta del detalle (mensajes, ID recibido de SF, resultado, estado del callback). **Sin** controles para que un agente responda o cambie el resultado.
 - **Configuración**: reutiliza las pantallas ya portadas (WhatsApp, Bots, Usuarios, Equipos si aplica) y agrega los parámetros propios: plantilla del módulo y datos del callback a SF.
+  - **Pendiente (fase 3): check de simulación del callback a SF**, por marca y editable desde esta pantalla (como `leadCreationEnabled` en Ventas). Hoy la simulación es la variable de ambiente `SF_VALIDACION_SIMULAR=true` (`crm/salesforce.py`); cuando exista el check, `actualiza_validacion_cuenta` debe leerlo de la config de la marca y la variable de ambiente se retira. Una entrega simulada hoy queda como `enviado` igual que una real: el check debería marcarla distinta en la verificación.
 - El panel de conversación compartido se extiende con una entrada del registro `conversationPanels`.
 
 ### 5.4 Bot (Abacus)

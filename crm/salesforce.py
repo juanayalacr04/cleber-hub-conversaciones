@@ -146,11 +146,14 @@ def actualiza_validacion_cuenta(id_cuenta: str, celular: bool | None = None, cor
 
     URL y llave por ambiente: SF_VALIDACION_URL (hasta `.../accounts/validacion`, sin el ID) y SF_VALIDACION_API_KEY. Lo que no se
     verifica va en false con su JSON vacío. Devuelve (ok, detalle): ok solo si SF responde success = true; no lanza."""
+    cuerpo = {"validacionCelular": bool(celular), "validacionCelularJson": "{}",
+              "validacionCorreo": bool(correo), "validacionCorreoJson": "{}"}
+    if (os.environ.get("SF_VALIDACION_SIMULAR") or "").strip().lower() == "true":
+        log.info("salesforce.validacion_cuenta_simulada id=%r body=%s", id_cuenta, json.dumps(cuerpo))
+        return True, f"QA-SIMULATED-{id_cuenta}"
     url, llave = (os.environ.get("SF_VALIDACION_URL") or "").rstrip("/"), os.environ.get("SF_VALIDACION_API_KEY")
     if not url or not llave:
         return False, "Faltan SF_VALIDACION_URL o SF_VALIDACION_API_KEY"
-    cuerpo = {"validacionCelular": bool(celular), "validacionCelularJson": "{}",
-              "validacionCorreo": bool(correo), "validacionCorreoJson": "{}"}
     try:
         _, body = http.request(f"{url}/{urllib.parse.quote(str(id_cuenta), safe='')}", json.dumps(cuerpo).encode("utf-8"),
                                {"ApiKey": llave, "Content-Type": "application/json"}, method="PATCH", timeout=timeout)
