@@ -23,7 +23,7 @@ export interface UsuarioHub {
 }
 
 export async function consultaUsuarioActual() {
-  return api.call<{ usuario: UsuarioHub; marcasVisibles: { idMarca: string; nombre: string; esSeminuevos: boolean }[] }>(
+  return api.call<{ usuario: UsuarioHub; marcasVisibles: { idMarca: string; nombre: string; esSeminuevos: boolean; modulosActivos: string[] }[] }>(
     "hub", "consulta_usuario_actual", "Hub.consultaUsuarioActual");
 }
 

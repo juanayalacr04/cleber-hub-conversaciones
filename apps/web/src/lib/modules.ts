@@ -59,6 +59,8 @@ export const MODULES: ModuleDef[] = [
       { slug: "agentes", label: "Usuarios", icon: "user", group: "admin", ready: true },
       // Alta de marcas (hub_cleber), solo super admin
       { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
+      // Módulos activos por marca (hub_cleber), solo super admin
+      { slug: "modulos", label: "Módulos", icon: "gauge", group: "plataforma", ready: true },
     ],
   },
   {
@@ -77,6 +79,8 @@ export const MODULES: ModuleDef[] = [
       { slug: "agentes", label: "Usuarios", icon: "user", group: "admin", ready: true },
       // Alta de marcas (hub_cleber), solo super admin
       { slug: "marcas", label: "Marcas", icon: "org", group: "plataforma", ready: true },
+      // Módulos activos por marca (hub_cleber), solo super admin
+      { slug: "modulos", label: "Módulos", icon: "gauge", group: "plataforma", ready: true },
     ],
   },
 ];
