@@ -18,7 +18,7 @@ Salesforce (SF) pide a la plataforma verificar que el número de WhatsApp de un 
 | D2 | Resultado | Solo `valido` (true) o `no valido` (false). Sin respuesta = **pendiente**: no se llama a SF y SF conserva su estatus |
 | D3 | Plantilla | Sin datos del cliente; solo pide confirmar que el número es el correcto. Botón "Confirmo" (quick reply) |
 | D4 | Bot | Recibe el botón o el texto libre. La lógica del bot la lleva otra persona; aquí solo se implementa cómo se recibe su acción |
-| D5 | Acción del bot | `Ejecutar_Accion_Externo` con acción `Verificar_Telefono` y `datos` con un booleano real: `{"valido": true}` / `{"valido": false}`. `motivo` lleva un valor fijo y no decide el resultado |
+| D5 | Acción del bot | `Ejecutar_Accion_Externo` con acción `Verificar_Telefono` y `datos` con un booleano real: `{"valido": true}` / `{"valido": false}`. `motivo` lleva un valor fijo y no decide el resultado. Un IA Workflow no manda parámetros: devuelve en el segmento `action` el texto `result_confirmado` (`valido: true`) o `result_declinado` (`valido: false`), y el hub agrega el booleano. Workflow con `workflowInputName` propio (el de Bots Verificador es `mensaje`) |
 | D6 | Identificador | ID opaco enviado por SF (el HUB no sabe a qué objeto pertenece) + teléfono del cliente |
 | D7 | Idempotencia | Mismo ID = misma verificación, sin reenviar plantilla. Mismo ID con otro teléfono: rechazo. Otro ID con una verificación pendiente para ese teléfono y número: rechazo |
 | D8 | Cierre | Con una decisión válida se guarda el resultado, se cierra la conversación y se solicita el callback a SF |

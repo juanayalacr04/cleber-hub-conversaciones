@@ -151,3 +151,27 @@ def test_ignora_conversaciones_de_otra_fuente(conversacion):
     conversacion.corre("Confirmo")
     assert conversacion.llamadas_hub == []
     assert conversacion.base.conv()["estado"] == "bot"
+
+
+def accion_workflow(accion, texto=""):
+    return {"success": True, "result": {"response": {"segments": [
+        {"type": "text", "id": "response", "segment": texto},
+        {"type": "text", "id": "action", "segment": accion}]}}}
+
+
+@pytest.mark.parametrize("accion,esperado,estado", [("result_confirmado", True, "valido"), ("result_declinado", False, "no_valido")])
+def test_workflow_con_segmento_action_guarda_el_resultado(conversacion, accion, esperado, estado):
+    conversacion.resultado["estado"] = estado
+    conversacion.estado["result"] = accion_workflow(accion)
+    conversacion.corre("Confirmo")
+    assert conversacion.llamadas_hub == [{"idExterno": "SF-1", "valido": esperado}]
+    c = conversacion.base.conv()
+    assert c["estado"] == "closed" and c["resultado"] == estado
+    assert conversacion.enviados == []
+
+
+def test_workflow_con_accion_desconocida_se_ignora(conversacion):
+    conversacion.estado["result"] = accion_workflow("otra_cosa")
+    conversacion.corre("hola")
+    assert conversacion.llamadas_hub == []
+    assert conversacion.base.conv()["estado"] == "bot"
