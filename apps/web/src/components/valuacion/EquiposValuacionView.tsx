@@ -25,7 +25,7 @@ import {
   consultaConfiguracionModulo, guardaEquipo, type ConfiguracionModulo, type Equipo, type ModoAsignacion,
 } from "@/lib/hub/configuracion";
 import { consultaUsuarios, type UsuarioEnMarca } from "@/lib/hub/usuarios";
-import { mensajeError } from "@/lib/valuacion/tipos";
+import { mensajeError } from "@/lib/hub/errores";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,7 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { noAbre, tarjetaClicable } from "./tarjeta";
+import { noAbre, tarjetaClicable } from "@/components/hub/tarjeta";
 
 const MODULO = "valuacion" as const;
 

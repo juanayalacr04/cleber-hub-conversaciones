@@ -23,9 +23,9 @@ import { ArrowLeft, Loader2, Save, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { callHubAction } from "@/lib/hub-actions";
 import Link from "next/link";
-import { getModule } from "@/lib/modules";
+import { enHub, getModule } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
-import { BotValuacionEditor } from "@/components/valuacion/BotValuacionEditor";
+import { BotEditor } from "@/components/hub/BotEditor";
 
 function NewBotPageFirestore() {
   const router = useRouter();
@@ -373,10 +373,10 @@ function NewBotPageFirestore() {
   );
 }
 
-/** Valuación crea sus bots en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
+/** Valuación y Verificación crean sus bots en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
 export default function NewBotPage() {
   const { module: moduleId } = useParams<{ module: string }>();
   const mod = getModule(moduleId);
-  if (mod?.id === "valuacion") return <BotValuacionEditor mod={mod} idBot={null} />;
+  if (mod && enHub(mod.id)) return <BotEditor mod={mod} idBot={null} />;
   return <NewBotPageFirestore />;
 }

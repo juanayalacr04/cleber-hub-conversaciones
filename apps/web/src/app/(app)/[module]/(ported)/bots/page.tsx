@@ -29,9 +29,9 @@ import {
 } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 import { callHubAction } from "@/lib/hub-actions";
-import { getModule } from "@/lib/modules";
+import { enHub, getModule } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
-import { BotsValuacionView } from "@/components/valuacion/BotsValuacionView";
+import { BotsView } from "@/components/hub/BotsView";
 
 interface BotData {
   id: string;
@@ -269,10 +269,10 @@ function BotsPageFirestore() {
   );
 }
 
-/** Valuación tiene sus bots en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
+/** Valuación y Verificación tienen sus bots en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
 export default function BotsPage() {
   const { module: moduleId } = useParams<{ module: string }>();
   const mod = getModule(moduleId);
-  if (mod?.id === "valuacion") return <BotsValuacionView mod={mod} />;
+  if (mod && enHub(mod.id)) return <BotsView mod={mod} />;
   return <BotsPageFirestore />;
 }

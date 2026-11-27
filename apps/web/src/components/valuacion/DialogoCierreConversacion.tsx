@@ -30,7 +30,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Textarea } from "@/components/ui/textarea";
 import { cierraConversacion, type ConversacionHub } from "@/lib/hub/conversaciones";
 import { cierraOferta, consultaEtiquetas, consultaOferta, registraRespuesta } from "@/lib/valuacion/acciones";
-import { estadoInfo, mensajeError, type Etiqueta, type Oferta } from "@/lib/valuacion/tipos";
+import { mensajeError } from "@/lib/hub/errores";
+import { estadoInfo, type Etiqueta, type Oferta } from "@/lib/valuacion/tipos";
 
 /** Motivos de cierre: los mismos que ofrece Ventas y Servicio. Se guarda el texto, que es el que se ve en la conversación cerrada. */
 const MOTIVOS_CIERRE = ["Resuelto", "No interesado", "Duplicado", "Sin respuesta del cliente"];

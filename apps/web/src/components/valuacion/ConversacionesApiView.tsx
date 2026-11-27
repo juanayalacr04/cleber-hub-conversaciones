@@ -44,7 +44,7 @@ import {
   tomaConversacion, transfiereEquipo, type ConversacionHub, type EstadoConversacion, type MensajeHub,
 } from "@/lib/hub/conversaciones";
 import { consultaUsuarios, type UsuarioEnMarca } from "@/lib/hub/usuarios";
-import { mensajeError } from "@/lib/valuacion/tipos";
+import { mensajeError } from "@/lib/hub/errores";
 import { DialogoCierreConversacion } from "@/components/valuacion/DialogoCierreConversacion";
 import { OfertaEnConversacion } from "@/components/valuacion/OfertasApiView";
 import { Badge } from "@/components/ui/badge";

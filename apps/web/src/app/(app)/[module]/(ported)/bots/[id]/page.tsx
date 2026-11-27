@@ -28,8 +28,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { callHubAction } from "@/lib/hub-actions";
 import Link from "next/link";
 import { modulePath } from "@/lib/routes";
-import { getModule } from "@/lib/modules";
-import { BotValuacionEditor } from "@/components/valuacion/BotValuacionEditor";
+import { enHub, getModule } from "@/lib/modules";
+import { BotEditor } from "@/components/hub/BotEditor";
 import { ScheduleConfigTab, TIMEZONES } from "@/components/bots/ScheduleConfigTab";
 import { ChatLLMConfigView } from "@/components/bots/ChatLLMConfigView";
 
@@ -1804,10 +1804,10 @@ function SituationRoutingTab({
   );
 }
 
-/** Valuación edita sus bots en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
+/** Valuación y Verificación editan sus bots en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
 export default function EditBotPage() {
   const params = useParams<{ module: string; id: string }>();
   const mod = getModule(params.module);
-  if (mod?.id === "valuacion") return <BotValuacionEditor mod={mod} idBot={params.id} />;
+  if (mod && enHub(mod.id)) return <BotEditor mod={mod} idBot={params.id} />;
   return <EditBotPageFirestore />;
 }
