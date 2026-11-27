@@ -121,6 +121,7 @@ def conv_para_handlers(conv: dict) -> dict:
         "status": conv.get("estado"),
         "customerPhone": conv.get("telefonoCliente"),
         "customerName": conv.get("nombreCliente"),
+        "claveCliente": conv.get("claveCliente"),
         "assignedAgentId": conv.get("idAgente"),
         "source": conv.get("fuente"),
         "externalId": conv.get("idExterno"),

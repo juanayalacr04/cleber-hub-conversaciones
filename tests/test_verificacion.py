@@ -268,3 +268,62 @@ class TestClienteSF:
         llamadas = self._http(monkeypatch, "{}")
         assert salesforce.actualiza_validacion_cuenta("123", celular=True, simular=True) == (True, "QA-SIMULATED-123")
         assert llamadas == []
+
+
+BODY_SF = {"action": "Hub.VerificarTelefono", "params": {
+    "idPeticion": "SF-1", "idMarca": "HO", "idAgencia": 123, "telefono": "8111849398", "idClienteQuiter": "12345",
+    "nombreAgencia": "Honda CLEBER", "telefonoAsesor": "8112288816", "nombreAsesor": "IVAN GARCIA"}}
+
+
+def test_body_de_sf_traduce_al_contrato(baseV, envios, avisos):
+    r = contrato_entrada.maneja(BODY_SF)
+    assert r["successful"] and r["info"]["enviada"]
+    (enviado,) = envios.enviados
+    assert enviado["phone"] == "8111849398"  # la normalización a E.164 la hace la base, no el contrato
+    assert baseV.verificaciones["SF-1"]["valor"] == "8111849398"
+    (c,) = baseV.conversaciones.values()
+    assert c["claveCliente"] == "12345" and c["idAgencia"] == "123"
+    assert c["metadatos"]["contexto"] == {"nombreAgencia": "Honda CLEBER", "telefonoAsesor": "8112288816",
+                                          "nombreAsesor": "IVAN GARCIA"}
+
+
+@pytest.mark.parametrize("campo", ["idPeticion", "idMarca", "idAgencia", "telefono"])
+def test_body_de_sf_campos_requeridos(baseV, envios, avisos, campo):
+    params = {k: v for k, v in BODY_SF["params"].items() if k != campo}
+    r = contrato_entrada.maneja({"action": "Hub.VerificarTelefono", "params": params})
+    assert r["successful"] is False and r["errorCode"] == "CAMPO_REQUERIDO" and campo in r["info"]["campos"]
+    assert envios.enviados == []
+
+
+def test_body_de_sf_id_agencia_debe_ser_entero(baseV, envios, avisos):
+    r = contrato_entrada.maneja({**BODY_SF, "params": {**BODY_SF["params"], "idAgencia": "123"}})
+    assert r["successful"] is False and r["errorCode"] == "CAMPO_INVALIDO" and r["info"]["campo"] == "idAgencia"
+    assert envios.enviados == []
+
+
+def test_mismo_body_de_sf_no_reenvia(baseV, envios, avisos):
+    contrato_entrada.maneja(BODY_SF)
+    r = contrato_entrada.maneja(BODY_SF)
+    assert r["successful"] and r["info"]["creada"] is False and len(envios.enviados) == 1
+
+
+def test_el_patch_a_sf_usa_el_id_cliente_quiter(conversacion, monkeypatch):
+    conversacion.base.conv().update(claveCliente="12345")
+    enviados = []
+    monkeypatch.setattr(salesforce, "actualiza_validacion_cuenta",
+                        lambda i, celular=None, **k: enviados.append((i, celular)) or (True, "001X"))
+    conversacion.resultado.update(estado="valido", callback="pendiente")
+    conversacion.estado["result"] = accion_workflow("result_confirmado")
+    conversacion.corre("Confirmo")
+    assert enviados == [("12345", True)]
+    assert conversacion.callbacks == [{"idExterno": "SF-1", "entregado": True}]
+
+
+def test_patch_a_sf_sin_id_cliente_quiter_usa_el_id_de_la_peticion(conversacion, monkeypatch):
+    enviados = []
+    monkeypatch.setattr(salesforce, "actualiza_validacion_cuenta",
+                        lambda i, celular=None, **k: enviados.append((i, celular)) or (True, "001X"))
+    conversacion.resultado.update(estado="valido", callback="pendiente")
+    conversacion.estado["result"] = accion_workflow("result_confirmado")
+    conversacion.corre("Confirmo")
+    assert enviados == [("SF-1", True)]

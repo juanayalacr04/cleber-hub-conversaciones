@@ -28,7 +28,8 @@ Salesforce (SF) pide a la plataforma verificar que el número de WhatsApp de un 
 
 ## 3. Pendientes con terceros (no bloquean el diseño)
 
-- **SF:** URL, autenticación y body definitivos del endpoint de entrada y del callback; campo de SF que se enviará como ID.
+- **SF:** URL y autenticación del endpoint de entrada (`/entry-point` del gateway, por crear) y del callback. El body de entrada quedó
+  definido el 2026-11-27 (§4); el PATCH del callback se hace sobre `idClienteQuiter` (la cuenta de SF).
 - **Bot:** nombre y contrato final de la acción `Verificar_Telefono`; ya hay un tool genérico `ejecutar_accion_externo` (`dev/abacus/`).
 - **Plantilla:** nombre y SID/ID aprobado por proveedor (Twilio/Meta) para cada marca.
 - **Correo (fase futura):** si SF mandará una sola solicitud con teléfono y correo o una por tipo, y si el callback llevará ambos resultados juntos o por separado. Hoy el callback es solo `{ id opaco, valido }`.
@@ -37,8 +38,9 @@ Salesforce (SF) pide a la plataforma verificar que el número de WhatsApp de un 
 ## 4. Flujo
 
 ```
-SF (trigger) ──► POST /internal (contrato ①) ──► hub-entry-point
-                   { fuente: "verificacion", idExterno: <ID SF>, idMarca, modulo, telefono, ... }
+SF (trigger) ──► POST /entry-point (contrato ①) ──► hub-entry-point
+                   { action: "Hub.VerificarTelefono", params: { idPeticion, idMarca, idAgencia (int),
+                     telefono, idClienteQuiter?, nombreAgencia?, telefonoAsesor?, nombreAsesor? } }
    ◄── acuse inmediato { idConversacion, enviada, ... }
 
 hub-entry-point: abre conversación saliente (idempotente) ─► plantilla WhatsApp con botón "Confirmo"
@@ -47,7 +49,7 @@ Cliente pulsa el botón / escribe ─► webhook ─► SQS ─► msj-entrantes
 Bot ─► Ejecutar_Accion_Externo { accion: Verificar_Telefono, datos: { valido: true|false } }
 
 Hub: valida acción y booleano ─► guarda resultado ─► cierra conversación ─► evento de salida (contrato ③)
-   └─► callback a SF { id opaco, valido }  (con reintentos)
+   └─► callback a SF: PATCH .../validacion/{idClienteQuiter} { celular }  (con reintentos)
 ```
 
 ## 5. Cambios por capa
