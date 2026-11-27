@@ -141,6 +141,32 @@ def call(sf_config: dict, method: str, path: str, payload: dict | None = None,
     return False, {"error": "unauthorized"}
 
 
+def actualiza_validacion_cuenta(id_cuenta: str, celular: bool | None = None, correo: bool | None = None, timeout: int = 15) -> tuple[bool, str]:
+    """PATCH al servicio apex de validación de la cuenta (autenticado con ApiKey, no con el token OAuth del resto del módulo).
+
+    URL y llave por ambiente: SF_VALIDACION_URL (hasta `.../accounts/validacion`, sin el ID) y SF_VALIDACION_API_KEY. Lo que no se
+    verifica va en false con su JSON vacío. Devuelve (ok, detalle): ok solo si SF responde success = true; no lanza."""
+    url, llave = (os.environ.get("SF_VALIDACION_URL") or "").rstrip("/"), os.environ.get("SF_VALIDACION_API_KEY")
+    if not url or not llave:
+        return False, "Faltan SF_VALIDACION_URL o SF_VALIDACION_API_KEY"
+    cuerpo = {"validacionCelular": bool(celular), "validacionCelularJson": "{}",
+              "validacionCorreo": bool(correo), "validacionCorreoJson": "{}"}
+    try:
+        _, body = http.request(f"{url}/{urllib.parse.quote(str(id_cuenta), safe='')}", json.dumps(cuerpo).encode("utf-8"),
+                               {"ApiKey": llave, "Content-Type": "application/json"}, method="PATCH", timeout=timeout)
+        respuesta = json.loads(body) if body.strip() else {}
+    except http.HTTPError as e:
+        detalle = (e.read().decode("utf-8", "replace") if e.fp else "")[:300]
+        log.error("Salesforce validacion cuenta %s: HTTP %s %s", id_cuenta, e.code, detalle)
+        return False, f"HTTP {e.code} {detalle}".strip()
+    except Exception as e:
+        log.error("Salesforce validacion cuenta %s: %s", id_cuenta, e)
+        return False, str(e)[:300]
+    if not isinstance(respuesta, dict) or respuesta.get("success") is not True:
+        return False, f"SF respondió sin éxito: {str(respuesta)[:300]}"
+    return True, str(respuesta.get("recordId") or "")
+
+
 def sobject_path(sobject: str, record_id: str = "", version: str = API_VERSION) -> str:
     return f"/services/data/{version}/sobjects/{sobject}/{record_id}"
 

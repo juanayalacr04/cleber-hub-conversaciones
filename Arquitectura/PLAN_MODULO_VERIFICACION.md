@@ -95,7 +95,7 @@ Hub: valida acción y booleano ─► guarda resultado ─► cierra conversaci�
 ## 6. Fases propuestas
 
 1. **Núcleo:** migración de BD, `modules/verificacion.py`, recepción de la acción del bot, cierre y resultado, con pruebas.
-2. **Callback a SF:** entrega idempotente y reintentos, con estado persistido.
+2. **Callback a SF:** entrega idempotente y reintentos, con estado persistido. Implementado: `PATCH {SF_VALIDACION_URL}/<idExterno>` con header `ApiKey` (`SF_VALIDACION_API_KEY`) y body `{validacionCelular, validacionCelularJson: "{}", validacionCorreo: false, validacionCorreoJson: "{}"}` (`crm/salesforce.py`); se entrega al resolverse la verificación y el intento queda en `Hub.registraCallbackVerificacion`. Un callback fallido se reintenta cuando el bot repite la acción; falta un reintento programado (`hub-jobs`).
 3. **Web:** alta del módulo, Dashboard y Conversaciones de consulta.
 4. **Configuración:** pantallas de configuración y parámetros propios del módulo.
 5. **Documentación y pasos de despliegue** para el equipo de AWS.

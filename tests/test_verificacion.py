@@ -5,6 +5,7 @@ import pytest
 
 from core import contrato_entrada, entrada_mensajes, postgrest
 from core.postgrest import ErrorHub
+from crm import salesforce
 from modules import verificacion
 from tests.test_contrato_entrada import BaseFalsa, base, envios, sin_credenciales_reales, avisos  # noqa: F401
 from tests.test_entrada_mensajes import env, ok  # noqa: F401
@@ -93,13 +94,18 @@ def conversacion(env, monkeypatch):
     env.base.numero["modulo"] = "verificacion"
     env.base.abre(modulo="verificacion", fuente="verificacion", idExterno="SF-1")
     env.llamadas_hub = []
+    env.callbacks = []
     original = env.base.llama
     resultado = {"aplicada": True, "estado": "valido"}
 
     def llama(accion, params=None, **kw):
         if accion == "Hub.actualizaVerificacion":
             env.llamadas_hub.append(params)
-            return {"verificacion": {"idExterno": params["idExterno"], "estado": resultado["estado"]}, "aplicada": resultado["aplicada"]}
+            return {"verificacion": {"idExterno": params["idExterno"], "estado": resultado["estado"],
+                                     "callback": {"estado": resultado.get("callback")}}, "aplicada": resultado["aplicada"]}
+        if accion == "Hub.registraCallbackVerificacion":
+            env.callbacks.append(params)
+            return {"verificacion": {}, "aplicada": True}
         return original(accion, params, **kw)
 
     monkeypatch.setattr(postgrest, "llama", llama)
@@ -175,3 +181,74 @@ def test_workflow_con_accion_desconocida_se_ignora(conversacion):
     conversacion.corre("hola")
     assert conversacion.llamadas_hub == []
     assert conversacion.base.conv()["estado"] == "bot"
+
+
+@pytest.mark.parametrize("accion,estado,celular", [("result_confirmado", "valido", True), ("result_declinado", "no_valido", False)])
+def test_entrega_el_resultado_a_sf_y_lo_asienta(conversacion, monkeypatch, accion, estado, celular):
+    enviados = []
+    monkeypatch.setattr(salesforce, "actualiza_validacion_cuenta", lambda i, celular=None, **k: enviados.append((i, celular)) or (True, "001X"))
+    conversacion.resultado.update(estado=estado, callback="pendiente")
+    conversacion.estado["result"] = accion_workflow(accion)
+    conversacion.corre("Confirmo")
+    assert enviados == [("SF-1", celular)]
+    assert conversacion.callbacks == [{"idExterno": "SF-1", "entregado": True}]
+
+
+def test_si_sf_falla_se_asienta_el_error_y_el_turno_sigue(conversacion, monkeypatch):
+    monkeypatch.setattr(salesforce, "actualiza_validacion_cuenta", lambda *a, **k: (False, "HTTP 401"))
+    conversacion.resultado.update(estado="valido", callback="pendiente")
+    conversacion.estado["result"] = accion_workflow("result_confirmado")
+    conversacion.corre("Confirmo")
+    assert conversacion.callbacks == [{"idExterno": "SF-1", "entregado": False, "error": "HTTP 401"}]
+    assert conversacion.base.conv()["estado"] == "closed"
+
+
+@pytest.mark.parametrize("callback", ["enviado", None])
+def test_no_vuelve_a_avisar_a_sf_si_ya_se_entrego_o_no_hay_resultado(conversacion, monkeypatch, callback):
+    monkeypatch.setattr(salesforce, "actualiza_validacion_cuenta", lambda *a, **k: pytest.fail("no debía llamar a SF"))
+    conversacion.resultado.update(estado="valido", callback=callback)
+    conversacion.estado["result"] = accion_workflow("result_confirmado")
+    conversacion.corre("Confirmo")
+    assert conversacion.callbacks == []
+
+
+def test_reintenta_el_callback_fallido_cuando_el_bot_repite_la_accion(conversacion, monkeypatch):
+    monkeypatch.setattr(salesforce, "actualiza_validacion_cuenta", lambda *a, **k: (True, "001X"))
+    conversacion.resultado.update(aplicada=False, estado="valido", callback="fallido")
+    conversacion.estado["result"] = accion_workflow("result_confirmado")
+    conversacion.corre("Confirmo")
+    assert conversacion.callbacks == [{"idExterno": "SF-1", "entregado": True}]
+
+
+class TestClienteSF:
+    def _http(self, monkeypatch, respuesta):
+        llamadas = []
+
+        def request(url, data=None, headers=None, method="POST", timeout=30):
+            llamadas.append((url, data, headers, method))
+            if isinstance(respuesta, Exception):
+                raise respuesta
+            return 200, respuesta
+        monkeypatch.setattr(salesforce.http, "request", request)
+        return llamadas
+
+    def test_arma_el_patch_con_apikey_y_cuerpo(self, monkeypatch):
+        monkeypatch.setenv("SF_VALIDACION_URL", "https://sf.test/apexrest/accounts/validacion/")
+        monkeypatch.setenv("SF_VALIDACION_API_KEY", "k")
+        llamadas = self._http(monkeypatch, '{"success": true, "message": "ok", "recordId": "001A"}')
+        assert salesforce.actualiza_validacion_cuenta("123456", celular=True) == (True, "001A")
+        url, data, headers, metodo = llamadas[0]
+        assert (url, metodo, headers["ApiKey"]) == ("https://sf.test/apexrest/accounts/validacion/123456", "PATCH", "k")
+        import json
+        assert json.loads(data) == {"validacionCelular": True, "validacionCelularJson": "{}",
+                                    "validacionCorreo": False, "validacionCorreoJson": "{}"}
+
+    def test_sin_configuracion_o_con_success_falso_o_error_http_no_es_ok(self, monkeypatch):
+        monkeypatch.delenv("SF_VALIDACION_URL", raising=False)
+        assert salesforce.actualiza_validacion_cuenta("1", celular=True)[0] is False
+        monkeypatch.setenv("SF_VALIDACION_URL", "https://sf.test/v")
+        monkeypatch.setenv("SF_VALIDACION_API_KEY", "k")
+        self._http(monkeypatch, '{"success": false}')
+        assert salesforce.actualiza_validacion_cuenta("1", celular=True)[0] is False
+        self._http(monkeypatch, OSError("sin red"))
+        assert salesforce.actualiza_validacion_cuenta("1", celular=True) == (False, "sin red")
