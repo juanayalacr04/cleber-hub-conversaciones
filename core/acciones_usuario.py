@@ -84,7 +84,7 @@ def _exige_administrador(email: str, id_marca: str, modulo: str) -> None:
 
 
 def consulta_plantilla_proveedor(email: str, params: dict) -> dict:
-    id_marca, modulo = _texto(params, "idMarca").upper(), _texto(params, "modulo").lower()
+    id_marca, modulo = _texto(params, "idMarca"), _texto(params, "modulo").lower()
     id_plantilla = _texto(params, "idPlantilla")
     _exige_administrador(email, id_marca, modulo)
     try:
@@ -119,7 +119,7 @@ def _origen(valor) -> str:
 
 def envia_invitacion(email: str, params: dict) -> dict:
     destino = _texto(params, "email").lower()
-    id_marca, modulo = _texto(params, "idMarca").upper(), _texto(params, "modulo").lower()
+    id_marca, modulo = _texto(params, "idMarca"), _texto(params, "modulo").lower()
     _exige_administrador(email, id_marca, modulo)
     permisos = postgrest.llama("Hub.consultaPermisosUsuario", {"email": destino, "idMarca": id_marca, "modulo": modulo})
     if not permisos.get("existe") or not permisos.get("rol"):

@@ -105,7 +105,7 @@ def hub(monkeypatch):
     outbound.configure()
 
 
-PETICION = {"action": "Hub.consultaPlantillaProveedor", "params": {"idMarca": "to", "modulo": "Valuacion", "idPlantilla": "HX1"}}
+PETICION = {"action": "Hub.consultaPlantillaProveedor", "params": {"idMarca": "TO", "modulo": "Valuacion", "idPlantilla": "HX1"}}
 
 
 def test_consulta_plantilla_con_la_cuenta_del_ambiente(hub):
@@ -145,7 +145,7 @@ def test_error_inesperado(hub, monkeypatch):
 
 # --------------------------------------------------------------------------- Hub.enviaInvitacion
 
-INVITA = {"action": "Hub.enviaInvitacion", "params": {"email": "Nuevo@Cleber.com", "idMarca": "to", "modulo": "valuacion", "nombreMarca": "Toyota <b>",
+INVITA = {"action": "Hub.enviaInvitacion", "params": {"email": "Nuevo@Cleber.com", "idMarca": "TO", "modulo": "valuacion", "nombreMarca": "Toyota <b>",
                                                       "origen": "https://dev.hub.test"}}
 
 
