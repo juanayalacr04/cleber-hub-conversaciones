@@ -34,6 +34,7 @@ from core import postgrest
 from core.contrato_entrada import Envio, SinPlantilla, registra_fuente
 from core.datos import conversaciones
 from core.tools import tool
+from crm import salesforce
 
 log = logging.getLogger(__name__)
 
@@ -89,5 +90,25 @@ def _verificar_telefono(conv_data: dict, params: dict) -> None:
     verificacion = info["verificacion"]
     log.info("verificacion.resultado conv=%s id=%r estado=%r aplicada=%r", turn.conv_id, verificacion.get("idExterno"),
              verificacion.get("estado"), info.get("aplicada"))
+    _entrega_callback(verificacion)
     if turn.conv.get("estado") != "closed":
         turn.refresca(conversaciones.actualiza(turn.conv_id, estado="closed", resultado=verificacion["estado"]))
+
+
+def _entrega_callback(verificacion: dict) -> None:
+    """Avisa a SF el resultado y deja asentado el intento. Sin avisar si ya se entregó; si falló, se reintenta cuando el bot
+    repite la acción. Nunca lanza: el turno del cliente no depende de SF."""
+    if (verificacion.get("callback") or {}).get("estado") not in ("pendiente", "fallido"):
+        return
+    id_externo = str(verificacion["idExterno"])
+    try:
+        entregado, detalle = salesforce.actualiza_validacion_cuenta(id_externo, celular=verificacion["estado"] == RESULTADOS[True])
+    except Exception as e:
+        entregado, detalle = False, str(e)[:300]
+    if not entregado:
+        log.error("verificacion.callback_fallido id=%r detalle=%r", id_externo, detalle)
+    try:
+        postgrest.llama("Hub.registraCallbackVerificacion", {"idExterno": id_externo, "entregado": entregado,
+                                                             **({} if entregado else {"error": detalle})})
+    except Exception:
+        log.exception("no se pudo registrar el callback de la verificación %s", id_externo)
