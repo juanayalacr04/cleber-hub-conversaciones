@@ -60,7 +60,7 @@ Hub: valida acción y booleano ─► guarda resultado ─► cierra conversaci�
   - `id_conversacion` **opcional** (en la primera fase siempre se llena, porque el teléfono va por WhatsApp).
   - Estado de la verificación y resultado (pendiente | válido | no válido).
   - Estado del callback a SF: pendiente, enviado o fallido, con conteo de intentos, último error y fechas.
-- Función(es) `Hub.*` para registrar el resultado y el estado del callback, y para consultar verificaciones (Dashboard).
+- Función(es) `Hub.*` para registrar el resultado y el estado del callback, y para consultar verificaciones (Dashboard): `Hub.consultaVerificaciones` (bandeja paginada por `creadoEn`, con filtros de estado, estado del callback y búsqueda, y la conversación de cada una) y `Hub.resumenVerificaciones` (conteos por estado, por callback y de simulados, con rango de fechas).
 - Regla D7: validar que un mismo ID no cambie de teléfono. La restricción de una conversación abierta por número + teléfono ya existe (`CONVERSACION_ABIERTA`).
 - Apertura idempotente: se apoya en `Hub.abreConversacionExterna` (idempotente por `fuente` + `idExterno`) y registra la fila en `verificacion_datos` en la misma operación.
 - Pruebas SQL en `DB/Hub/Pruebas/`.
@@ -83,7 +83,7 @@ Hub: valida acción y booleano ─► guarda resultado ─► cierra conversaci�
 - **Dashboard**: mensajes enviados, estados (solicitud recibida, plantilla enviada/fallida, pendiente de respuesta, válida, inválida) y estado del callback (enviado/fallido). Sin datos sensibles innecesarios.
 - **Conversaciones**: consulta del detalle (mensajes, ID recibido de SF, resultado, estado del callback). **Sin** controles para que un agente responda o cambie el resultado.
 - **Configuración**: reutiliza las pantallas ya portadas (WhatsApp, Bots, Usuarios, Equipos si aplica) y agrega los parámetros propios: plantilla del módulo y datos del callback a SF.
-  - **Pendiente (fase 3): check de simulación del callback a SF**, por marca y editable desde esta pantalla (como `leadCreationEnabled` en Ventas). Hoy la simulación es la variable de ambiente `SF_VALIDACION_SIMULAR=true` (`crm/salesforce.py`); cuando exista el check, `actualiza_validacion_cuenta` debe leerlo de la config de la marca y la variable de ambiente se retira. Una entrega simulada hoy queda como `enviado` igual que una real: el check debería marcarla distinta en la verificación.
+  - **Pendiente (fase 3): check de simulación del callback a SF**, por marca y editable desde esta pantalla (como `leadCreationEnabled` en Ventas). El backend ya lee `marcas.simular_callback_sf` (Migración 009): la verificación lo trae en `simularCallback` y, cuando está encendido, `actualiza_validacion_cuenta` no sale a la red y el intento queda marcado como simulado (`callback_simulado`). Solo falta el check en esta pantalla, que lo guarda con `Hub.guardaMarca` (`simularCallbackSf`).
 - El panel de conversación compartido se extiende con una entrada del registro `conversationPanels`.
 
 ### 5.4 Bot (Abacus)

@@ -1,6 +1,6 @@
 import {
   ArrowDownToLine, ArrowUpFromLine, Calendar, Landmark, Bell, Bot, Building2, Calculator, ChartColumn, ClipboardList, Clock, FileText, Gauge, HandCoins,
-  LayoutDashboard, LayoutGrid, Megaphone, MessageSquare, Phone, ScanSearch, Settings, Tag, User, Users, Wrench, type LucideIcon,
+  LayoutDashboard, LayoutGrid, Megaphone, MessageSquare, Phone, ScanSearch, Settings, ShieldCheck, Tag, User, Users, Wrench, type LucideIcon,
 } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -9,6 +9,7 @@ const ICONS: Record<string, LucideIcon> = {
   in: ArrowDownToLine, out: ArrowUpFromLine, cal: Calendar,
   wrench: Wrench, tag: Tag, grid: LayoutGrid, clock: Clock, bell: Bell,
   gauge: Gauge, clipboard: ClipboardList, search: ScanSearch, calc: Calculator, chart: ChartColumn, offer: HandCoins, bank: Landmark,
+  shield: ShieldCheck,
 };
 
 export function Icon({ name, className }: { name: string; className?: string }) {

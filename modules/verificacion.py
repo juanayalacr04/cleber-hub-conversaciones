@@ -27,6 +27,10 @@ Workflow devuelve en el segmento `action` el texto `result_confirmado` (valido t
 `valido` debe ser un booleano real. Cualquier otra cosa (texto, falta el dato) se ignora: la verificación sigue pendiente y SF
 conserva su estatus. Una decisión válida guarda el resultado (Hub.actualizaVerificacion) y cierra la conversación; la primera
 decisión manda.
+
+La entrega del resultado a SF se puede simular por marca (`marcas.simularCallbackSf`, Hub.guardaMarca): la verificación lo trae
+en `simularCallback` y, cuando está encendido, no se llama a SF y el intento queda marcado como simulado (`callbackSimulado`),
+para no confundirlo con una entrega real.
 """
 import logging
 
@@ -101,14 +105,17 @@ def _entrega_callback(verificacion: dict) -> None:
     if (verificacion.get("callback") or {}).get("estado") not in ("pendiente", "fallido"):
         return
     id_externo = str(verificacion["idExterno"])
+    simular = bool(verificacion.get("simularCallback"))
     try:
-        entregado, detalle = salesforce.actualiza_validacion_cuenta(id_externo, celular=verificacion["estado"] == RESULTADOS[True])
+        entregado, detalle = salesforce.actualiza_validacion_cuenta(id_externo, celular=verificacion["estado"] == RESULTADOS[True],
+                                                                   simular=simular)
     except Exception as e:
         entregado, detalle = False, str(e)[:300]
     if not entregado:
         log.error("verificacion.callback_fallido id=%r detalle=%r", id_externo, detalle)
     try:
         postgrest.llama("Hub.registraCallbackVerificacion", {"idExterno": id_externo, "entregado": entregado,
-                                                             **({} if entregado else {"error": detalle})})
+                                                             **({} if entregado else {"error": detalle}),
+                                                             **({"simulado": True} if simular else {})})
     except Exception:
         log.exception("no se pudo registrar el callback de la verificación %s", id_externo)

@@ -141,14 +141,16 @@ def call(sf_config: dict, method: str, path: str, payload: dict | None = None,
     return False, {"error": "unauthorized"}
 
 
-def actualiza_validacion_cuenta(id_cuenta: str, celular: bool | None = None, correo: bool | None = None, timeout: int = 15) -> tuple[bool, str]:
+def actualiza_validacion_cuenta(id_cuenta: str, celular: bool | None = None, correo: bool | None = None, simular: bool = False,
+                                timeout: int = 15) -> tuple[bool, str]:
     """PATCH al servicio apex de validación de la cuenta (autenticado con ApiKey, no con el token OAuth del resto del módulo).
 
     URL y llave por ambiente: SF_VALIDACION_URL (hasta `.../accounts/validacion`, sin el ID) y SF_VALIDACION_API_KEY. Lo que no se
-    verifica va en false con su JSON vacío. Devuelve (ok, detalle): ok solo si SF responde success = true; no lanza."""
+    verifica va en false con su JSON vacío. Con simular = true no sale a la red ni pide configuración: responde como si SF hubiera
+    aceptado. Devuelve (ok, detalle): ok solo si SF responde success = true; no lanza."""
     cuerpo = {"validacionCelular": bool(celular), "validacionCelularJson": "{}",
               "validacionCorreo": bool(correo), "validacionCorreoJson": "{}"}
-    if (os.environ.get("SF_VALIDACION_SIMULAR") or "").strip().lower() == "true":
+    if simular:
         log.info("salesforce.validacion_cuenta_simulada id=%r body=%s", id_cuenta, json.dumps(cuerpo))
         return True, f"QA-SIMULATED-{id_cuenta}"
     url, llave = (os.environ.get("SF_VALIDACION_URL") or "").rstrip("/"), os.environ.get("SF_VALIDACION_API_KEY")

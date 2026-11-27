@@ -33,7 +33,7 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-const MODULOS: ModuloHub[] = ["ventas", "servicio", "valuacion"];
+const MODULOS: ModuloHub[] = ["ventas", "servicio", "valuacion", "verificacion"];
 const LLAVE_SONIDO = "notifications_sound_enabled";
 const RESPALDO_MS = 30_000;
 

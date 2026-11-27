@@ -33,6 +33,7 @@ import {
 import { useAuth, isAdmin } from "@/contexts/AuthContext";
 import { getModule } from "@/lib/modules";
 import { ConversacionesApiView } from "@/components/valuacion/ConversacionesApiView";
+import { VerificacionConversaciones } from "@/components/verificacion/VerificacionConversaciones";
 import { conversationPath } from "@/lib/routes";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -160,6 +161,8 @@ export default function ConversationsPage() {
   const mod = getModule(moduleId);
   // Valuación: datos reales de hub_cleber (el prototipo queda en /demo)
   if (mod?.id === "valuacion") return <ConversacionesApiView />;
+  // Verificación: solo consulta de las verificaciones y su conversación
+  if (mod?.id === "verificacion") return <VerificacionConversaciones />;
   return <HubConversationsPage />;
 }
 

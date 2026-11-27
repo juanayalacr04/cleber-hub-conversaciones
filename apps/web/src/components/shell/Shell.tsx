@@ -50,7 +50,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const allowed = allowedModules(userData);
   // Menú y pastilla con el rol de hub_cleber en el módulo (el mismo con el que la base da permisos). En General, el
   // resumen de la marca activa.
-  const enModulo = mod?.id === "ventas" || mod?.id === "servicio" || mod?.id === "valuacion";
+  const enModulo = mod?.id === "ventas" || mod?.id === "servicio" || mod?.id === "valuacion" || mod?.id === "verificacion";
   const { usuario: usuarioHub, error: errorHub } = useUsuarioHub();
   const hub = enModulo && usuarioHub ? rolEnModulo(usuarioHub, mod.id, userData?.organizationId ?? null) : null;
   const admin = enModulo ? !!hub?.admin : isAdmin(userData);

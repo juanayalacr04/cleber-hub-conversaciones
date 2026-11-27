@@ -43,14 +43,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const MODULOS: ModuloHub[] = ["ventas", "servicio", "valuacion"];
-const NOMBRE_MODULO: Record<ModuloHub, string> = { ventas: "Ventas", servicio: "Servicio", valuacion: "Valuación" };
+const MODULOS: ModuloHub[] = ["ventas", "servicio", "valuacion", "verificacion"];
+const NOMBRE_MODULO: Record<ModuloHub, string> = { ventas: "Ventas", servicio: "Servicio", valuacion: "Valuación", verificacion: "Verificación" };
 /** Módulos con equipos: Ventas y Servicio en Firestore (teams.vertical), Valuación en hub_cleber */
 const CON_EQUIPO: ModuloHub[] = ["ventas", "servicio", "valuacion"];
 const SIN_ROL = "__sin_rol__";
 const SIN_EQUIPO = "__sin_equipo__";
 
-const ICONO_MODULO: Record<ModuloHub, LucideIcon> = { ventas: ShoppingBag, servicio: Wrench, valuacion: Car };
+const ICONO_MODULO: Record<ModuloHub, LucideIcon> = { ventas: ShoppingBag, servicio: Wrench, valuacion: Car, verificacion: ShieldCheck };
 /** Cuántas agencias se ven antes de "+N" */
 const AGENCIAS_VISIBLES = 3;
 
@@ -304,7 +304,7 @@ export function UsuariosView({ modulo }: { modulo: ModuloHub | null }) {
   if (!idMarca) return <p className="text-muted-foreground">Elige una marca para ver sus usuarios.</p>;
 
   const usuarios = datos?.usuarios ?? [];
-  const titulo = modulo === "valuacion" ? "Usuarios" : "Agentes";
+  const titulo = modulo === "valuacion" || modulo === "verificacion" ? "Usuarios" : "Agentes";
   const nombreMarca = currentOrgName ?? idMarca;
 
   return (

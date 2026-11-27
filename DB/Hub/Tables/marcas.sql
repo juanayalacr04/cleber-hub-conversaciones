@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS hub_cleber.marcas (
   id_salesforce     text,                                -- ID de la marca en Salesforce (opcional, editable)
   es_activa         boolean     NOT NULL DEFAULT true,
   es_seminuevos     boolean     NOT NULL DEFAULT false,  -- su catálogo de agencias trae las de todas las marcas con seminuevo = true
+  simular_callback_sf boolean   NOT NULL DEFAULT false,  -- el callback de verificación a Salesforce no sale a la red (QA)
   creado_en         timestamptz NOT NULL DEFAULT now(),
   actualizado_en    timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_marcas PRIMARY KEY (id_marca),

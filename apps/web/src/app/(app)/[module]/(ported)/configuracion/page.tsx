@@ -12,6 +12,7 @@ import { callHubAction } from "@/lib/hub-actions";
 import { consultaMarcas, guardaMarca } from "@/lib/hub/marcas";
 import { getModule } from "@/lib/modules";
 import { ConfiguracionApiView } from "@/components/valuacion/ConfiguracionApiView";
+import { VerificacionConfiguracion } from "@/components/verificacion/VerificacionConfiguracion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,7 @@ export default function ConfiguracionPage() {
   const { module: moduleId } = useParams<{ module: string }>();
   const mod = getModule(moduleId);
   if (mod?.id === "valuacion") return <ConfiguracionApiView mod={mod} />;
+  if (mod?.id === "verificacion") return <VerificacionConfiguracion mod={mod} />;
   return <HubConfiguracionPage />;
 }
 
