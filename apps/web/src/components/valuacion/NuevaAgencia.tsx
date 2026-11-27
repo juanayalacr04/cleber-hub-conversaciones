@@ -14,7 +14,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { consultaAgenciasMarca, type AgenciaCatalogo } from "@/lib/hub/agencias";
 import { guardaConfiguracion } from "@/lib/valuacion/acciones";
 import { SERVICE_TYPES } from "@/lib/valuacion/store";
-import { mensajeError, type ConfiguracionAgencia } from "@/lib/valuacion/tipos";
+import { mensajeError } from "@/lib/hub/errores";
+import { type ConfiguracionAgencia } from "@/lib/valuacion/tipos";
 
 const anio = new Date().getFullYear();
 /** Criterios con los que nace la agencia; se ajustan en Configuración antes de activarla. */

@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { consultaConfiguracion, guardaConfiguracion } from "@/lib/valuacion/acciones";
 import { SERVICE_TYPES } from "@/lib/valuacion/store";
-import { mensajeError, type ConfiguracionAgencia } from "@/lib/valuacion/tipos";
+import { mensajeError } from "@/lib/hub/errores";
+import { type ConfiguracionAgencia } from "@/lib/valuacion/tipos";
 import { consultaUsuarioActual } from "@/lib/hub/usuario";
 import { Field } from "./ConfiguracionView";
 import { NuevaAgencia } from "./NuevaAgencia";

@@ -1,7 +1,7 @@
 /**
- * Formulario de un bot de Valuación ⇄ su configuración en hub_cleber (`bots.config`).
+ * Formulario de un bot de un módulo (Valuación, Verificación) ⇄ su configuración en hub_cleber (`bots.config`).
  *
- * La pantalla (components/valuacion/BotValuacionEditor.tsx) edita un `BorradorBot`; al guardar, `aConfig` lo convierte a la
+ * La pantalla (components/hub/BotEditor.tsx) edita un `BorradorBot`; al guardar, `aConfig` lo convierte a la
  * forma que lee el backend (core/entrada_mensajes.py, core/datos/bots.py) PARTIENDO de la configuración que el bot ya tiene:
  * Hub.guardaBot reemplaza `config` completa, así que lo que la pantalla no edita se conserva.
  *
@@ -12,10 +12,12 @@
  *   scheduleConfig                      horario de atención de los asesores (fuera de horario no se escala)
  *   optOutAction                        qué hacer cuando el cliente pide no ser contactado
  *   outcomeActions / outcomeTool        vocabulario con el que el bot clasifica el resultado y la herramienta que lo reporta
+ *                                       (solo Valuación: Verificación no tiene resultados de oferta)
  *   injectPhoneContext                  antepone el teléfono del cliente al primer mensaje del bot
  */
 
 import type { Bot, ConfigBot } from "@/lib/hub/configuracion";
+import type { ModuloEnHub } from "@/lib/modules";
 
 export const DIAS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 
@@ -24,6 +26,47 @@ export type Dia = { enabled: boolean; startTime: string; endTime: string };
 /** Lo que Valuación reconoce como resultado de la conversación (etiquetas.accion_hub, acciones-valuacion.md §7.2). */
 export const RESULTADOS_VALUACION = ["oferta_aceptada_venta", "oferta_aceptada_venta_y_compra", "oferta_rechazada", "contacto_futuro"] as const;
 export const HERRAMIENTA_RESULTADO = "Clasificar_Motivo";
+
+/** Lo propio de cada módulo: sus textos y, si los tiene, sus resultados de conversación. */
+export interface ConfigBotsModulo {
+  modulo: "valuacion" | "verificacion";
+  nombre: string;
+  descripcion: string;
+  sinBots: string;
+  sinBotsAdmin: string;
+  soloAdmin: string;
+  nuevo: string;
+  nombrePlaceholder: string;
+  descripcionPlaceholder: string;
+  workflowInputPlaceholder: string;
+  workflowInputNota: string;
+  token: string;
+  resultados: readonly string[];
+  herramienta: string;
+}
+
+export const CONFIG_BOTS: Record<ModuloEnHub, ConfigBotsModulo> = {
+  valuacion: {
+    modulo: "valuacion", nombre: "Valuación", descripcion: "Gestiona los chatbots de WhatsApp de Valuación",
+    sinBots: "Crea el bot de Valuación de la marca para que responda las dudas de los clientes por WhatsApp.",
+    sinBotsAdmin: "Un administrador de Valuación debe crear el bot de tu marca.",
+    soloAdmin: "Solo un administrador de Valuación", nuevo: "Configura un nuevo chatbot de WhatsApp de Valuación",
+    nombrePlaceholder: "Ej: Bot de Valuación Toyota",
+    descripcionPlaceholder: "Ej: Responde las dudas de la oferta de compra del auto",
+    workflowInputPlaceholder: "message", workflowInputNota: "Vacío = \"message\".",
+    token: "ABACUS_DEPLOYMENT_TOKEN_VALUACION", resultados: RESULTADOS_VALUACION, herramienta: HERRAMIENTA_RESULTADO,
+  },
+  verificacion: {
+    modulo: "verificacion", nombre: "Verificación", descripcion: "Gestiona los chatbots de WhatsApp de Verificación",
+    sinBots: "Crea el bot de Verificación de la marca para que confirme con el cliente que su número es correcto.",
+    sinBotsAdmin: "Un administrador de Verificación debe crear el bot de tu marca.",
+    soloAdmin: "Solo un administrador de Verificación", nuevo: "Configura un nuevo chatbot de WhatsApp de Verificación",
+    nombrePlaceholder: "Ej: Bot de Verificación Toyota",
+    descripcionPlaceholder: "Ej: Confirma si el número de WhatsApp del cliente es correcto",
+    workflowInputPlaceholder: "mensaje", workflowInputNota: "Vacío = \"mensaje\".",
+    token: "ABACUS_DEPLOYMENT_TOKEN_VERIFICACION", resultados: [], herramienta: "",
+  },
+};
 
 export interface BorradorBot {
   nombre: string;
@@ -51,12 +94,12 @@ export function diasPorOmision(): Record<string, Dia> {
   return Object.fromEntries(DIAS.map((d) => [d, { enabled: false, startTime: "09:00", endTime: "18:00" }]));
 }
 
-export function borradorVacio(): BorradorBot {
+export function borradorVacio(cfg: ConfigBotsModulo): BorradorBot {
   return {
     nombre: "", descripcion: "", tipo: "chatllm", esActivo: true, deploymentId: "", workflowInputName: "",
     handoffActivo: false, palabras: "", mensajeHandoff: "", mensajeEspera: "", optOut: "inherit",
     horarioActivo: false, horarioViaBot: false, zonaHoraria: "America/Mexico_City", mensajeFueraHorario: "", dias: diasPorOmision(),
-    resultados: RESULTADOS_VALUACION.join(", "), herramientaResultado: HERRAMIENTA_RESULTADO, telefonoEnContexto: "default",
+    resultados: cfg.resultados.join(", "), herramientaResultado: cfg.herramienta, telefonoEnContexto: "default",
   };
 }
 
@@ -106,7 +149,7 @@ export function validaBorrador(b: BorradorBot): string | null {
 }
 
 /** `bots.config` completa: la previa del bot con lo que edita la pantalla encima. Las llaves vacías se quitan. */
-export function aConfig(b: BorradorBot, previa: ConfigBot | undefined): ConfigBot {
+export function aConfig(b: BorradorBot, previa: ConfigBot | undefined, cfg: ConfigBotsModulo): ConfigBot {
   const config: ConfigBot = { ...(previa ?? {}) };
 
   if (b.descripcion.trim()) config.description = b.descripcion.trim(); else delete config.description;
@@ -135,9 +178,12 @@ export function aConfig(b: BorradorBot, previa: ConfigBot | undefined): ConfigBo
 
   if (b.optOut === "inherit") delete config.optOutAction; else config.optOutAction = b.optOut;
 
-  const resultados = lista(b.resultados);
-  if (resultados.length > 0) config.outcomeActions = resultados; else delete config.outcomeActions;
-  if (b.herramientaResultado.trim()) config.outcomeTool = b.herramientaResultado.trim(); else delete config.outcomeTool;
+  // Sin resultados en el módulo (Verificación) no se toca lo que el bot ya tuviera
+  if (cfg.resultados.length > 0) {
+    const resultados = lista(b.resultados);
+    if (resultados.length > 0) config.outcomeActions = resultados; else delete config.outcomeActions;
+    if (b.herramientaResultado.trim()) config.outcomeTool = b.herramientaResultado.trim(); else delete config.outcomeTool;
+  }
 
   if (b.telefonoEnContexto === "default") delete config.injectPhoneContext;
   else config.injectPhoneContext = b.telefonoEnContexto === "yes";

@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * Crear o editar un bot de Valuación (hub_cleber), con las mismas pestañas que la pantalla de Ventas y Servicio
- * (app/(app)/[module]/(ported)/bots/[id]) que aplican a Valuación:
+ * Crear o editar un bot de un módulo (hub_cleber), con las mismas pestañas que la pantalla de Ventas y Servicio
+ * (app/(app)/[module]/(ported)/bots/[id]) que aplican al módulo:
  *   General · Abacus AI · Handoff · Horarios · Avanzado · ChatLLM (solo bots ya creados y solo para quien administra)
  * No están: Twilio (el número y su proveedor se configuran en WhatsApp), Inactividad (los recordatorios aún no corren en AWS)
- * ni Situaciones (es de Ventas).
+ * ni Situaciones (es de Ventas). En Verificación, Avanzado no trae la clasificación del resultado: ese bot no reporta
+ * resultados de oferta.
  * ChatLLM muestra lo que Abacus tiene configurado para el deployment del bot (lib/hub/abacus.ts), con la misma vista que Ventas
  * y Servicio (components/bots/ChatLLMConfigView.tsx).
  *
@@ -21,14 +22,14 @@ import { signOut } from "next-auth/react";
 import { ArrowLeft, Brain, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import type { ModuleDef } from "@/lib/modules";
+import type { ModuleDef, ModuloEnHub } from "@/lib/modules";
 import { modulePath } from "@/lib/routes";
 import { consultaConfiguracionModulo, guardaBot, type Bot as BotHub, type ConfiguracionModulo } from "@/lib/hub/configuracion";
 import { consultaConfigAbacus } from "@/lib/hub/abacus";
 import {
-  HERRAMIENTA_RESULTADO, RESULTADOS_VALUACION, aBorrador, aConfig, borradorVacio, validaBorrador, type BorradorBot,
+  CONFIG_BOTS, aBorrador, aConfig, borradorVacio, validaBorrador, type BorradorBot,
 } from "@/lib/hub/bots";
-import { mensajeError } from "@/lib/valuacion/tipos";
+import { mensajeError } from "@/lib/hub/errores";
 import { ScheduleConfigTab } from "@/components/bots/ScheduleConfigTab";
 import { ChatLLMConfigView } from "@/components/bots/ChatLLMConfigView";
 import { Button } from "@/components/ui/button";
@@ -38,15 +39,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const MODULO = "valuacion" as const;
-
-export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: string | null }) {
+export function BotEditor({ mod, idBot }: { mod: ModuleDef; idBot: string | null }) {
+  const cfg = CONFIG_BOTS[mod.id as ModuloEnHub];
   const router = useRouter();
   const { userData } = useAuth();
   const idMarca = userData?.organizationId ?? null;
   const [conf, setConf] = useState<ConfiguracionModulo | null>(null);
   const [bot, setBot] = useState<BotHub | null>(null);
-  const [f, setF] = useState<BorradorBot>(borradorVacio);
+  const [f, setF] = useState<BorradorBot>(() => borradorVacio(cfg));
   const [error, setError] = useState<string | null>(null);
   const [noExiste, setNoExiste] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -62,7 +62,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
   const carga = useCallback(async () => {
     if (!idMarca) return;
     setError(null);
-    const r = await consultaConfiguracionModulo({ idMarca, modulo: MODULO });
+    const r = await consultaConfiguracionModulo({ idMarca, modulo: cfg.modulo });
     if (!r.successful) {
       if (r.errorCode === "SESION_EXPIRADA") return sesionVencida(r);
       setError(mensajeError(r));
@@ -75,7 +75,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
       setNoExiste(!encontrado);
       if (encontrado) setF(aBorrador(encontrado));
     }
-  }, [idMarca, idBot]);
+  }, [idMarca, idBot, cfg.modulo]);
 
   useEffect(() => { setConf(null); carga(); }, [carga]);
 
@@ -95,10 +95,10 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
     if (problema) { toast.error(problema); return; }
     if (!idMarca) return;
     setGuardando(true);
-    const config = aConfig(f, bot?.config);
+    const config = aConfig(f, bot?.config, cfg);
     const r = await guardaBot(bot
       ? { idBot: bot.idBot, nombre: f.nombre.trim(), tipo: f.tipo, config, esActivo: f.esActivo }
-      : { idMarca, modulo: MODULO, nombre: f.nombre.trim(), tipo: f.tipo, config, esActivo: f.esActivo });
+      : { idMarca, modulo: cfg.modulo, nombre: f.nombre.trim(), tipo: f.tipo, config, esActivo: f.esActivo });
     setGuardando(false);
     if (!r.successful) {
       if (r.errorCode === "SESION_EXPIRADA") return sesionVencida(r);
@@ -115,7 +115,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
   if (noExiste) return <Aviso lista={lista} texto="Bot no encontrado." />;
 
   const puedeEditar = conf.puedeEditar;
-  if (!bot && !puedeEditar) return <Aviso lista={lista} texto="Solo un administrador de Valuación puede crear bots." />;
+  if (!bot && !puedeEditar) return <Aviso lista={lista} texto={`${cfg.soloAdmin} puede crear bots.`} />;
   const numeros = bot ? conf.numeros.filter((n) => n.idBotDefault === bot.idBot) : [];
 
   return (
@@ -124,7 +124,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
         <Link href={lista}><Button variant="ghost" size="icon" aria-label="Volver a Bots"><ArrowLeft className="h-5 w-5" /></Button></Link>
         <div className="flex-1">
           <h1 className="text-2xl font-bold">{bot ? (puedeEditar ? "Editar Bot" : "Bot") : "Crear Bot"}</h1>
-          <p className="text-muted-foreground">{bot ? bot.nombre : "Configura un nuevo chatbot de WhatsApp de Valuación"}</p>
+          <p className="text-muted-foreground">{bot ? bot.nombre : cfg.nuevo}</p>
         </div>
         {puedeEditar && (
           <Button onClick={guarda} disabled={guardando}>
@@ -134,7 +134,7 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
         )}
       </div>
 
-      {!puedeEditar && <p className="mb-4 text-sm text-muted-foreground">Solo un administrador de Valuación puede cambiar la configuración del bot.</p>}
+      {!puedeEditar && <p className="mb-4 text-sm text-muted-foreground">{cfg.soloAdmin} puede cambiar la configuración del bot.</p>}
 
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="mb-4">
@@ -159,12 +159,12 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="bot-nombre">Nombre del Bot</Label>
-                  <Input id="bot-nombre" value={f.nombre} onChange={(e) => edita({ nombre: e.target.value })} placeholder="Ej: Bot de Valuación Toyota" />
+                  <Input id="bot-nombre" value={f.nombre} onChange={(e) => edita({ nombre: e.target.value })} placeholder={cfg.nombrePlaceholder} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="bot-descripcion">Descripción</Label>
                   <Input id="bot-descripcion" value={f.descripcion} onChange={(e) => edita({ descripcion: e.target.value })}
-                    placeholder="Ej: Responde las dudas de la oferta de compra del auto" />
+                    placeholder={cfg.descripcionPlaceholder} />
                 </div>
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" className="h-4 w-4 rounded border-input" checked={f.esActivo} onChange={(e) => edita({ esActivo: e.target.checked })} />
@@ -214,15 +214,15 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
                 {f.tipo === "workflow" && (
                   <div className="space-y-2">
                     <Label htmlFor="bot-workflow">Nombre del argumento de entrada</Label>
-                    <Input id="bot-workflow" value={f.workflowInputName} onChange={(e) => edita({ workflowInputName: e.target.value })} placeholder="message" />
-                    <p className="text-xs text-muted-foreground">Vacío = &quot;message&quot;.</p>
+                    <Input id="bot-workflow" value={f.workflowInputName} onChange={(e) => edita({ workflowInputName: e.target.value })} placeholder={cfg.workflowInputPlaceholder} />
+                    <p className="text-xs text-muted-foreground">{cfg.workflowInputNota}</p>
                   </div>
                 )}
                 <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
                   <p className="font-medium text-foreground">Credenciales</p>
                   <p>
                     El token de Abacus no se captura aquí: es uno por módulo y lo toma el sistema del secreto del ambiente
-                    (<span className="font-mono">ABACUS_DEPLOYMENT_TOKEN_VALUACION</span>). Solo hace falta el Deployment ID.
+                    (<span className="font-mono">{cfg.token}</span>). Solo hace falta el Deployment ID.
                   </p>
                 </div>
               </CardContent>
@@ -288,37 +288,39 @@ export function BotValuacionEditor({ mod, idBot }: { mod: ModuleDef; idBot: stri
 
           <TabsContent value="avanzado">
             <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Clasificación del resultado</CardTitle>
-                  <CardDescription>
-                    Cómo reporta el bot el resultado de la conversación. Lo que clasifique se avisa a Valuación y cambia la etiqueta de la oferta.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="bot-resultados">Acciones de clasificación de resultado</Label>
-                    <Input id="bot-resultados" value={f.resultados} onChange={(e) => edita({ resultados: e.target.value })} className="font-mono"
-                      placeholder={RESULTADOS_VALUACION.join(", ")} />
-                    <p className="text-xs text-muted-foreground">
-                      Separadas por comas. Deben ser exactamente las que reconoce Valuación; el hub descarta cualquier otra.
-                      Vacío = las de Ventas y Servicio (interes_cita, otro_motivo), que Valuación no reconoce.
-                    </p>
-                    <Button type="button" variant="outline" size="sm" onClick={() => edita({ resultados: RESULTADOS_VALUACION.join(", ") })}>
-                      Usar las de Valuación
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="bot-herramienta">Herramienta que reporta el resultado</Label>
-                    <Input id="bot-herramienta" value={f.herramientaResultado} onChange={(e) => edita({ herramientaResultado: e.target.value })}
-                      className="font-mono" placeholder={HERRAMIENTA_RESULTADO} />
-                    <p className="text-xs text-muted-foreground">
-                      Nombre de la herramienta del bot en Abacus. Hoy el bot de pruebas no tiene herramientas: estas dos opciones
-                      toman efecto cuando se agreguen.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+              {cfg.resultados.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Clasificación del resultado</CardTitle>
+                    <CardDescription>
+                      Cómo reporta el bot el resultado de la conversación. Lo que clasifique se avisa a {cfg.nombre} y cambia la etiqueta de la oferta.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bot-resultados">Acciones de clasificación de resultado</Label>
+                      <Input id="bot-resultados" value={f.resultados} onChange={(e) => edita({ resultados: e.target.value })} className="font-mono"
+                        placeholder={cfg.resultados.join(", ")} />
+                      <p className="text-xs text-muted-foreground">
+                        Separadas por comas. Deben ser exactamente las que reconoce {cfg.nombre}; el hub descarta cualquier otra.
+                        Vacío = las de Ventas y Servicio (interes_cita, otro_motivo), que {cfg.nombre} no reconoce.
+                      </p>
+                      <Button type="button" variant="outline" size="sm" onClick={() => edita({ resultados: cfg.resultados.join(", ") })}>
+                        Usar las de {cfg.nombre}
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bot-herramienta">Herramienta que reporta el resultado</Label>
+                      <Input id="bot-herramienta" value={f.herramientaResultado} onChange={(e) => edita({ herramientaResultado: e.target.value })}
+                        className="font-mono" placeholder={cfg.herramienta} />
+                      <p className="text-xs text-muted-foreground">
+                        Nombre de la herramienta del bot en Abacus. Hoy el bot de pruebas no tiene herramientas: estas dos opciones
+                        toman efecto cuando se agreguen.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               <Card>
                 <CardHeader>

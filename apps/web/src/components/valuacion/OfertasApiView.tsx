@@ -33,10 +33,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { addDays, fmtKm, fmtMoney, parseIso, todayIso } from "@/lib/valuacion/store";
 import { diezDigitos, formatoDiez, telefonoMx } from "@/lib/valuacion/telefono";
 import { esProduccion } from "@/lib/ambiente";
-import {
-  ESTADOS, GRUPOS, MOTIVO_EVALUACION, detalleOferta, mensajeError, montoRequiereVobo, motivoNoVigente, puedeAutorizarVobo,
-  type EstadoOferta, type Etiqueta, type EvaluacionCita, type Grupo, type Oferta,
-} from "@/lib/valuacion/tipos";
+import { mensajeError } from "@/lib/hub/errores";
+import { ESTADOS, GRUPOS, MOTIVO_EVALUACION, detalleOferta, montoRequiereVobo, motivoNoVigente, puedeAutorizarVobo, type EstadoOferta, type Etiqueta, type EvaluacionCita, type Grupo, type Oferta } from "@/lib/valuacion/tipos";
 import {
   calibraOferta, cierraOferta, consultaEtiquetas, consultaOferta, consultaOfertas, descartaOferta, enviaOferta, notificaVobo,
   registraRespuesta, resuelveVobo, retomaOferta,

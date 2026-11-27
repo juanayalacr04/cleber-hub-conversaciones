@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { getModule } from "@/lib/modules";
-import { NumeroWhatsAppView } from "@/components/valuacion/NumeroWhatsAppView";
+import { enHub, getModule } from "@/lib/modules";
+import { NumeroWhatsAppView } from "@/components/hub/NumeroWhatsAppView";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -106,11 +106,11 @@ interface BotItem {
   vertical?: string | null;
 }
 
-/** Valuación tiene su número y su plantilla de oferta en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
+/** Valuación y Verificación tienen su número y su plantilla en hub_cleber (AWS); Ventas y Servicio siguen en Firestore. */
 export default function WhatsAppPage() {
   const { module: moduleId } = useParams<{ module: string }>();
   const mod = getModule(moduleId);
-  if (mod?.id === "valuacion") return <NumeroWhatsAppView mod={mod} />;
+  if (mod && enHub(mod.id)) return <NumeroWhatsAppView mod={mod} />;
   return <WhatsAppNumbersPage />;
 }
 
